@@ -138,6 +138,85 @@ router.patch("/:id", async (req, res) => {
   }
 });
 
+router.get("/:id/bullets", async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: "Invalid resume id." });
+  }
+
+  try {
+    const resumeBullets = await ResumeBullet.find({ masterResumeId: id });
+    return res.json({ resumeBullets });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to list bullets." });
+  }
+});
+
+router.post("/:id/bullets", async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: "Invalid resume id." });
+  }
+
+  const { text } = req.body;
+  if (typeof text !== "string" || !text.trim()) {
+    return res.status(400).json({ error: "text is required." });
+  }
+
+  try {
+    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    if (!resume) {
+      return res.status(404).json({ error: "Resume not found." });
+    }
+
+    const { skills, metrics } = await tagBullet(text);
+    const canonicalSkills = skills.map(canonicalizeSkill);
+
+    const resumeBullet = await ResumeBullet.create({
+      masterResumeId: id,
+      text,
+      skills,
+      canonicalSkills,
+      metrics,
+    });
+
+    return res.status(201).json({ resumeBullet });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to add bullet." });
+  }
+});
+
+router.patch("/bullets/:id", async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: "Invalid bullet id." });
+  }
+
+  const { text } = req.body;
+  if (typeof text !== "string" || !text.trim()) {
+    return res.status(400).json({ error: "text is required." });
+  }
+
+  try {
+    const bullet = await ResumeBullet.findById(id);
+    if (!bullet) {
+      return res.status(404).json({ error: "Bullet not found." });
+    }
+
+    const { skills, metrics } = await tagBullet(text);
+
+    bullet.text = text;
+    bullet.skills = skills;
+    bullet.canonicalSkills = skills.map(canonicalizeSkill);
+    bullet.metrics = metrics;
+    await bullet.save();
+
+    return res.json({ resumeBullet: bullet });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to update bullet." });
+  }
+});
+
 router.delete("/:id", async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
