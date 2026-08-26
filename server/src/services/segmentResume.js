@@ -19,6 +19,12 @@ const PAGE_BREAK_REGEX = /^--\s*\d+\s*of\s*\d+\s*--$/i;
 
 const HEADER_SEPARATORS = [' at ', ' @ ', ' • ', ' — ', ' – ', ' - ', ' | ', ', '];
 
+// Signals a job-title line rather than a company name — used to disambiguate role
+// vs. company when only one plain header line and one date-sharing line exist,
+// since which of the two is the role vs. the company is not fixed across resumes.
+const JOB_TITLE_KEYWORDS =
+  /\b(engineer|developer|designer|manager|architect|analyst|consultant|specialist|director|lead|officer|intern|associate|coordinator|administrator|scientist|researcher|freelancer)\b/i;
+
 const MAX_HEADER_BUFFER = 2;
 
 // Distinguishes a wrapped bullet continuation from the start of a new job's header
@@ -49,14 +55,25 @@ function trySplitHeaderLine(line) {
   return null;
 }
 
+// Resolves which of two candidate strings is the role vs. the company. Defaults to
+// treating `roleGuess`/`companyGuess` as already correctly assigned, but flips them
+// when only the company-guess actually looks like a job title — resumes disagree on
+// whether the role or the company shares its line with the date, so position alone
+// isn't a reliable signal.
+function pickRoleAndCompany(roleGuess, companyGuess) {
+  const roleGuessLooksLikeTitle = JOB_TITLE_KEYWORDS.test(roleGuess);
+  const companyGuessLooksLikeTitle = JOB_TITLE_KEYWORDS.test(companyGuess);
+  if (!roleGuessLooksLikeTitle && companyGuessLooksLikeTitle) {
+    return { role: companyGuess, company: roleGuess };
+  }
+  return { role: roleGuess, company: companyGuess };
+}
+
 // Used when the date sits on its own line, so role/company must come from the
 // buffered lines above it rather than from text shared with the date line.
 function resolveRoleAndCompanyFromBuffer(headerBuffer) {
   if (headerBuffer.length >= 2) {
-    return {
-      role: headerBuffer[headerBuffer.length - 2],
-      company: headerBuffer[headerBuffer.length - 1],
-    };
+    return pickRoleAndCompany(headerBuffer[headerBuffer.length - 2], headerBuffer[headerBuffer.length - 1]);
   }
   if (headerBuffer.length === 1) {
     return trySplitHeaderLine(headerBuffer[0]) || { role: '', company: headerBuffer[0] };
@@ -104,7 +121,11 @@ export function segmentResume(rawText) {
 
     const dateMatch = line.match(DATE_RANGE_REGEX);
     if (dateMatch) {
-      const leftover = (line.slice(0, dateMatch.index) + line.slice(dateMatch.index + dateMatch[0].length))
+      // Only text *before* the date is ever role/company — trailing text after an
+      // end-date on the same line is stray formatting (e.g. an employment-type/
+      // location aside typed after the date), never part of the header itself.
+      const leftover = line
+        .slice(0, dateMatch.index)
         .replace(/^[\s|,•\-–—]+|[\s|,•\-–—]+$/g, '')
         .trim();
 
@@ -114,15 +135,18 @@ export function segmentResume(rawText) {
           currentRole = split.role;
           currentCompany = split.company;
         } else {
-          currentRole = leftover;
           const nextLine = lines[i + 1];
           const nextLineIsCompany =
             nextLine && !BULLET_REGEX.test(nextLine) && !DATE_RANGE_REGEX.test(nextLine) && !isSectionHeading(nextLine);
           if (nextLineIsCompany) {
-            currentCompany = nextLine;
+            const resolved = pickRoleAndCompany(leftover, nextLine);
+            currentRole = resolved.role;
+            currentCompany = resolved.company;
             i += 1; // consume it so it isn't also treated as a header line for the next section
           } else {
-            currentCompany = headerBuffer.length ? headerBuffer[headerBuffer.length - 1] : '';
+            const resolved = pickRoleAndCompany(leftover, headerBuffer.length ? headerBuffer[headerBuffer.length - 1] : '');
+            currentRole = resolved.role;
+            currentCompany = resolved.company;
           }
         }
       } else {
@@ -139,14 +163,23 @@ export function segmentResume(rawText) {
 
     // A plain line right after a bullet is a wrapped continuation of that bullet's
     // text (PDF extraction breaks long bullets across lines) — unless it's actually
-    // the start of the next job's header block (a date range follows shortly).
+    // the start of the next job's header block (a date range follows shortly), or a
+    // section heading. The heading check must win outright: for the *last* job in a
+    // resume there is no later date line to find, so startsNewHeaderBlock can never
+    // signal "new header" on its own — without this, EDUCATION/PROJECTS/SKILLS and
+    // everything after them would get silently swallowed into the final bullet.
     // A lowercase-starting line is treated as a continuation regardless: real role/
     // company header lines are capitalized, so this also catches the one-line-away-
     // from-the-next-date-line case (e.g. a wrapped word like "collaboration" sitting
     // right before the next job's own header+date line, which the lookahead alone
     // can't tell apart from a genuine single-line header like "Company C").
     const looksLikeContinuation = /^[a-z]/.test(line);
-    if (previousWasBullet && bullets.length > 0 && (looksLikeContinuation || !startsNewHeaderBlock(lines, i))) {
+    const isContinuation =
+      previousWasBullet &&
+      bullets.length > 0 &&
+      !isSectionHeading(line) &&
+      (looksLikeContinuation || !startsNewHeaderBlock(lines, i));
+    if (isContinuation) {
       bullets[bullets.length - 1].text += ` ${line}`;
       continue;
     }
