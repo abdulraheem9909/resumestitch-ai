@@ -11,7 +11,7 @@ export default function JdSubmission() {
         title="Paste a job description"
         description="This is where you'll paste a job's text, company name, and an optional reference link to start tailoring against the resume you selected. Not built yet — routing only, per the build order in the workflow doc."
       />
-      <p className="placeholder-debug">resumeId: {resumeId}</p>
+      <p className="mt-4 font-mono text-xs text-muted-foreground">resumeId: {resumeId}</p>
     </>
   );
 }

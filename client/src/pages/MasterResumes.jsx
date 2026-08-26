@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { RESUMES_API } from "../lib/api.js";
-import "./MasterResumes.css";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function MasterResumes() {
   const [masterResumes, setMasterResumes] = useState([]);
@@ -28,28 +28,40 @@ export default function MasterResumes() {
   }, []);
 
   return (
-    <section className="mr-page">
-      <p className="mr-eyebrow">Master resumes</p>
-      <h1 className="mr-title">Start an application</h1>
-      <p className="mr-lede">Pick which resume you're applying with to move on to the job description.</p>
+    <section className="max-w-4xl">
+      <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        Master resumes
+      </p>
+      <h1 className="font-display mb-3 text-3xl font-semibold text-foreground">
+        Start an application
+      </h1>
+      <p className="mb-8 max-w-prose text-base text-muted-foreground">
+        Pick which resume you're applying with to move on to the job description.
+      </p>
 
-      {error && <p className="mr-alert" role="alert">{error}</p>}
-      {loading && <p className="mr-status">Loading your resumes…</p>}
+      {error && (
+        <Alert variant="destructive" className="mb-5">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+      {loading && <p className="py-4 text-sm text-muted-foreground">Loading your resumes…</p>}
 
       {!loading && masterResumes.length === 0 && !error && (
-        <p className="mr-status">You haven't uploaded a resume yet.</p>
+        <p className="py-4 text-sm text-muted-foreground">You haven't uploaded a resume yet.</p>
       )}
 
-      <div className="mr-grid">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {masterResumes.map((resume) => (
           <button
             key={resume._id}
             type="button"
-            className="mr-card"
             onClick={() => navigate(`/resumes/${resume._id}/apply`)}
+            className="flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card p-5 text-left shadow-sm transition-colors hover:border-primary hover:bg-secondary/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >
-            <span className="mr-card-label">{resume.label}</span>
-            <span className="mr-card-meta">
+            <span className="font-display text-base font-semibold text-foreground">
+              {resume.label}
+            </span>
+            <span className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
               Uploaded {new Date(resume.uploadedAt).toLocaleDateString()}
             </span>
           </button>

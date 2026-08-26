@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
 import { RESUMES_API as API_BASE } from "../lib/api.js";
-import "./ResumeBullets.css";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 
 export default function ResumeBullets() {
   const [masterResumes, setMasterResumes] = useState([]);
@@ -113,110 +124,113 @@ export default function ResumeBullets() {
   }
 
   return (
-    <section className="rb-page">
-      <p className="rb-eyebrow">Master resume</p>
-      <h1 className="rb-title">Resume Bullets</h1>
-      <p className="rb-lede">
+    <section className="max-w-3xl">
+      <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
+        Master resume
+      </p>
+      <h1 className="font-display mb-3 text-3xl font-semibold text-foreground">Resume Bullets</h1>
+      <p className="mb-8 max-w-prose text-base text-muted-foreground">
         Every bullet here is a real line from something you uploaded — editing it here changes
         what gets pulled into every future tailored resume.
       </p>
 
-      <div className="rb-field">
-        <label htmlFor="resume-select" className="rb-label">
+      <div className="mb-7 flex max-w-90 flex-col gap-1.5">
+        <Label htmlFor="resume-select" className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
           Resume
-        </label>
-        <select
-          id="resume-select"
-          className="rb-select"
-          value={selectedResumeId}
-          onChange={(event) => setSelectedResumeId(event.target.value)}
-        >
-          <option value="">Select a resume…</option>
-          {masterResumes.map((resume) => (
-            <option key={resume._id} value={resume._id}>
-              {resume.label}
-            </option>
-          ))}
-        </select>
+        </Label>
+        <Select value={selectedResumeId} onValueChange={setSelectedResumeId}>
+          <SelectTrigger id="resume-select" className="w-full">
+            <SelectValue placeholder="Select a resume…" />
+          </SelectTrigger>
+          <SelectContent>
+            {masterResumes.map((resume) => (
+              <SelectItem key={resume._id} value={resume._id}>
+                {resume.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      {error && <p className="rb-alert" role="alert">{error}</p>}
+      {error && (
+        <Alert variant="destructive" className="mb-5">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
 
-      {loading && <p className="rb-status">Fetching this resume's bullets…</p>}
+      {loading && <p className="py-4 text-sm text-muted-foreground">Fetching this resume's bullets…</p>}
 
       {!loading && !selectedResumeId && !error && (
-        <p className="rb-status">Select a resume above to see its bullets.</p>
+        <p className="py-4 text-sm text-muted-foreground">Select a resume above to see its bullets.</p>
       )}
 
       {!loading && selectedResumeId && bullets.length === 0 && !error && (
-        <p className="rb-status">
+        <p className="py-4 text-sm text-muted-foreground">
           This resume has no bullets yet — add one below, or upload a file.
         </p>
       )}
 
-      <ul className="rb-list">
+      <ul className="flex flex-col gap-3">
         {bullets.map((bullet) => {
           const isEditing = editingId === bullet._id;
           const isSaving = savingId === bullet._id;
           const meta = [bullet.role, bullet.company, bullet.dateRange].filter(Boolean);
 
           return (
-            <li key={bullet._id} className={`rb-bullet${isEditing ? " is-editing" : ""}`}>
+            <li
+              key={bullet._id}
+              data-editing={isEditing}
+              className="flex gap-4 rounded-lg border border-border bg-card p-5 shadow-sm"
+            >
               <span className="rb-bullet-strip" aria-hidden="true" />
-              <div className="rb-bullet-body">
+              <div className="flex flex-1 flex-col gap-2">
                 {isEditing ? (
                   <>
-                    <textarea
-                      className="rb-textarea"
+                    <Textarea
                       value={editingText}
                       onChange={(event) => setEditingText(event.target.value)}
                       rows={3}
                       autoFocus
                     />
-                    <div className="rb-actions">
-                      <button
-                        type="button"
-                        className="rb-btn rb-btn-primary"
-                        onClick={() => saveEditing(bullet._id)}
-                        disabled={isSaving}
-                      >
+                    <div className="flex gap-2">
+                      <Button onClick={() => saveEditing(bullet._id)} disabled={isSaving}>
                         {isSaving ? "Saving…" : "Save"}
-                      </button>
-                      <button
-                        type="button"
-                        className="rb-btn rb-btn-ghost"
-                        onClick={cancelEditing}
-                        disabled={isSaving}
-                      >
+                      </Button>
+                      <Button variant="ghost" onClick={cancelEditing} disabled={isSaving}>
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   </>
                 ) : (
                   <>
-                    <p className="rb-bullet-text">{bullet.text}</p>
-                    {meta.length > 0 && <p className="rb-bullet-meta">{meta.join(" · ")}</p>}
+                    <p className="text-sm text-foreground">{bullet.text}</p>
+                    {meta.length > 0 && (
+                      <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
+                        {meta.join(" · ")}
+                      </p>
+                    )}
                     {(bullet.canonicalSkills?.length > 0 || bullet.metrics?.length > 0) && (
-                      <div className="rb-tags">
+                      <div className="flex flex-wrap gap-1.5">
                         {bullet.canonicalSkills?.map((skill) => (
-                          <span key={skill} className="rb-tag">
+                          <Badge key={skill} variant="secondary">
                             {skill}
-                          </span>
+                          </Badge>
                         ))}
                         {bullet.metrics?.map((metric) => (
-                          <span key={metric} className="rb-tag rb-tag-metric">
+                          <Badge key={metric} variant="outline">
                             {metric}
-                          </span>
+                          </Badge>
                         ))}
                       </div>
                     )}
-                    <button
-                      type="button"
-                      className="rb-btn rb-btn-edit"
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-fit"
                       onClick={() => startEditing(bullet)}
                     >
                       Edit
-                    </button>
+                    </Button>
                   </>
                 )}
               </div>
@@ -226,27 +240,22 @@ export default function ResumeBullets() {
       </ul>
 
       {selectedResumeId && !loading && (
-        <div className="rb-add">
-          <label htmlFor="new-bullet" className="rb-label">
+        <div className="mt-4 rounded-lg border-2 border-dashed border-border bg-card p-5">
+          <Label htmlFor="new-bullet" className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
             Add a bullet
-          </label>
-          <textarea
+          </Label>
+          <Textarea
             id="new-bullet"
-            className="rb-textarea"
+            className="mt-2"
             value={newBulletText}
             onChange={(event) => setNewBulletText(event.target.value)}
             rows={3}
             placeholder="Paste or write a new bullet…"
           />
-          <div className="rb-actions">
-            <button
-              type="button"
-              className="rb-btn rb-btn-primary"
-              onClick={addBullet}
-              disabled={addingBullet || !newBulletText.trim()}
-            >
+          <div className="mt-3 flex gap-2">
+            <Button onClick={addBullet} disabled={addingBullet || !newBulletText.trim()}>
               {addingBullet ? "Adding…" : "Add bullet"}
-            </button>
+            </Button>
           </div>
         </div>
       )}
