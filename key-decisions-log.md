@@ -1,0 +1,31 @@
+# Key Decisions Log
+
+A running record of the architectural choices behind the Job Application Agent and why they were made — for quick reference, so the reasoning doesn't have to be re-derived from scratch in a future session. Each entry names what we chose and, briefly, what it was chosen over.
+
+**Retrieval, not generation, for tailoring.** Resume content lives as individual `resumeBullets` records; the tailoring node selects and rephrases from them rather than writing from a blank page. Chosen over free-form generation because it removes most of the surface area for fabrication structurally, rather than relying on the model to police itself.
+
+**Deterministic verification as its own node, before scoring.** A dedicated node checks every tailored claim against its source bullet, separate from and running before ATS scoring. Chosen because "is this true" and "does this score well" are different questions — folding them together lets a resume that reads well but overstates something slip through unnoticed.
+
+**Retry policy driven by named flags, not a raw ATS score.** The loop only retries on specific problems (missing requirement, unsupported claim, poor readability); a low score alone doesn't trigger a retry. Chosen over threshold-based retry because optimizing straight at an LLM-estimated score rewards keyword stuffing rather than genuine improvement.
+
+**Role fit gate before tailoring.** A cheap overlap check (plus an LLM call only for ambiguous cases) exits early when a JD and resume are a poor match — e.g. a recruiter JD against a software-engineer resume — before any tailoring or scoring spend. Chosen because without it, a bad-fit JD would still burn three full retry cycles for no benefit, since there's no more relevant material to surface on attempt three than attempt one.
+
+**Human approval as the final gate, with AI/human/final text kept distinct.** Nothing is saved without explicit review, and the state model tracks what the model generated, what was hand-edited, and what was actually approved as three separate fields. Chosen so it's always possible to tell what came from the AI and what came from me, rather than losing that distinction the moment an edit is made.
+
+**Resume parsing lives outside the per-JD pipeline entirely.** Uploading and parsing a resume into bullets is a one-time operation; a LangGraph thread only ever reads already-parsed bullets, never parses a file itself. Chosen over parsing-per-run because parsing is expensive and unnecessary to repeat, and because it's what made clean support for multiple resumes possible.
+
+**Multiple master resumes, capped at 5, with a full cascade on delete.** Deleting a resume removes every linked application, generated file, and thread history before the resume itself is removed. Chosen to keep the resume list manageable and to avoid orphaned data referencing a resume that no longer exists.
+
+**In-app bullet editing is a direct, in-place update.** Editing a bullet changes that database record directly, with no versioning or history kept. Chosen for simplicity over an additive/versioned approach (keep the old bullet, add a new one, mark the old deprecated) — the tradeoff, made knowingly: an old application's `sourceBulletId` can end up pointing at wording that's since changed, so it can't be used as a perfect historical record of what a past application actually claimed.
+
+**No batching, no queue — one JD processed at a time.** Batch submission and BullMQ-based parallel processing were designed, then deliberately removed. Chosen because this is a single-person tool, not a multi-tenant service, and the simplicity was worth more than the throughput.
+
+**Paste JD text directly; no URL fetching.** The pipeline never fetches a job posting server-side — the JD is pasted in, along with a company name and an optional, never-fetched reference link for personal recall later. Chosen over URL scraping because pasted text is more accurate (no JS-rendering gaps, no login walls, no scraped nav/footer noise) and removes an entire category of risk — SSRF exposure and job-board ToS issues — that scraping would have introduced.
+
+**Skill matching runs on a canonicalized taxonomy, not raw text.** JD and resume skill terms are normalized against a controlled alias dictionary (e.g. "Node.js" / "Node" / "NodeJS" → one canonical ID) before any gap analysis. Chosen because a raw set difference produces false gaps from surface-form mismatches alone, which would otherwise tempt the tailoring step to "fill" gaps that were never really there.
+
+**Every node is idempotent; every generation is versioned.** LLM results are cached by `(applicationId, nodeName, inputHash, promptVersion, model)`, and every generation records the resume version, prompt version, and model used. Chosen because the combination of retries, checkpointing, and LLM calls makes accidental double-execution likely without it, and because prompt/model changes are otherwise impossible to distinguish from resume changes months later.
+
+**Re-checking a hand-edited resume stores its own score, separate from the AI's.** Editing the tailored text yourself doesn't automatically re-score it — a non-blocking "re-check" action does that on request, and the result (`humanRecheckAtsScore`/`Flags`) is kept apart from the AI-generated `atsScore`/`atsFlags` rather than overwriting them. Chosen for the same reason `generatedText` and `humanEditedText` are kept separate elsewhere: losing which score belongs to which version of the text would make the record less trustworthy, not more convenient.
+
+**Skill suggestions during approval add a real resume bullet — never insert text directly into the tailored output.** When a JD wants a skill you have real experience with but never added to your resume, accepting the suggestion routes through the same one-time bullet-creation flow used for uploads (write the bullet, tag it, save it to `resumeBullets`), then re-tailors from there. Chosen over direct insertion because that shortcut would recreate the exact fabrication risk every other guardrail in this pipeline exists to prevent — content with no `sourceBulletId`, unverifiable, and indistinguishable from something the model invented.
