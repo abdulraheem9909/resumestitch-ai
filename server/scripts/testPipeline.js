@@ -5,94 +5,75 @@ import ResumeBullet from '../src/models/ResumeBullet.js';
 import { extractJdKeywords } from '../src/services/extractJdKeywords.js';
 import { normalizeSkills } from '../src/services/normalizeSkills.js';
 import { gapAnalysis } from '../src/services/gapAnalysis.js';
+import { roleFitGate } from '../src/services/roleFitGate.js';
 
-// Real, pasted-as-is postings from companies in the target list (about-this-project.md),
-// pulled 2026-08-27, for eyeballing extraction/gap-analysis accuracy end-to-end.
+// Real postings copied from job portals by the user, pasted 2026-08-27, for
+// eyeballing extraction/gap-analysis/role-fit accuracy end-to-end.
 const JD_SAMPLES = [
   {
-    company: 'Monzo — Senior Staff Backend Engineer',
-    text: `Senior Staff Engineer: L70 on our Engineering Progression Framework
+    company: 'ConnexAI — Senior Software Engineer',
+    text: `Senior Software Engineer, Manchester Area, United Kingdom (Hybrid). Full-time permanent.
 
-About our Engineering Teams:
-We have around 650 engineers out of roughly 5,500 people in total - and we have big ambitions. There are many interesting challenges ahead, and we're happy for people to move between teams or to specialise, whatever you prefer.
+Role Summary:
+You will join a development team in the conversational AI sector, shaping digital presence by building SaaS applications and working on real-time systems processing billions of hours of calls annually. Key involvement includes building quality assessment features to enhance agent-customer interactions, streamlining innovative projects, and enhancing existing architecture using modern web tech with a balance of autonomy and collaboration. Clear avenues for career growth are available (Principal Developer or Team Lead).
 
-Senior Staff Engineer Responsibilities:
-A Senior Staff Engineer at Monzo is a hands on engineering leadership (IC) position. As a Senior Staff Engineer you'll:
-- Partner with Engineering Directors to shape the technical and product direction of a collective, providing leadership across multiple squads (30-70+ engineers) and ensuring alignment with company-wide priorities.
-- Be hands on in both coding and architecture, leading from the front.
-- Partner closely with Product and Design leadership to define strategy, shape roadmaps, and make high-quality trade-offs.
-- Mobilise teams across your collective around high-impact problems.
-- Lead and influence architectural direction for the most complex systems, ensuring cohesive, scalable designs across multiple teams.
-- Set and uphold a high bar for technical excellence, driving improvements in quality, reliability and scalability.
-- Proactively mentor, sponsor and develop senior engineers and future leaders.
+Key Responsibilities & Tech Stack:
+Hands-on development using the latest versions of Node.js, Express.js, TypeScript, and React.js. Developing new components, creating complex customer-facing UIs, and collaborating with Data Science teams on AI offerings. Technologies used include AWS, Linux (Systems Administration), Docker, PostgreSQL, WebSockets, APIs, and Git.
 
-What you'll be using/ What you'll be working on:
-We rely heavily on the following tools and technologies:
-- Go to write our application code
-- Cassandra for most persistent data storage
-- Kafka for our asynchronous message queue
-- Kubernetes and Docker to schedule and run our services
-- AWS for most of our production infrastructure and GCP for most of our data infrastructure
-- React for internal Web dashboards
-- Feast for storing our features along a variety of tools to train and deploy models
-
-We'd love to hear from you if:
-- You have a track record of leading complex, high-impact systems and driving technical direction across multiple teams
-- You combine strong technical judgment with product and business awareness, making pragmatic trade-offs
-- You've worked on scalable backend, distributed or data-intensive systems
-- You're comfortable operating in ambiguous problem spaces
-- You influence and align senior stakeholders across engineering, product and beyond
-- You enjoy mentoring and raising the bar for other engineers`,
+Requirements & Qualifications:
+Passionate about staying updated on web technologies, with commercial experience writing complex Node.js/TypeScript code, solid Git and Docker usage, Linux Systems Administration understanding, and hands-on experience developing/consuming APIs.`,
   },
   {
-    company: 'Checkout.com — Senior Software Engineer I',
-    text: `Job Description
-Global payments are complex and ever-evolving. At Checkout our software engineers develop the next-generation payments technologies that enable our Merchants to boost their acceptance rates, cut processing costs, fight fraud, and create cutting edge technology that enables extraordinary customer experiences.
+    company: 'Murmuration — Full Stack Engineer (AI Native)',
+    text: `Full Stack Engineer (AI Native), Manchester, England, United Kingdom (Remote or hybrid). Full-time permanent. £70,000-£85,000 GBP per year.
 
-We're looking for Senior Software engineers who bring fresh ideas, have a curious nature and are passionate about working in an Engineering environment which focuses on building products to achieve the company's strategic goals. As a Senior Software engineer, you will lead and drive specific projects critical to Checkout's needs, working across the full-stack. You will design, develop, test, deploy, maintain, and enhance software solutions.
+Role Summary:
+Murmuration is a new technology company building the core platform for credit unions (software, payments, and data infrastructure). Reporting directly to the CTO, you will be one of the early engineers with direct say over product design, architecture, and engineering standards. The workflow is strictly AI-native, expecting fluency with AI coding tools alongside feature building for assistants, automation, and document processing.
 
-What are we looking for:
-- Bachelor's or Master's degree in Computer Science, Engineering, or related field
-- Proficiency in C# .NET, Java, or Go, with a strong understanding of software development principles in either a backend or full stack environment.
-- Great communication skills and ability to interact effectively with a wide range of stakeholders
-- Experience working in agile environments and delivering high-quality code within tight deadlines
-- Excellent problem-solving skills and the ability to work independently as well as part of a team
-- Someone who is AI proficient or AI curious, hungry to embrace what the latest technology has to offer
-- Payments or financial knowledge is a plus, but not a necessity
+Key Responsibilities & Tech Stack:
+Design, build, and ship full-stack features across the front end (React/TypeScript) and back end (Node, Python, or Go). Design and consume REST/GraphQL APIs connecting to CBS, payments, and third-party services. End-to-end feature ownership: implementation, testing, deployment, and support. Set engineering standards, conduct code reviews, and write automated tests while working alongside product, design, platform, and payments teams.
 
-How you'll make an impact:
-- Be part of, and collaborate with, cross-functional teams including product management, across a large engineering community.
-- Define and design loosely coupled, scalable systems in a wider microservices using industry best practices.
-- Stay up-to-date, use, and spread knowledge of the latest technologies used by Checkout.
-- Write clean, maintainable, extendable and testable code on some of Checkout's most impactful systems.
-- Build, own and operate your systems to the highest levels of resilience and service.
-- Mentor junior team members and assist in their technical development`,
+Requirements & Qualifications:
+Strong full-stack production background (front-end framework + back-end language), daily fluency using AI coding tools with a practical view of their limitations, solid API integration skills, and strong fundamentals (testing, CI/CD, version control, secure coding). Must be comfortable with early-stage high ownership. Standout qualifications include fintech/banking experience, track record of shipping production AI/LLM features, cloud-native work (AWS/Azure/GCP, containers, IaC), and team mentoring/standards-setting experience.`,
   },
   {
-    company: 'Faculty AI — Software Engineer (Machine Learning)',
-    text: `What You'll Be Doing
-You will design, build, and deploy production-grade software, infrastructure, and MLOps systems that leverage machine learning. As a Machine Learning Engineer you'll be essential to helping us achieve that goal by:
-- Building software and infrastructure that leverages Machine Learning
-- Creating reusable, scalable tools to enable better delivery of ML systems
-- Working and mentoring data scientists and engineers to develop best practices and new technologies
-- Implementing and developing Faculty's view on what it means to operationalise ML software
-- Leading on the scope and design of projects
-- Offering leadership and management to more junior engineers on the team
-- Providing technical expertise to our customers
-- Technical Delivery: work with cross-functional teams of engineers (Frontend & Cloud), data scientists, product designers and managers to deliver ML systems
-- Translate user research outcomes into full system architecture that leverages Machine Learning
+    company: 'Digital Skills Ltd — Full Stack Engineer',
+    text: `Full Stack Engineer, contract, Manchester Area (Hybrid — 2 days per week on-site). 6-month rolling contract, Inside IR35, £600/day.
 
-Who We're Looking For
-To succeed in this role, you'll need the following - these are illustrative requirements and we don't expect all applicants to have experience in everything (70% is a rough guide):
-- Understanding of, and interest in, the full machine learning lifecycle, including deploying trained machine learning models developed using common frameworks such as Scikit-learn, TensorFlow, or PyTorch
-- Understanding of the core concepts of probability and statistics and familiarity with common supervised and unsupervised learning techniques
-- Technical experience of cloud architecture, security, deployment, and open-source tools
-- Demonstrable experience with containers and specifically Docker and Kubernetes
-- Comfortable in a high-growth startup environment
-- Outstanding verbal and written communication
-- Experience working directly with clients and end users to conduct: Requirements Gathering, Technical Planning and Scoping
-- Technical experience of cloud architecture, security, networking, deployment, and open-source tools ideally with one of the 3 major cloud providers (AWS, GCP or Azure)
-- Experience with software engineering best practices and developing applications in Python`,
+Role Summary:
+High-profile digital product team delivering customer-facing search and engagement experiences at global scale within a cloud-native platform. Combines hands-on development across frontend/backend stacks with modern AI-assisted software engineering practices.
+
+Key Responsibilities & Tech Stack:
+Developing customer-facing web apps using React, TypeScript, and Micro Frontend (MFE) architectures alongside backend microservices using Java. Translating product/UX requirements into high-quality solutions, contributing to system design, RESTful API integrations, scalable distributed services, monitoring, performance tuning, and participating in Agile ceremonies.
+
+Requirements & Qualifications:
+Commercial full-stack engineering background with Java backend web services/APIs and React/TypeScript on the frontend. Solid experience with Micro Frontends (MFE), Backend-for-Frontend (BFF) patterns, AWS deployment, Git, automated testing, distributed systems, and cross-team stakeholder collaboration. Nice-to-haves include Agentic AI, AI developer tools, Kubernetes, Docker, CI/CD, observability (SLIs/SLOs), large-scale consumer applications, and A/B experimentation platforms.`,
+  },
+  {
+    company: 'Found Talent — Senior Front End Developer',
+    text: `Senior Front End Developer, Manchester Area, United Kingdom (Hybrid). Full-time permanent.
+
+Role Summary:
+Product-led Agile team where you take direct ownership of front-end development, component architectural choices, and the long-term evolution of a core product platform.
+
+Key Responsibilities & Tech Stack:
+Building scalable, reusable web interfaces and components using Angular and TypeScript. Integrating front-end elements with backend APIs and services while optimizing performance, accessibility, responsiveness, and usability. Participating in code reviews, Agile sprints, and shaping front-end code standards.
+
+Requirements & Qualifications:
+Mandatory poster requirements specify 5+ years of experience with Angular, 5+ years with TypeScript, and 5+ years working in Agile environments, alongside authorization to work in the UK. Requires deep understanding of modern JavaScript, HTML, CSS, API integrations, and user experience optimization.`,
+  },
+  {
+    company: 'Bauer Media Outdoor UK — Senior Full Stack Engineer',
+    text: `Senior Full Stack Engineer, Manchester Area, United Kingdom (Hybrid — 2 days on-site per week). Permanent full-time.
+
+Role Summary:
+Joining Bauer Media Audio (BMA) within a brand-new in-house development hub in Manchester. You will lay the technical foundation for this new engineering department, leading hands-on development of early infrastructure, architectural components, and prototypes while mentoring mid/junior engineers.
+
+Key Responsibilities & Tech Stack:
+Full-stack development across modern stacks: Node/TypeScript + React frontend, Java backend, AWS, Kubernetes, and Kafka infrastructure. Take ownership of functional areas, lead small feature-driven sub-teams, and embrace "you build it, you run it" DevOps principles (CI/CD, observability, OWASP security standards). Conduct testing strategies (unit, integration, E2E), assist in hiring/onboarding, and participate in 24/7 in-hours/out-of-hours incident management rotas.
+
+Requirements & Qualifications:
+Strong commercial full-stack engineering depth across both client/server layers. Depth in microservices, event-driven architecture, cloud services (AWS), containerization (Docker/Kubernetes), CI/CD, and IaC. Proven leadership/mentoring skills, OWASP security awareness, strong debugging skills under pressure, and adaptability. Desired traits include media/streaming platform experience, incident management background, technical documentation skills, and familiarity with AI-assisted engineering tools (Copilot, Claude).`,
   },
 ];
 
@@ -127,6 +108,15 @@ async function main() {
 
     const gaps = gapAnalysis(jdCanonical, resumeCanonical);
     console.log('Keyword gaps:', gaps);
+
+    const fit = await roleFitGate({
+      jdText: text,
+      jdCanonicalSkills: jdCanonical,
+      resumeCanonicalSkills: resumeCanonical,
+      resumeSummary: resume.summary,
+      resumeTitle: resume.personalInfo?.title,
+    });
+    console.log('Role fit:', fit);
   }
 
   await mongoose.disconnect();
