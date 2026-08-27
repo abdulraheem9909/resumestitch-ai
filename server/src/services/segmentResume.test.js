@@ -127,3 +127,30 @@ test('ignores unrelated leading lines (name/summary) and returns an empty array 
 
   assert.deepEqual(segmentResume('John Doe\nSoftware Engineer\n\nNo bullets or dates here.'), []);
 });
+
+test('does not mistake an EDUCATION entry\'s own date range for a new job header', () => {
+  const withoutEducation = [
+    'WORK EXPERIENCE',
+    'Software Engineer',
+    'Company A',
+    'Jan 2023 – Present',
+    '• Built scalable systems using Node.js and MongoDB.',
+  ].join('\n');
+
+  const withEducation = [
+    'WORK EXPERIENCE',
+    'Software Engineer',
+    'Company A',
+    'Jan 2023 – Present',
+    '• Built scalable systems using Node.js and MongoDB.',
+    'EDUCATION',
+    "Master's in Software Engineering09/2024 - 01/2026",
+    'University of Salford • Manchester, UK',
+  ].join('\n');
+
+  const bulletsWithout = segmentResume(withoutEducation);
+  const bulletsWith = segmentResume(withEducation);
+
+  // The EDUCATION block must not produce a phantom extra "job" or corrupt the real one.
+  assert.deepEqual(bulletsWith, bulletsWithout);
+});

@@ -1,3 +1,5 @@
+import { classifySectionHeading, isSectionHeading } from './resumeSectionHeadings.js';
+
 const MONTH = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?';
 const NUMERIC_MONTH_YEAR = '\\d{1,2}/\\d{4}';
 const NAMED_MONTH_YEAR = `${MONTH}\\s+\\d{4}`;
@@ -6,7 +8,7 @@ const YEAR_ONLY = '\\d{4}';
 // Order matters: numeric (09/2024) and named-month (Jan 2024) forms must be tried
 // before bare-year, so a numeric month isn't left stranded outside the match.
 const DATE_TOKEN = `(?:${NUMERIC_MONTH_YEAR}|${NAMED_MONTH_YEAR}|${YEAR_ONLY})`;
-const DATE_RANGE_REGEX = new RegExp(
+export const DATE_RANGE_REGEX = new RegExp(
   `${DATE_TOKEN}\\s*(?:-|–|—|to)\\s*(?:${DATE_TOKEN}|Present|Current)`,
   'i'
 );
@@ -15,7 +17,7 @@ const DATE_RANGE_REGEX = new RegExp(
 // in addition to the plain '-' and '*' called out in the spec.
 const BULLET_REGEX = /^[•●\-*]\s+(.+)$/;
 
-const PAGE_BREAK_REGEX = /^--\s*\d+\s*of\s*\d+\s*--$/i;
+export const PAGE_BREAK_REGEX = /^--\s*\d+\s*of\s*\d+\s*--$/i;
 
 const HEADER_SEPARATORS = [' at ', ' @ ', ' • ', ' — ', ' – ', ' - ', ' | ', ', '];
 
@@ -37,12 +39,7 @@ function startsNewHeaderBlock(lines, fromIndex) {
   return false;
 }
 
-function isSectionHeading(line) {
-  const letters = line.replace(/[^A-Za-z]/g, '');
-  return letters.length > 0 && letters === letters.toUpperCase() && line.length <= 40;
-}
-
-function trySplitHeaderLine(line) {
+export function trySplitHeaderLine(line) {
   for (const separator of HEADER_SEPARATORS) {
     const index = line.indexOf(separator);
     if (index !== -1) {
@@ -99,6 +96,11 @@ export function segmentResume(rawText) {
   let currentCompany = '';
   let currentDateRange = '';
   let previousWasBullet = false;
+  // True before any heading is seen, and under an unrecognized heading — preserves
+  // today's permissive behavior. Set false under EDUCATION/PROJECTS/SKILLS/SUMMARY so
+  // their content (which can itself be bullet- or date-shaped, e.g. a degree's own
+  // date range) is never mistaken for a new job section.
+  let inExperienceSection = true;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -106,8 +108,9 @@ export function segmentResume(rawText) {
     const bulletMatch = line.match(BULLET_REGEX);
     if (bulletMatch) {
       // Ignore bullet-charactered lines seen before any job section is established
-      // (e.g. a wrapped contact-info line that happens to start with the same glyph).
-      if (currentRole || currentCompany || currentDateRange) {
+      // (e.g. a wrapped contact-info line that happens to start with the same glyph),
+      // and any bullet-shaped line inside a non-experience section (e.g. PROJECTS).
+      if (inExperienceSection && (currentRole || currentCompany || currentDateRange)) {
         bullets.push({
           text: bulletMatch[1].trim(),
           role: currentRole,
@@ -115,11 +118,19 @@ export function segmentResume(rawText) {
           dateRange: currentDateRange,
         });
       }
-      previousWasBullet = true;
+      // Only set when inExperienceSection: otherwise a bullet-shaped line inside e.g.
+      // PROJECTS would make the *next* plain line look like a continuation of the
+      // last real (experience) bullet, wrongly appending unrelated text to it.
+      previousWasBullet = inExperienceSection;
       continue;
     }
 
     const dateMatch = line.match(DATE_RANGE_REGEX);
+    if (dateMatch && !inExperienceSection) {
+      // A dated line inside e.g. EDUCATION (a degree's own date range) — never a new
+      // job header. Without this guard it would corrupt currentRole/currentCompany.
+      continue;
+    }
     if (dateMatch) {
       // Only text *before* the date is ever role/company — trailing text after an
       // end-date on the same line is stray formatting (e.g. an employment-type/
@@ -186,6 +197,8 @@ export function segmentResume(rawText) {
     previousWasBullet = false;
 
     if (isSectionHeading(line)) {
+      const kind = classifySectionHeading(line);
+      inExperienceSection = kind === 'experience' || kind === null;
       headerBuffer = [];
       continue;
     }

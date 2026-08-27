@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import multer from "multer";
 import { extractResumeText } from "../services/extractResumeText.js";
 import { segmentResume } from "../services/segmentResume.js";
+import { segmentResumeSections } from "../services/segmentResumeSections.js";
 import { tagBullet } from "../services/tagBullet.js";
 import { canonicalizeSkill } from "../services/canonicalizeSkill.js";
 import MasterResume from "../models/MasterResume.js";
@@ -46,10 +47,22 @@ router.post("/", upload.single("file"), async (req, res) => {
     return res.status(400).json({ error: "No file uploaded." });
   }
 
-  const { label } = req.body;
+  const { label, fullName, title, location, phone, email, linkedin, portfolio } = req.body;
   if (typeof label !== "string" || !label.trim()) {
     return res.status(400).json({ error: "label is required." });
   }
+  if (typeof fullName !== "string" || !fullName.trim()) {
+    return res.status(400).json({ error: "fullName is required." });
+  }
+  const personalInfo = {
+    fullName: fullName.trim(),
+    title: (title || "").trim(),
+    location: (location || "").trim(),
+    phone: (phone || "").trim(),
+    email: (email || "").trim(),
+    linkedin: (linkedin || "").trim(),
+    portfolio: (portfolio || "").trim(),
+  };
 
   try {
     // Step 2 — text extraction
@@ -62,6 +75,7 @@ router.post("/", upload.single("file"), async (req, res) => {
 
     // Step 3 — segmentation
     const segments = segmentResume(bulletedText);
+    const { summary, education, projects, skills } = segmentResumeSections(bulletedText);
 
     // Step 4 — LLM tagging, one call per bullet
     const taggedBullets = await Promise.all(
@@ -83,7 +97,14 @@ router.post("/", upload.single("file"), async (req, res) => {
     }
 
     // Step 6 — save
-    const masterResume = await MasterResume.create({ label });
+    const masterResume = await MasterResume.create({
+      label,
+      personalInfo,
+      summary,
+      education,
+      projects,
+      skills,
+    });
     const resumeBullets = await ResumeBullet.insertMany(
       taggedBullets.map((bullet) => ({
         masterResumeId: masterResume._id,
@@ -135,6 +156,54 @@ router.patch("/:id", async (req, res) => {
     return res.json({ masterResume: resume });
   } catch (err) {
     return res.status(500).json({ error: "Failed to rename resume." });
+  }
+});
+
+router.patch("/:id/profile", async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: "Invalid resume id." });
+  }
+
+  const { personalInfo, summary, education, projects, skills } = req.body;
+
+  if (personalInfo !== undefined) {
+    if (typeof personalInfo !== "object" || personalInfo === null || Array.isArray(personalInfo)) {
+      return res.status(400).json({ error: "personalInfo must be an object." });
+    }
+    if (typeof personalInfo.fullName !== "string" || !personalInfo.fullName.trim()) {
+      return res.status(400).json({ error: "fullName is required." });
+    }
+  }
+  if (summary !== undefined && typeof summary !== "string") {
+    return res.status(400).json({ error: "summary must be a string." });
+  }
+  if (education !== undefined && !Array.isArray(education)) {
+    return res.status(400).json({ error: "education must be an array." });
+  }
+  if (projects !== undefined && !Array.isArray(projects)) {
+    return res.status(400).json({ error: "projects must be an array." });
+  }
+  if (skills !== undefined && !Array.isArray(skills)) {
+    return res.status(400).json({ error: "skills must be an array." });
+  }
+
+  try {
+    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    if (!resume) {
+      return res.status(404).json({ error: "Resume not found." });
+    }
+
+    if (personalInfo !== undefined) resume.personalInfo = personalInfo;
+    if (summary !== undefined) resume.summary = summary;
+    if (education !== undefined) resume.education = education;
+    if (projects !== undefined) resume.projects = projects;
+    if (skills !== undefined) resume.skills = skills;
+    await resume.save();
+
+    return res.json({ masterResume: resume });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to update resume profile." });
   }
 });
 
