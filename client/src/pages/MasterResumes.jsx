@@ -28,7 +28,7 @@ export default function MasterResumes() {
   }, []);
 
   return (
-    <section className="max-w-4xl">
+    <section className="mx-auto w-full max-w-4xl">
       <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
         Master resumes
       </p>
@@ -56,7 +56,7 @@ export default function MasterResumes() {
             key={resume._id}
             type="button"
             onClick={() => navigate(`/resumes/${resume._id}/apply`)}
-            className="flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card p-5 text-left shadow-sm transition-colors hover:border-primary hover:bg-secondary/40 focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            className="flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card p-5 text-left shadow-card transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-secondary/40 hover:shadow-[0_2px_4px_rgba(22,33,27,0.06),0_12px_28px_-12px_rgba(22,33,27,0.22)] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >
             <span className="font-display text-base font-semibold text-foreground">
               {resume.label}

@@ -1,6 +1,6 @@
 export default function PlaceholderPage({ eyebrow, title, description }) {
   return (
-    <section className="max-w-2xl">
+    <section className="mx-auto w-full max-w-2xl">
       <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {eyebrow}
       </p>

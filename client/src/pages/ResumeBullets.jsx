@@ -1,8 +1,17 @@
 import { useEffect, useState } from "react";
+import { Plus } from "lucide-react";
 import { RESUMES_API as API_BASE } from "../lib/api.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -26,6 +35,7 @@ export default function ResumeBullets() {
 
   const [newBulletText, setNewBulletText] = useState("");
   const [addingBullet, setAddingBullet] = useState(false);
+  const [isAddOpen, setIsAddOpen] = useState(false);
 
   useEffect(() => {
     async function loadResumes() {
@@ -116,6 +126,7 @@ export default function ResumeBullets() {
 
       setBullets((prev) => [...prev, data.resumeBullet]);
       setNewBulletText("");
+      setIsAddOpen(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -124,11 +135,18 @@ export default function ResumeBullets() {
   }
 
   return (
-    <section className="max-w-3xl">
+    <section className="mx-auto w-full max-w-3xl">
       <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
         Master resume
       </p>
-      <h1 className="font-display mb-3 text-3xl font-semibold text-foreground">Resume Bullets</h1>
+      <div className="mb-3 flex items-center justify-between gap-4">
+        <h1 className="font-display text-3xl font-semibold text-foreground">Resume Bullets</h1>
+        {selectedResumeId && (
+          <Button size="sm" onClick={() => setIsAddOpen(true)}>
+            <Plus className="size-4" /> Add bullet
+          </Button>
+        )}
+      </div>
       <p className="mb-8 max-w-prose text-base text-muted-foreground">
         Every bullet here is a real line from something you uploaded — editing it here changes
         what gets pulled into every future tailored resume.
@@ -166,7 +184,7 @@ export default function ResumeBullets() {
 
       {!loading && selectedResumeId && bullets.length === 0 && !error && (
         <p className="py-4 text-sm text-muted-foreground">
-          This resume has no bullets yet — add one below, or upload a file.
+          This resume has no bullets yet — add one above, or upload a file.
         </p>
       )}
 
@@ -180,7 +198,7 @@ export default function ResumeBullets() {
             <li
               key={bullet._id}
               data-editing={isEditing}
-              className="flex gap-4 rounded-lg border border-border bg-card p-5 shadow-sm"
+              className="flex gap-4 rounded-lg border border-border bg-card p-5 shadow-card transition-shadow hover:shadow-[0_2px_4px_rgba(22,33,27,0.06),0_12px_28px_-12px_rgba(22,33,27,0.22)]"
             >
               <span className="rb-bullet-strip" aria-hidden="true" />
               <div className="flex flex-1 flex-col gap-2">
@@ -239,26 +257,29 @@ export default function ResumeBullets() {
         })}
       </ul>
 
-      {selectedResumeId && !loading && (
-        <div className="mt-4 rounded-lg border-2 border-dashed border-border bg-card p-5">
-          <Label htmlFor="new-bullet" className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
-            Add a bullet
-          </Label>
+      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add a bullet</DialogTitle>
+            <DialogDescription>
+              Write or paste a new bullet for this resume — it'll be tagged the same way as an
+              uploaded one.
+            </DialogDescription>
+          </DialogHeader>
           <Textarea
-            id="new-bullet"
-            className="mt-2"
             value={newBulletText}
             onChange={(event) => setNewBulletText(event.target.value)}
-            rows={3}
+            rows={4}
             placeholder="Paste or write a new bullet…"
+            autoFocus
           />
-          <div className="mt-3 flex gap-2">
+          <DialogFooter>
             <Button onClick={addBullet} disabled={addingBullet || !newBulletText.trim()}>
               {addingBullet ? "Adding…" : "Add bullet"}
             </Button>
-          </div>
-        </div>
-      )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

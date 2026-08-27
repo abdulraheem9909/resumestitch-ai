@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --radius: 0.625rem;
 
@@ -35,9 +37,48 @@
 
   --ink-faint: #8a9789;
   --danger-soft: #f3ded9;
-  --shadow-card: 0 1px 2px rgba(22, 33, 27, 0.04), 0 8px 24px -12px rgba(22, 33, 27, 0.18);
+  --elevation-card: 0 1px 2px rgba(22, 33, 27, 0.04), 0 8px 24px -12px rgba(22, 33, 27, 0.18);
 
   color-scheme: light;
+}
+
+.dark {
+  --background: #12190f;
+  --foreground: #e7ebe2;
+
+  --card: #1a2418;
+  --card-foreground: #e7ebe2;
+
+  --popover: #1a2418;
+  --popover-foreground: #e7ebe2;
+
+  /* brightened relative to light mode so the pine identity still reads on a dark surface */
+  --primary: #6fae86;
+  --primary-foreground: #0f1712;
+
+  --secondary: #22301f;
+  --secondary-foreground: #d9ecdf;
+
+  --muted: #22301f;
+  --muted-foreground: #93a89a;
+
+  --accent: #22301f;
+  --accent-foreground: #d9ecdf;
+
+  /* brightened for legibility as text color (used via Alert's text-destructive), not just a bg */
+  --destructive: #e2857a;
+  --destructive-foreground: #2a0e0a;
+
+  --border: #2a3830;
+  --input: #2a3830;
+  --ring: #6fae86;
+
+  --ink-faint: #6c8577;
+  --danger-soft: #3a1f1c;
+  /* a light-tuned shadow color barely shows on a dark background — lean on black instead */
+  --elevation-card: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px -12px rgba(0, 0, 0, 0.5);
+
+  color-scheme: dark;
 }
 
 @theme inline {
@@ -70,47 +111,56 @@
   --radius-xl: calc(var(--radius) + 4px);
 
   --font-display: 'Source Serif 4', ui-serif, Georgia, serif;
-  --font-sans: 'IBM Plex Sans', system-ui, 'Segoe UI', sans-serif;
+  --font-sans: 'Poppins', 'IBM Plex Sans', system-ui, 'Segoe UI', sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, Consolas, monospace;
+
+  --shadow-card: var(--elevation-card);
 }
 
-* {
-  box-sizing: border-box;
-}
+/* Tailwind v4 wraps its utilities in @layer utilities. Anything below left unlayered would win
+   over utility classes regardless of specificity (unlayered CSS always beats layered CSS per the
+   cascade-layers spec) — e.g. a bare `button { font: inherit }` here would silently override every
+   Button's `text-sm`/`font-medium` utility classes. Layering these as @layer base keeps them as
+   defaults that utilities can still override, as intended. */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 
-body {
-  margin: 0;
-  min-height: 100svh;
-  font-family: var(--font-sans);
-  color: var(--foreground);
-  background: var(--background);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
+  body {
+    margin: 0;
+    min-height: 100svh;
+    font-family: var(--font-sans);
+    color: var(--foreground);
+    background: var(--background);
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 
-#root {
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-}
+  #root {
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+  }
 
-p {
-  margin: 0;
-}
+  p {
+    margin: 0;
+  }
 
-button {
-  font: inherit;
-}
+  button {
+    font: inherit;
+  }
 
-a {
-  color: var(--secondary-foreground);
-}
+  a {
+    color: var(--secondary-foreground);
+  }
 
-:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
