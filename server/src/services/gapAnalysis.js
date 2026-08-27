@@ -1,0 +1,4 @@
+export function gapAnalysis(jdCanonicalSkills, resumeCanonicalSkills) {
+  const resumeSet = new Set(resumeCanonicalSkills || []);
+  return (jdCanonicalSkills || []).filter((skill) => !resumeSet.has(skill));
+}
