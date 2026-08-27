@@ -67,12 +67,12 @@ Resume bullets are already loaded into state by Express before the graph starts,
 | 2 | **Skill normalization** | Deterministic alias dictionary (no LLM) | Canonicalizes both JD keywords and the loaded resume's skill tags against a controlled taxonomy (e.g. "Node.js" / "Node" / "NodeJS" → `node.js`) before any comparison happens. Prevents false gaps from surface-form mismatches. |
 | 3 | **Gap analysis** | Plain JS | Set diff between canonical JD skill IDs and canonical resume skill IDs. |
 | 4 | **Role fit gate** | Overlap % (free) + cheap LLM plausibility check (GPT-4o-mini) on borderline cases | Checks whether this JD is a sane target for this resume *before* spending any tailoring effort. Two stages: (a) if canonical skill overlap from node 3 is below a floor, exit immediately, no LLM call; (b) if overlap is in a middle/ambiguous band, one cheap call asks "is this a plausible target role or a different discipline entirely" and returns a categorical judgment, not a score. On low fit, the graph skips straight to node 10 (human approval) with a `role_mismatch` reason — nodes 5–9 never run. On a plausible result, continues to node 5. See section 5a. |
-| 5 | **Tailor content (STAR method)** | LangChain `ChatOpenAI` (GPT-4), temperature ≈ 0, Zod structured output, cached by input hash | Selects relevant bullets and reframes each into Situation/Task/Action/Result. Rephrase/reorder only — never introduces a skill, tool, employer, title, or metric absent from the source bullet. Result is cached keyed on `(applicationId, nodeName, inputHash, promptVersion, model)` — a retry with identical inputs reuses the cached generation instead of re-calling the model. |
-| 6 | **Deterministic verification** | Rule-based text matching against `resumeBullets` | Extracts claims/skills from the tailored bullet and confirms each exists in its `sourceBulletId` record or tags. This is the primary fabrication check — separate from and running before scoring, so a factual problem is caught on its own terms rather than folded into a single ATS number. |
+| 5 | **Tailor content (STAR method)** | LangChain `ChatOpenAI` (GPT-4), temperature ≈ 0, Zod structured output, cached by input hash | Selects relevant bullets and reframes each into Situation/Task/Action/Result. Rephrase/reorder only — never introduces a skill, tool, employer, title, or metric absent from the source bullet. Also synthesizes a tailored 2–3 sentence `tailoredSummary` from three retrieved inputs only — the bullets it just selected for this JD, the matched canonical skills from node 3's overlap (not the gap), and total years of experience computed deterministically from `resumeBullets`/`education` date ranges (plain JS, not the model's guess). Same constraint as bullets: rephrase/reorder only, never introduce a skill, tool, employer, or figure absent from those three inputs. `personalInfo.title` and `masterResumes.summary` itself are never overwritten — the summary tailoring reads from the master resume but writes only to the application's `tailoredSummary`. Result is cached keyed on `(applicationId, nodeName, inputHash, promptVersion, model)` — a retry with identical inputs reuses the cached generation instead of re-calling the model. |
+| 6 | **Deterministic verification** | Rule-based text matching against `resumeBullets` | Extracts claims/skills from the tailored bullet and confirms each exists in its `sourceBulletId` record or tags. Also checks the tailored summary the same way: every skill/technology/domain claim in `tailoredSummary` must trace back to a matched canonical skill or a selected bullet. This is the primary fabrication check — separate from and running before scoring, so a factual problem is caught on its own terms rather than folded into a single ATS number. |
 | 7 | **Cover letter generation** | LangChain `ChatOpenAI` (GPT-4), same source constraints as node 5 | Conditional — runs only if `coverLetterRequested` was set at submission; otherwise this node is skipped and the graph proceeds straight to node 8. When it runs, generates `coverLetterText` from the same verified bullet set and gap analysis. |
 | 8 | **Style linting** | Mostly rule-based (Node regex) | Strips AI-sounding phrasing, checks formatting (no tables/text boxes, consistent bullet/date format). Escalates ambiguous cases to a cheap LLM call only when needed. |
 | 9 | **ATS score + mock recruiter** | LangChain `ChatOpenAI` (GPT-4), single structured call | Returns a numeric ATS estimate, a qualitative recruiter critique, **and explicit flags**: `missingRequirement`, `unsupportedClaim`, `excessiveRewrite`, `poorReadability`. See section 5 — the score alone is never sufficient reason to retry. |
-| 10 | **Human approval (`interrupt()`)** | LangGraph `interrupt()` + React | Graph pauses. React shows the diff, recruiter critique, and any flags — or, if routed here from node 4, the role-mismatch reason instead. State keeps `generatedText`, `humanEditedText`, and `finalText` as distinct fields — see section 7. You approve as-is, hand-edit directly, or send back to node 5 with notes. Two additional actions available here, both detailed below: **re-check** and **suggest missing skills**. |
+| 10 | **Human approval (`interrupt()`)** | LangGraph `interrupt()` + React | Graph pauses. React shows the diff, recruiter critique, and any flags — or, if routed here from node 4, the role-mismatch reason instead. The tailored summary is shown alongside the tailored bullets, using the same `generatedText`/`humanEditedText`/`finalText` distinction. State keeps `generatedText`, `humanEditedText`, and `finalText` as distinct fields — see section 7. You approve as-is, hand-edit directly, or send back to node 5 with notes. Two additional actions available here, both detailed below: **re-check** and **suggest missing skills**. |
 | 11 | **Log + export** | Mongoose + `docx` + `exceljs` | Writes the final `applications` row and versioning metadata. Generates approved `.docx` files. Exports/updates `tracker.xlsx`. Write is idempotent — safe to run twice for the same `applicationId`. |
 
 ### 4a. Two additional actions at human approval (node 10)
@@ -90,7 +90,7 @@ The retry edge after node 9 checks specific flags rather than a raw score:
 | Condition | Action |
 |---|---|
 | Missing an important JD requirement | Retry (back to node 5) |
-| Unsupported claim (verification already should have caught this in node 6 — this is a second check) | Reject/flag for human review, don't silently retry |
+| Unsupported claim — in a tailored bullet or the tailored summary (verification already should have caught this in node 6 — this is a second check) | Reject/flag for human review, don't silently retry |
 | Excessive rewrite (low similarity to source bullet) | Retry or flag, see rephrase-intensity in section 7 |
 | Poor readability | Retry |
 | Low ATS score, no other flag raised | **Do not retry automatically** — proceed to human approval; let the person decide whether it's good enough |
@@ -163,9 +163,28 @@ Separately, the human-approval state (node 10) keeps AI output and human edits d
   _id,
   label: string,        // e.g. "Full-stack CV", "AI Engineering CV"
   uploadedAt,
-  status: "active" | "deleted"
+  status: "active" | "deleted",
+  personalInfo: {        // per-resume, entered via a form at upload time — never auto-extracted
+    fullName, title, location, phone, email, linkedin, portfolio
+  },
+  summary: string,        // preserved verbatim, extracted deterministically (no LLM) from the SUMMARY heading
+  education: [            // preserved verbatim, extracted deterministically from the EDUCATION heading
+    { degree, institution, location, dateRange }
+  ],
+  projects: [              // preserved verbatim, extracted deterministically from the PROJECTS heading
+    { name, description }
+  ],
+  skills: [string]         // the raw declared list from the SKILLS heading — distinct from
+                           // resumeBullets.canonicalSkills, which is bullet-derived and deliberately
+                           // excludes soft/methodology terms this list legitimately includes
 }
 ```
+`personalInfo.title`, `education`, `projects`, and `skills` are never tailored per JD — they exist so
+a future export (node 11) has somewhere to pull the rest of a full resume from, reproducing everything
+except Work Experience and the summary verbatim. `summary` here is the verbatim source text; it is one
+of node 5's *inputs*, not overwritten by it — the tailored version is generated fresh per application
+and lives on `applications.tailoredSummary` (see below), the same way tailored bullets live on
+`applications.tailoredBullets` rather than overwriting `resumeBullets`.
 
 ### `resumeBullets` (tied to a specific master resume)
 ```
@@ -200,6 +219,11 @@ Separately, the human-approval state (node 10) keeps AI output and human edits d
     generatedText, humanEditedText, finalText,
     editSource, rephraseIntensity
   }],
+  tailoredSummary: {          // node 5's retrieval-bound synthesis from selected bullets +
+                               // matched skills + computed experience; never free generation
+    generatedText, humanEditedText, finalText,
+    editSource: "ai" | "human"
+  },
   coverLetterText: string,    // empty/absent if coverLetterRequested is false
   atsScore: number,
   atsFlags: [string],         // missingRequirement | unsupportedClaim | excessiveRewrite | poorReadability
