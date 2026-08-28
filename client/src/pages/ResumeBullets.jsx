@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { useParams } from "react-router-dom";
 import { Plus } from "lucide-react";
 import { RESUMES_API as API_BASE } from "../lib/api.js";
+import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,21 +14,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 export default function ResumeBullets() {
-  const [masterResumes, setMasterResumes] = useState([]);
-  const [selectedResumeId, setSelectedResumeId] = useState("");
+  const { id } = useParams();
+
+  const [resume, setResume] = useState(null);
   const [bullets, setBullets] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const [editingId, setEditingId] = useState(null);
@@ -38,30 +33,25 @@ export default function ResumeBullets() {
   const [isAddOpen, setIsAddOpen] = useState(false);
 
   useEffect(() => {
-    async function loadResumes() {
+    async function loadResume() {
       try {
-        const res = await fetch(API_BASE);
+        const res = await fetch(`${API_BASE}/${id}`);
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Couldn't load your resumes.");
-        setMasterResumes(data.masterResumes);
-      } catch (err) {
-        setError(err.message);
+        if (!res.ok) throw new Error(data.error || "Couldn't load this resume.");
+        setResume(data.masterResume);
+      } catch {
+        // non-fatal — the eyebrow label is a nicety, bullets still load without it
       }
     }
-    loadResumes();
-  }, []);
+    loadResume();
+  }, [id]);
 
   useEffect(() => {
-    if (!selectedResumeId) {
-      setBullets([]);
-      return;
-    }
-
     async function loadBullets() {
       setLoading(true);
       setError("");
       try {
-        const res = await fetch(`${API_BASE}/${selectedResumeId}/bullets`);
+        const res = await fetch(`${API_BASE}/${id}/bullets`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Couldn't load bullets for this resume.");
         setBullets(data.resumeBullets);
@@ -72,7 +62,7 @@ export default function ResumeBullets() {
       }
     }
     loadBullets();
-  }, [selectedResumeId]);
+  }, [id]);
 
   function startEditing(bullet) {
     setEditingId(bullet._id);
@@ -111,12 +101,12 @@ export default function ResumeBullets() {
   }
 
   async function addBullet() {
-    if (!newBulletText.trim() || !selectedResumeId) return;
+    if (!newBulletText.trim()) return;
 
     setAddingBullet(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${selectedResumeId}/bullets`, {
+      const res = await fetch(`${API_BASE}/${id}/bullets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: newBulletText }),
@@ -136,39 +126,24 @@ export default function ResumeBullets() {
 
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Master resume
-      </p>
+      <Breadcrumbs
+        backTo={`/resumes/${id}`}
+        trail={[
+          { label: "Master Resumes", to: "/resumes" },
+          { label: resume?.personalInfo?.fullName || resume?.label || "Resume", to: `/resumes/${id}` },
+          { label: "Resume Bullets" },
+        ]}
+      />
       <div className="mb-3 flex items-center justify-between gap-4">
         <h1 className="font-display text-3xl font-semibold text-foreground">Resume Bullets</h1>
-        {selectedResumeId && (
-          <Button size="sm" onClick={() => setIsAddOpen(true)}>
-            <Plus className="size-4" /> Add bullet
-          </Button>
-        )}
+        <Button size="sm" onClick={() => setIsAddOpen(true)}>
+          <Plus className="size-4" /> Add bullet
+        </Button>
       </div>
       <p className="mb-8 max-w-prose text-base text-muted-foreground">
         Every bullet here is a real line from something you uploaded — editing it here changes
         what gets pulled into every future tailored resume.
       </p>
-
-      <div className="mb-7 flex max-w-90 flex-col gap-1.5">
-        <Label htmlFor="resume-select" className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
-          Resume
-        </Label>
-        <Select value={selectedResumeId} onValueChange={setSelectedResumeId}>
-          <SelectTrigger id="resume-select" className="w-full">
-            <SelectValue placeholder="Select a resume…" />
-          </SelectTrigger>
-          <SelectContent>
-            {masterResumes.map((resume) => (
-              <SelectItem key={resume._id} value={resume._id}>
-                {resume.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
 
       {error && (
         <Alert variant="destructive" className="mb-5">
@@ -178,11 +153,7 @@ export default function ResumeBullets() {
 
       {loading && <p className="py-4 text-sm text-muted-foreground">Fetching this resume's bullets…</p>}
 
-      {!loading && !selectedResumeId && !error && (
-        <p className="py-4 text-sm text-muted-foreground">Select a resume above to see its bullets.</p>
-      )}
-
-      {!loading && selectedResumeId && bullets.length === 0 && !error && (
+      {!loading && bullets.length === 0 && !error && (
         <p className="py-4 text-sm text-muted-foreground">
           This resume has no bullets yet — add one above, or upload a file.
         </p>

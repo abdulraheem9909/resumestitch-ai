@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Download } from "lucide-react";
 import { APPLICATIONS_API as API_BASE } from "../lib/api.js";
+import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -216,9 +217,13 @@ export default function Approval() {
 
   return (
     <section className="mx-auto w-full max-w-3xl">
-      <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Application review
-      </p>
+      <Breadcrumbs
+        backTo="/applications"
+        trail={[
+          { label: "Applications", to: "/applications" },
+          { label: application?.companyName || "Review application" },
+        ]}
+      />
       <h1 className="font-display text-3xl font-semibold text-foreground">
         {application?.companyName || "Review application"}
       </h1>

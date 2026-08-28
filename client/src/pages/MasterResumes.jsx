@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,11 @@ export default function MasterResumes() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
+
+  const [editTarget, setEditTarget] = useState(null);
+  const [editPersonalInfo, setEditPersonalInfo] = useState(EMPTY_PERSONAL_INFO);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState("");
 
   useEffect(() => {
     async function loadResumes() {
@@ -110,19 +115,55 @@ export default function MasterResumes() {
     }
   }
 
+  function updateEditPersonalInfoField(field) {
+    return (event) => setEditPersonalInfo((prev) => ({ ...prev, [field]: event.target.value }));
+  }
+
+  function startEditing(resume) {
+    setEditTarget(resume);
+    setEditPersonalInfo({ ...EMPTY_PERSONAL_INFO, ...resume.personalInfo });
+    setEditError("");
+  }
+
+  async function saveEdit() {
+    if (!editTarget || !editPersonalInfo.fullName.trim()) return;
+
+    setSavingEdit(true);
+    setEditError("");
+    try {
+      const res = await fetch(`${RESUMES_API}/${editTarget._id}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ personalInfo: editPersonalInfo }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't save these changes.");
+
+      setMasterResumes((prev) =>
+        prev.map((resume) => (resume._id === editTarget._id ? data.masterResume : resume))
+      );
+      setEditTarget(null);
+    } catch (err) {
+      setEditError(err.message);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
   return (
     <section className="mx-auto w-full max-w-4xl">
       <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
         Master resumes
       </p>
       <div className="mb-3 flex items-center justify-between gap-4">
-        <h1 className="font-display text-3xl font-semibold text-foreground">Start an application</h1>
+        <h1 className="font-display text-3xl font-semibold text-foreground">Master resumes</h1>
         <Button size="sm" onClick={() => setIsUploadOpen(true)}>
           <Plus className="size-4" /> Upload resume
         </Button>
       </div>
       <p className="mb-8 max-w-prose text-base text-muted-foreground">
-        Pick which resume you're applying with to move on to the job description.
+        Click a resume to view it, or manage it from here — edit its contact details, or delete it
+        along with everything ever run against it.
       </p>
 
       {error && (
@@ -142,28 +183,42 @@ export default function MasterResumes() {
             key={resume._id}
             role="button"
             tabIndex={0}
-            onClick={() => navigate(`/resumes/${resume._id}/apply`)}
+            onClick={() => navigate(`/resumes/${resume._id}`)}
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault();
-                navigate(`/resumes/${resume._id}/apply`);
+                navigate(`/resumes/${resume._id}`);
               }
             }}
             className="relative flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card p-5 text-left shadow-card transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-secondary/40 hover:shadow-[0_2px_4px_rgba(22,33,27,0.06),0_12px_28px_-12px_rgba(22,33,27,0.22)] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-sm"
-              className="absolute top-3 right-3 text-muted-foreground hover:text-destructive"
-              onClick={(event) => {
-                event.stopPropagation();
-                setDeleteTarget(resume);
-              }}
-            >
-              <Trash2 className="size-4" />
-            </Button>
-            <span className="font-display pr-8 text-base font-semibold text-foreground">
+            <div className="absolute top-3 right-3 flex gap-1">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  startEditing(resume);
+                }}
+              >
+                <Pencil className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-destructive"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setDeleteTarget(resume);
+                }}
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+            <span className="font-display pr-16 text-base font-semibold text-foreground">
               {resume.label}
             </span>
             <span className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
@@ -274,6 +329,77 @@ export default function MasterResumes() {
             </Button>
             <Button variant="destructive" onClick={deleteResume} disabled={deleting}>
               {deleting ? "Deleting…" : "Delete permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit "{editTarget?.label}"</DialogTitle>
+            <DialogDescription>Update this resume's contact details.</DialogDescription>
+          </DialogHeader>
+
+          {editError && (
+            <Alert variant="destructive">
+              <AlertDescription>{editError}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2 flex flex-col gap-1.5">
+              <Label htmlFor="edit-fullName">Full name</Label>
+              <Input
+                id="edit-fullName"
+                value={editPersonalInfo.fullName}
+                onChange={updateEditPersonalInfoField("fullName")}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-title">Title</Label>
+              <Input id="edit-title" value={editPersonalInfo.title} onChange={updateEditPersonalInfoField("title")} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-location">Location</Label>
+              <Input
+                id="edit-location"
+                value={editPersonalInfo.location}
+                onChange={updateEditPersonalInfoField("location")}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-phone">Phone</Label>
+              <Input id="edit-phone" value={editPersonalInfo.phone} onChange={updateEditPersonalInfoField("phone")} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-email">Email</Label>
+              <Input id="edit-email" value={editPersonalInfo.email} onChange={updateEditPersonalInfoField("email")} />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-linkedin">LinkedIn</Label>
+              <Input
+                id="edit-linkedin"
+                value={editPersonalInfo.linkedin}
+                onChange={updateEditPersonalInfoField("linkedin")}
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="edit-portfolio">Portfolio</Label>
+              <Input
+                id="edit-portfolio"
+                value={editPersonalInfo.portfolio}
+                onChange={updateEditPersonalInfoField("portfolio")}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setEditTarget(null)} disabled={savingEdit}>
+              Cancel
+            </Button>
+            <Button onClick={saveEdit} disabled={savingEdit || !editPersonalInfo.fullName.trim()}>
+              {savingEdit ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>

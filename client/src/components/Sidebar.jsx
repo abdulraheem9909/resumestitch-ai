@@ -1,13 +1,12 @@
 import { NavLink } from "react-router-dom";
-import { Briefcase, Files, ListChecks } from "lucide-react";
+import { Briefcase, Files } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import ThemeToggle from "./ThemeToggle.jsx";
 
 const NAV_ITEMS = [
-  { to: "/bullets", label: "Resume Bullets", icon: ListChecks, end: true },
+  { to: "/applications", label: "Applications", icon: Briefcase, end: false },
   { to: "/resumes", label: "Master Resumes", icon: Files, end: false },
-  { to: "/applications", label: "Applications", icon: Briefcase, end: true },
 ];
 
 export default function Sidebar() {

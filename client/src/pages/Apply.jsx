@@ -1,17 +1,25 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { APPLICATIONS_API, RESUMES_API } from "../lib/api.js";
+import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
-export default function JdSubmission() {
-  const { resumeId } = useParams();
+export default function Apply() {
   const navigate = useNavigate();
 
-  const [resumeLabel, setResumeLabel] = useState("");
+  const [masterResumes, setMasterResumes] = useState([]);
+  const [selectedResumeId, setSelectedResumeId] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [jdText, setJdText] = useState("");
   const [referenceUrl, setReferenceUrl] = useState("");
@@ -20,22 +28,21 @@ export default function JdSubmission() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    async function loadResumeLabel() {
+    async function loadResumes() {
       try {
         const res = await fetch(RESUMES_API);
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Couldn't load resumes.");
-        const resume = data.masterResumes?.find((r) => r._id === resumeId);
-        setResumeLabel(resume?.label || "");
-      } catch {
-        // non-fatal — the label is a nicety, submission still works without it
+        if (!res.ok) throw new Error(data.error || "Couldn't load your resumes.");
+        setMasterResumes(data.masterResumes);
+      } catch (err) {
+        setError(err.message);
       }
     }
-    loadResumeLabel();
-  }, [resumeId]);
+    loadResumes();
+  }, []);
 
   async function submit() {
-    if (!companyName.trim() || !jdText.trim()) return;
+    if (!selectedResumeId || !companyName.trim() || !jdText.trim()) return;
 
     setSubmitting(true);
     setError("");
@@ -44,7 +51,7 @@ export default function JdSubmission() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          masterResumeId: resumeId,
+          masterResumeId: selectedResumeId,
           companyName,
           jdText,
           referenceUrl: referenceUrl || undefined,
@@ -63,13 +70,11 @@ export default function JdSubmission() {
 
   return (
     <section className="mx-auto w-full max-w-2xl">
-      <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        New application{resumeLabel ? ` · ${resumeLabel}` : ""}
-      </p>
+      <Breadcrumbs backTo="/applications" trail={[{ label: "Applications", to: "/applications" }, { label: "Start Application" }]} />
       <h1 className="font-display mb-3 text-3xl font-semibold text-foreground">Paste a job description</h1>
       <p className="mb-8 max-w-prose text-base text-muted-foreground">
         Paste the job's text as-is — nothing is fetched from a URL. We'll extract what it's asking
-        for, check it against this resume, and tailor a draft for you to review.
+        for, check it against the resume you pick, and tailor a draft for you to review.
       </p>
 
       {error && (
@@ -79,6 +84,22 @@ export default function JdSubmission() {
       )}
 
       <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="apply-resume">Resume</Label>
+          <Select value={selectedResumeId} onValueChange={setSelectedResumeId}>
+            <SelectTrigger id="apply-resume" className="w-full">
+              <SelectValue placeholder="Select a resume…" />
+            </SelectTrigger>
+            <SelectContent>
+              {masterResumes.map((resume) => (
+                <SelectItem key={resume._id} value={resume._id}>
+                  {resume.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="jd-company">Company name</Label>
           <Input
@@ -126,7 +147,7 @@ export default function JdSubmission() {
         <Button
           className="w-fit"
           onClick={submit}
-          disabled={submitting || !companyName.trim() || !jdText.trim()}
+          disabled={submitting || !selectedResumeId || !companyName.trim() || !jdText.trim()}
         >
           {submitting ? "Tailoring…" : "Start tailoring"}
         </Button>

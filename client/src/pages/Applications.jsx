@@ -1,15 +1,61 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Download } from "lucide-react";
+import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown, Download, FileText, Plus } from "lucide-react";
 import { APPLICATIONS_API } from "../lib/api.js";
+import { cn } from "@/lib/utils.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+
+const COLUMNS = [
+  { key: "companyName", label: "Company", align: "left" },
+  { key: "approvedAt", label: "Approved", align: "right" },
+  { key: "atsScore", label: "ATS score", align: "right" },
+];
+
+function SortableHeader({ column, sort, onSort }) {
+  const active = sort.key === column.key;
+  return (
+    <th
+      scope="col"
+      className={cn(
+        "py-3 font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase select-none",
+        column.align === "right" ? "pr-4 text-right" : "pl-4 text-left"
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(column.key)}
+        className={cn(
+          "inline-flex items-center gap-1 transition-colors hover:text-foreground",
+          column.align === "right" && "flex-row-reverse"
+        )}
+      >
+        {column.label}
+        {active ? (
+          sort.direction === "asc" ? (
+            <ChevronUp className="size-3" />
+          ) : (
+            <ChevronDown className="size-3" />
+          )
+        ) : (
+          <ChevronsUpDown className="size-3 opacity-40" />
+        )}
+      </button>
+    </th>
+  );
+}
+
+function scoreTier(atsScore) {
+  if (atsScore == null) return "unknown";
+  return atsScore >= 70 ? "strong" : "weak";
+}
 
 export default function Applications() {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [sort, setSort] = useState({ key: "approvedAt", direction: "desc" });
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -30,6 +76,25 @@ export default function Applications() {
     loadApplications();
   }, []);
 
+  function handleSort(key) {
+    setSort((prev) =>
+      prev.key === key ? { key, direction: prev.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" }
+    );
+  }
+
+  const sortedApplications = useMemo(() => {
+    const factor = sort.direction === "asc" ? 1 : -1;
+    return [...applications].sort((a, b) => {
+      if (sort.key === "companyName") {
+        return a.companyName.localeCompare(b.companyName) * factor;
+      }
+      if (sort.key === "atsScore") {
+        return ((a.atsScore ?? -1) - (b.atsScore ?? -1)) * factor;
+      }
+      return (new Date(a.approvedAt ?? 0) - new Date(b.approvedAt ?? 0)) * factor;
+    });
+  }, [applications, sort]);
+
   return (
     <section className="mx-auto w-full max-w-4xl">
       <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
@@ -39,15 +104,20 @@ export default function Applications() {
         <h1 className="font-display text-3xl font-semibold text-foreground">
           Every approved application
         </h1>
-        <a href={`${APPLICATIONS_API}/export/tracker.xlsx`}>
-          <Button size="sm" variant="outline">
-            <Download className="size-4" /> Export as spreadsheet
+        <div className="flex gap-2">
+          <a href={`${APPLICATIONS_API}/export/tracker.xlsx`}>
+            <Button size="sm" variant="outline">
+              <Download className="size-4" /> Export as spreadsheet
+            </Button>
+          </a>
+          <Button size="sm" onClick={() => navigate("/apply")}>
+            <Plus className="size-4" /> Start application
           </Button>
-        </a>
+        </div>
       </div>
       <p className="mb-8 max-w-prose text-base text-muted-foreground">
         Once you approve an application, it shows up here — company, when you approved it, and
-        the score it landed. Click into one for the full JD, tailored resume, and every insight
+        the score it landed. Click a row for the full JD, tailored resume, and every insight
         alongside it.
       </p>
 
@@ -62,29 +132,66 @@ export default function Applications() {
         <p className="py-4 text-sm text-muted-foreground">No approved applications yet.</p>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {applications.map((application) => (
-          <button
-            key={application._id}
-            type="button"
-            onClick={() => navigate(`/applications/${application._id}/approve`)}
-            className="flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card p-5 text-left shadow-card transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-secondary/40 hover:shadow-[0_2px_4px_rgba(22,33,27,0.06),0_12px_28px_-12px_rgba(22,33,27,0.22)] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-          >
-            <span className="font-display text-base font-semibold text-foreground">
-              {application.companyName}
-            </span>
-            <span className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
-              Approved{" "}
-              {application.approvedAt ? new Date(application.approvedAt).toLocaleDateString() : "—"}
-            </span>
-            {application.atsScore != null && (
-              <Badge variant={application.atsScore >= 70 ? "secondary" : "destructive"}>
-                ATS score: {application.atsScore}
-              </Badge>
-            )}
-          </button>
-        ))}
-      </div>
+      {!loading && applications.length > 0 && (
+        <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
+          <table className="w-full min-w-[560px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-border">
+                {COLUMNS.map((column) => (
+                  <SortableHeader key={column.key} column={column} sort={sort} onSort={handleSort} />
+                ))}
+                <th scope="col" className="w-10" aria-hidden="true" />
+              </tr>
+            </thead>
+            <tbody>
+              {sortedApplications.map((application) => {
+                const tier = scoreTier(application.atsScore);
+                return (
+                  <tr
+                    key={application._id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => navigate(`/applications/${application._id}/approve`)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        navigate(`/applications/${application._id}/approve`);
+                      }
+                    }}
+                    className="group cursor-pointer border-b border-border transition-colors last:border-0 hover:bg-secondary/40 focus-visible:bg-secondary/40 focus-visible:outline-none"
+                  >
+                    <td className="py-3.5 pl-4">
+                      <div className="flex items-center gap-2">
+                        <span className="font-display font-semibold text-foreground">
+                          {application.companyName}
+                        </span>
+                        {application.coverLetterRequested && (
+                          <FileText className="size-3.5 shrink-0 text-muted-foreground" aria-label="Cover letter generated" />
+                        )}
+                      </div>
+                    </td>
+                    <td className="py-3.5 pr-4 text-right font-mono text-xs tracking-wide text-muted-foreground uppercase">
+                      {application.approvedAt ? new Date(application.approvedAt).toLocaleDateString() : "—"}
+                    </td>
+                    <td className="py-3.5 pr-4 text-right">
+                      {application.atsScore != null ? (
+                        <Badge variant={tier === "strong" ? "secondary" : "destructive"}>
+                          {application.atsScore}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="py-3.5 pr-4 text-right">
+                      <ChevronRight className="ml-auto size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }

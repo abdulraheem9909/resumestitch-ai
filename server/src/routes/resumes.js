@@ -127,6 +127,24 @@ router.post("/", upload.single("file"), async (req, res) => {
   }
 });
 
+// For the resume detail page — a single active resume.
+router.get("/:id", async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: "Invalid resume id." });
+  }
+
+  try {
+    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    if (!resume) {
+      return res.status(404).json({ error: "Resume not found." });
+    }
+    return res.json({ masterResume: resume });
+  } catch (err) {
+    return res.status(500).json({ error: "Failed to load resume." });
+  }
+});
+
 router.patch("/:id", async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
