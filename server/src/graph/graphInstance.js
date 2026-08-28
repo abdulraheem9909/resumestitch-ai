@@ -18,3 +18,10 @@ export function getJobAgentGraph() {
   }
   return instance.graph;
 }
+
+export function getCheckpointer() {
+  if (!instance) {
+    throw new Error('Job agent graph not initialized — call initJobAgentGraph() at server startup.');
+  }
+  return instance.checkpointer;
+}

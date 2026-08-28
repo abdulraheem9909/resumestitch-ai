@@ -331,5 +331,5 @@ export function createJobAgentGraph(mongoUri, dbName) {
 
   const graph = builder.compile({ checkpointer });
 
-  return { graph, client };
+  return { graph, client, checkpointer };
 }

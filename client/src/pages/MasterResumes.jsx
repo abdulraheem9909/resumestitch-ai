@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -37,6 +37,10 @@ export default function MasterResumes() {
   const [file, setFile] = useState(null);
   const [formLabel, setFormLabel] = useState("");
   const [personalInfo, setPersonalInfo] = useState(EMPTY_PERSONAL_INFO);
+
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     async function loadResumes() {
@@ -87,6 +91,25 @@ export default function MasterResumes() {
     }
   }
 
+  async function deleteResume() {
+    if (!deleteTarget) return;
+
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      const res = await fetch(`${RESUMES_API}/${deleteTarget._id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't delete this resume.");
+
+      setMasterResumes((prev) => prev.filter((resume) => resume._id !== deleteTarget._id));
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <section className="mx-auto w-full max-w-4xl">
       <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
@@ -115,19 +138,38 @@ export default function MasterResumes() {
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {masterResumes.map((resume) => (
-          <button
+          <div
             key={resume._id}
-            type="button"
+            role="button"
+            tabIndex={0}
             onClick={() => navigate(`/resumes/${resume._id}/apply`)}
-            className="flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card p-5 text-left shadow-card transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-secondary/40 hover:shadow-[0_2px_4px_rgba(22,33,27,0.06),0_12px_28px_-12px_rgba(22,33,27,0.22)] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" || event.key === " ") {
+                event.preventDefault();
+                navigate(`/resumes/${resume._id}/apply`);
+              }
+            }}
+            className="relative flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card p-5 text-left shadow-card transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-secondary/40 hover:shadow-[0_2px_4px_rgba(22,33,27,0.06),0_12px_28px_-12px_rgba(22,33,27,0.22)] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
           >
-            <span className="font-display text-base font-semibold text-foreground">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-sm"
+              className="absolute top-3 right-3 text-muted-foreground hover:text-destructive"
+              onClick={(event) => {
+                event.stopPropagation();
+                setDeleteTarget(resume);
+              }}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+            <span className="font-display pr-8 text-base font-semibold text-foreground">
               {resume.label}
             </span>
             <span className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
               Uploaded {new Date(resume.uploadedAt).toLocaleDateString()}
             </span>
-          </button>
+          </div>
         ))}
       </div>
 
@@ -204,6 +246,34 @@ export default function MasterResumes() {
               disabled={uploading || !file || !formLabel.trim() || !personalInfo.fullName.trim()}
             >
               {uploading ? "Uploading…" : "Upload"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete "{deleteTarget?.label}"?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes this resume, every bullet in it, and every application ever
+              run against it — including their tailored resumes, cover letters, and scoring
+              history. This can't be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteError && (
+            <Alert variant="destructive">
+              <AlertDescription>{deleteError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={deleteResume} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete permanently"}
             </Button>
           </DialogFooter>
         </DialogContent>

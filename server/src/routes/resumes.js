@@ -8,6 +8,9 @@ import { tagBullet } from "../services/tagBullet.js";
 import { canonicalizeSkill } from "../services/canonicalizeSkill.js";
 import MasterResume from "../models/MasterResume.js";
 import ResumeBullet from "../models/ResumeBullet.js";
+import Application from "../models/Application.js";
+import GenerationCache from "../models/GenerationCache.js";
+import { getCheckpointer } from "../graph/graphInstance.js";
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -286,6 +289,13 @@ router.patch("/bullets/:id", async (req, res) => {
   }
 });
 
+// Section 2.4 — full cascading delete, in the given order:
+// 1. applications linked to this resume, 2. their generated output files,
+// 3. their LangGraph checkpoint/thread history (also cleans up GenerationCache
+// entries, the same category of applicationId-keyed data section 2.4 doesn't
+// literally mention), 4. every resumeBullets document, 5. the masterResumes
+// document itself. Destructive and irreversible — this is what frees a slot
+// under the 5-resume cap.
 router.delete("/:id", async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
@@ -298,11 +308,45 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ error: "Resume not found." });
     }
 
-    resume.status = "deleted";
-    await resume.save();
+    // Capture linked application ids before deleting their documents — the
+    // checkpoint cleanup below needs them and step 1 removes the documents
+    // that would otherwise let us look them up.
+    const applications = await Application.find({ masterResumeId: id }, { _id: 1 });
+    const applicationIds = applications.map((application) => application._id.toString());
 
-    return res.json({ masterResume: resume });
+    // Step 1 — delete linked applications documents.
+    await Application.deleteMany({ masterResumeId: id });
+
+    // Step 2 — delete any generated output files. This build never writes
+    // approved .docx files to disk in the first place (server/src/routes/
+    // applications.js's export routes generate them on demand straight from
+    // Mongo and stream them back) — nothing to delete here by design.
+
+    // Step 3 — delete the LangGraph checkpoint/thread history for each
+    // application (thread_id === applications._id).
+    const checkpointer = getCheckpointer();
+    await Promise.all(applicationIds.map((applicationId) => checkpointer.deleteThread(applicationId)));
+
+    // Not one of section 2.4's five numbered steps (written before the
+    // idempotency cache in section 6 existed), but it's the same category of
+    // data keyed by applicationId — GenerationCache entries for these
+    // applications (nodes 1/5/7/9) would otherwise survive as orphans with
+    // no application left to ever reference them again.
+    await GenerationCache.deleteMany({ applicationId: { $in: applicationIds } });
+
+    // Step 4 — delete every resumeBullets document tied to this resume.
+    const { deletedCount: resumeBulletsDeleted } = await ResumeBullet.deleteMany({ masterResumeId: id });
+
+    // Step 5 — delete the masterResumes document itself.
+    await MasterResume.deleteOne({ _id: id });
+
+    return res.json({
+      deleted: true,
+      applicationsDeleted: applicationIds.length,
+      resumeBulletsDeleted,
+    });
   } catch (err) {
+    console.error(err);
     return res.status(500).json({ error: "Failed to delete resume." });
   }
 });
