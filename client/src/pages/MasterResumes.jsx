@@ -151,20 +151,22 @@ export default function MasterResumes() {
   }
 
   return (
-    <section className="mx-auto w-full max-w-4xl">
-      <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Master resumes
-      </p>
-      <div className="mb-3 flex items-center justify-between gap-4">
-        <h1 className="font-display text-3xl font-semibold text-foreground">Master resumes</h1>
-        <Button size="sm" onClick={() => setIsUploadOpen(true)}>
-          <Plus className="size-4" /> Upload resume
-        </Button>
+    <section className="mx-auto w-full max-w-5xl pt-7 md:pt-10">
+      <div className="sticky top-0 z-10 bg-background pb-10">
+        <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          Master resumes
+        </p>
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">Master resumes</h1>
+          <Button size="sm" className="w-fit cursor-pointer" onClick={() => setIsUploadOpen(true)}>
+            <Plus className="size-4" /> Upload resume
+          </Button>
+        </div>
+        <p className="max-w-prose text-sm text-muted-foreground md:text-base">
+          Click a resume to view it, or manage it from here — edit its contact details, or delete it
+          along with everything ever run against it.
+        </p>
       </div>
-      <p className="mb-8 max-w-prose text-base text-muted-foreground">
-        Click a resume to view it, or manage it from here — edit its contact details, or delete it
-        along with everything ever run against it.
-      </p>
 
       {error && (
         <Alert variant="destructive" className="mb-5">
@@ -177,7 +179,7 @@ export default function MasterResumes() {
         <p className="py-4 text-sm text-muted-foreground">You haven't uploaded a resume yet.</p>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 mt-1">
         {masterResumes.map((resume) => (
           <div
             key={resume._id}
@@ -190,14 +192,14 @@ export default function MasterResumes() {
                 navigate(`/resumes/${resume._id}`);
               }
             }}
-            className="relative flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card p-5 text-left shadow-card transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-secondary/40 hover:shadow-[0_2px_4px_rgba(22,33,27,0.06),0_12px_28px_-12px_rgba(22,33,27,0.22)] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+            className="relative flex flex-col items-start gap-1.5 rounded-lg border border-border bg-card p-5 text-left shadow-card transition-all hover:-translate-y-0.5 hover:border-primary hover:bg-secondary/40 hover:shadow-[0_2px_4px_rgba(22,33,27,0.06),0_12px_28px_-12px_rgba(22,33,27,0.22)] focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none cursor-pointer"
           >
             <div className="absolute top-3 right-3 flex gap-1">
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="text-muted-foreground hover:text-foreground"
+                className="text-foreground hover:text-foreground cursor-pointer"
                 onClick={(event) => {
                   event.stopPropagation();
                   startEditing(resume);
@@ -209,7 +211,7 @@ export default function MasterResumes() {
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="text-muted-foreground hover:text-destructive"
+                className="text-destructive hover:text-destructive cursor-pointer"
                 onClick={(event) => {
                   event.stopPropagation();
                   setDeleteTarget(resume);

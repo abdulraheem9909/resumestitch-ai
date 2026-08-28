@@ -125,25 +125,27 @@ export default function ResumeBullets() {
   }
 
   return (
-    <section className="mx-auto w-full max-w-3xl">
-      <Breadcrumbs
-        backTo={`/resumes/${id}`}
-        trail={[
-          { label: "Master Resumes", to: "/resumes" },
-          { label: resume?.personalInfo?.fullName || resume?.label || "Resume", to: `/resumes/${id}` },
-          { label: "Resume Bullets" },
-        ]}
-      />
-      <div className="mb-3 flex items-center justify-between gap-4">
-        <h1 className="font-display text-3xl font-semibold text-foreground">Resume Bullets</h1>
-        <Button size="sm" onClick={() => setIsAddOpen(true)}>
-          <Plus className="size-4" /> Add bullet
-        </Button>
+    <section className="mx-auto w-full max-w-5xl pt-7 md:pt-10">
+      <div className="sticky top-0 z-10 bg-background pb-10">
+        <Breadcrumbs
+          backTo={`/resumes/${id}`}
+          trail={[
+            { label: "Master Resumes", to: "/resumes" },
+            { label: resume?.personalInfo?.fullName || resume?.label || "Resume", to: `/resumes/${id}` },
+            { label: "Resume Bullets" },
+          ]}
+        />
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">Resume Bullets</h1>
+          <Button size="sm" className="w-fit" onClick={() => setIsAddOpen(true)}>
+            <Plus className="size-4" /> Add bullet
+          </Button>
+        </div>
+        <p className="max-w-prose text-sm text-muted-foreground md:text-base">
+          Every bullet here is a real line from something you uploaded — editing it here changes
+          what gets pulled into every future tailored resume.
+        </p>
       </div>
-      <p className="mb-8 max-w-prose text-base text-muted-foreground">
-        Every bullet here is a real line from something you uploaded — editing it here changes
-        what gets pulled into every future tailored resume.
-      </p>
 
       {error && (
         <Alert variant="destructive" className="mb-5">

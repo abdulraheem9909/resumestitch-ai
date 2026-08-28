@@ -96,30 +96,32 @@ export default function Applications() {
   }, [applications, sort]);
 
   return (
-    <section className="mx-auto w-full max-w-4xl">
-      <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        Applications
-      </p>
-      <div className="mb-3 flex items-center justify-between gap-4">
-        <h1 className="font-display text-3xl font-semibold text-foreground">
-          Every approved application
-        </h1>
-        <div className="flex gap-2">
-          <a href={`${APPLICATIONS_API}/export/tracker.xlsx`}>
-            <Button size="sm" variant="outline">
-              <Download className="size-4" /> Export as spreadsheet
+    <section className="mx-auto w-full max-w-5xl pt-7 md:pt-10">
+      <div className="sticky top-0 z-10 bg-background pb-10">
+        <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
+          Applications
+        </p>
+        <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">
+            Every approved application
+          </h1>
+          <div className="flex flex-wrap gap-2">
+            <a href={`${APPLICATIONS_API}/export/tracker.xlsx`}>
+              <Button size="sm" variant="outline">
+                <Download className="size-4" /> Export as spreadsheet
+              </Button>
+            </a>
+            <Button size="sm" onClick={() => navigate("/apply")}>
+              <Plus className="size-4" /> Start application
             </Button>
-          </a>
-          <Button size="sm" onClick={() => navigate("/apply")}>
-            <Plus className="size-4" /> Start application
-          </Button>
+          </div>
         </div>
+        <p className="max-w-prose text-sm text-muted-foreground md:text-base">
+          Once you approve an application, it shows up here — company, when you approved it, and
+          the score it landed. Click a row for the full JD, tailored resume, and every insight
+          alongside it.
+        </p>
       </div>
-      <p className="mb-8 max-w-prose text-base text-muted-foreground">
-        Once you approve an application, it shows up here — company, when you approved it, and
-        the score it landed. Click a row for the full JD, tailored resume, and every insight
-        alongside it.
-      </p>
 
       {error && (
         <Alert variant="destructive" className="mb-5">

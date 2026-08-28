@@ -69,13 +69,15 @@ export default function Apply() {
   }
 
   return (
-    <section className="mx-auto w-full max-w-2xl">
-      <Breadcrumbs backTo="/applications" trail={[{ label: "Applications", to: "/applications" }, { label: "Start Application" }]} />
-      <h1 className="font-display mb-3 text-3xl font-semibold text-foreground">Paste a job description</h1>
-      <p className="mb-8 max-w-prose text-base text-muted-foreground">
-        Paste the job's text as-is — nothing is fetched from a URL. We'll extract what it's asking
-        for, check it against the resume you pick, and tailor a draft for you to review.
-      </p>
+    <section className="mx-auto w-full max-w-5xl pt-7 md:pt-10">
+      <div className="sticky top-0 z-10 bg-background pb-10">
+        <Breadcrumbs backTo="/applications" trail={[{ label: "Applications", to: "/applications" }, { label: "Start Application" }]} />
+        <h1 className="font-display mb-3 text-2xl font-semibold text-foreground md:text-3xl">Paste a job description</h1>
+        <p className="max-w-prose text-sm text-muted-foreground md:text-base">
+          Paste the job's text as-is — nothing is fetched from a URL. We'll extract what it's asking
+          for, check it against the resume you pick, and tailor a draft for you to review.
+        </p>
+      </div>
 
       {error && (
         <Alert variant="destructive" className="mb-5">

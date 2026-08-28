@@ -216,21 +216,23 @@ export default function Approval() {
   const busy = savingBulletId !== null || savingSummary || rechecking || addingSkill || sendingRetry || approving;
 
   return (
-    <section className="mx-auto w-full max-w-3xl">
-      <Breadcrumbs
-        backTo="/applications"
-        trail={[
-          { label: "Applications", to: "/applications" },
-          { label: application?.companyName || "Review application" },
-        ]}
-      />
-      <h1 className="font-display text-3xl font-semibold text-foreground">
-        {application?.companyName || "Review application"}
-      </h1>
-      <p className="mb-8 max-w-prose text-base text-muted-foreground">
-        Nothing here is saved or exported until you approve it — hand-edit anything that doesn't
-        sound like you, or send it back with notes for another pass.
-      </p>
+    <section className="mx-auto w-full max-w-5xl pt-7 md:pt-10">
+      <div className="sticky top-0 z-10 bg-background pb-10">
+        <Breadcrumbs
+          backTo="/applications"
+          trail={[
+            { label: "Applications", to: "/applications" },
+            { label: application?.companyName || "Review application" },
+          ]}
+        />
+        <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">
+          {application?.companyName || "Review application"}
+        </h1>
+        <p className="max-w-prose text-sm text-muted-foreground md:text-base">
+          Nothing here is saved or exported until you approve it — hand-edit anything that doesn't
+          sound like you, or send it back with notes for another pass.
+        </p>
+      </div>
 
       {error && (
         <Alert variant="destructive" className="mb-5">
@@ -364,7 +366,7 @@ export default function Approval() {
                   {flags.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-1.5">
                       {flags.map((flag) => (
-                        <Badge key={flag} variant="destructive">
+                        <Badge key={flag} variant="destructive" className="max-w-full min-w-0 shrink flex-wrap whitespace-normal break-words">
                           {flag}
                         </Badge>
                       ))}
@@ -395,7 +397,7 @@ export default function Approval() {
                   <Badge variant="secondary">No flags raised</Badge>
                 ) : (
                   application.atsFlags.map((flag) => (
-                    <Badge key={flag} variant="destructive">
+                    <Badge key={flag} variant="destructive" className="max-w-full min-w-0 shrink flex-wrap whitespace-normal break-words">
                       {flag}
                     </Badge>
                   ))
@@ -439,7 +441,7 @@ export default function Approval() {
                   <Badge variant="secondary">No issues found</Badge>
                 ) : (
                   application.humanRecheckAtsFlags.map((flag) => (
-                    <Badge key={flag} variant="destructive">
+                    <Badge key={flag} variant="destructive" className="max-w-full min-w-0 shrink flex-wrap whitespace-normal break-words">
                       {flag}
                     </Badge>
                   ))
@@ -503,7 +505,7 @@ export default function Approval() {
                   Approved{application.approvedAt ? ` on ${new Date(application.approvedAt).toLocaleString()}` : ""}.
                 </AlertDescription>
               </Alert>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <a href={`${API_BASE}/${applicationId}/export/resume.docx`}>
                   <Button size="sm" variant="outline">
                     <Download className="size-4" /> Download resume (.docx)

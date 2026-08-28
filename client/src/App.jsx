@@ -9,9 +9,9 @@ import Approval from './pages/Approval.jsx'
 
 function App() {
   return (
-    <div className="flex min-h-svh flex-col md:flex-row">
+    <div className="flex h-svh flex-col md:flex-row">
       <Sidebar />
-      <main className="min-w-0 flex-1 px-6 pt-7 pb-10 md:px-10 md:pt-10 md:pb-14">
+      <main className="min-w-0 flex-1 overflow-y-auto px-6 pb-10 md:px-10 md:pb-14">
         <Routes>
           <Route path="/" element={<Navigate to="/applications" replace />} />
           <Route path="/applications" element={<Applications />} />

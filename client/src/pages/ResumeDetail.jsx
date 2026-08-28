@@ -68,14 +68,34 @@ export default function ResumeDetail() {
   const experience = groupBulletsByRole(bullets);
 
   return (
-    <section className="mx-auto w-full max-w-3xl">
-      <Breadcrumbs
-        backTo="/resumes"
-        trail={[
-          { label: "Master Resumes", to: "/resumes" },
-          { label: resume?.personalInfo?.fullName || resume?.label || "Resume" },
-        ]}
-      />
+    <section className="mx-auto w-full max-w-5xl pt-7 md:pt-10">
+      <div className="sticky top-0 z-10 bg-background pb-10">
+        <Breadcrumbs
+          backTo="/resumes"
+          trail={[
+            { label: "Master Resumes", to: "/resumes" },
+            { label: resume?.personalInfo?.fullName || resume?.label || "Resume" },
+          ]}
+        />
+        {resume && (
+          <>
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  {resume.personalInfo?.title || "Master resume"}
+                </p>
+                <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">
+                  {resume.personalInfo?.fullName || resume.label}
+                </h1>
+              </div>
+              <Button size="sm" className="w-fit" onClick={() => navigate(`/resumes/${id}/bullets`)}>
+                <ListChecks className="size-4" /> Resume Bullets
+              </Button>
+            </div>
+            {contactLine && <p className="max-w-prose text-sm text-muted-foreground md:text-base">{contactLine}</p>}
+          </>
+        )}
+      </div>
 
       {error && (
         <Alert variant="destructive" className="mb-5">
@@ -86,21 +106,6 @@ export default function ResumeDetail() {
 
       {!loading && resume && (
         <>
-          <div className="mb-3 flex items-center justify-between gap-4">
-            <div>
-              <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                {resume.personalInfo?.title || "Master resume"}
-              </p>
-              <h1 className="font-display text-3xl font-semibold text-foreground">
-                {resume.personalInfo?.fullName || resume.label}
-              </h1>
-            </div>
-            <Button size="sm" onClick={() => navigate(`/resumes/${id}/bullets`)}>
-              <ListChecks className="size-4" /> Resume Bullets
-            </Button>
-          </div>
-          {contactLine && <p className="mb-8 max-w-prose text-base text-muted-foreground">{contactLine}</p>}
-
           {resume.summary && (
             <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
               <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Summary</p>
