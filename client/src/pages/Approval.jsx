@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import { Download } from "lucide-react";
 import { APPLICATIONS_API as API_BASE } from "../lib/api.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -491,11 +492,27 @@ export default function Approval() {
 
           {/* Approve / send back */}
           {application.status === "approved" ? (
-            <Alert>
-              <AlertDescription>
-                Approved{application.approvedAt ? ` on ${new Date(application.approvedAt).toLocaleString()}` : ""}.
-              </AlertDescription>
-            </Alert>
+            <div className="flex flex-col gap-3">
+              <Alert>
+                <AlertDescription>
+                  Approved{application.approvedAt ? ` on ${new Date(application.approvedAt).toLocaleString()}` : ""}.
+                </AlertDescription>
+              </Alert>
+              <div className="flex gap-2">
+                <a href={`${API_BASE}/${applicationId}/export/resume.docx`}>
+                  <Button size="sm" variant="outline">
+                    <Download className="size-4" /> Download resume (.docx)
+                  </Button>
+                </a>
+                {application.coverLetterRequested && (
+                  <a href={`${API_BASE}/${applicationId}/export/cover-letter.docx`}>
+                    <Button size="sm" variant="outline">
+                      <Download className="size-4" /> Download cover letter (.docx)
+                    </Button>
+                  </a>
+                )}
+              </div>
+            </div>
           ) : (
             <div className="rounded-lg border border-border bg-card p-5 shadow-card">
               <p className="mb-2 text-xs font-medium text-muted-foreground">Send back with notes</p>

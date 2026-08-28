@@ -10,6 +10,9 @@ import { canonicalizeSkill } from '../services/canonicalizeSkill.js';
 import { tagBullet } from '../services/tagBullet.js';
 import { verifyBullet, verifySummary } from '../services/deterministicVerification.js';
 import { atsScoreAndRecruiter } from '../services/atsScoreAndRecruiter.js';
+import { buildResumeDocxBuffer } from '../services/exportResumeDocx.js';
+import { buildCoverLetterDocxBuffer } from '../services/exportCoverLetterDocx.js';
+import { buildTrackerXlsxBuffer } from '../services/exportTrackerXlsx.js';
 import { getJobAgentGraph } from '../graph/graphInstance.js';
 
 const router = Router();
@@ -25,6 +28,10 @@ function buildResumeBulletsForGraph(bullets) {
   }));
 }
 
+function sanitizeFilename(name) {
+  return (name || 'application').replace(/[^a-z0-9 _-]/gi, '').trim() || 'application';
+}
+
 // Resumes the one interrupt() in node 10 with a Command, then reads back the
 // resulting checkpoint — the only place this route file touches the graph.
 async function resumeGraph(applicationId, resumePayload) {
@@ -32,6 +39,17 @@ async function resumeGraph(applicationId, resumePayload) {
   await graph.invoke(new Command({ resume: resumePayload }), { configurable: { thread_id: applicationId } });
   return graph.getState({ configurable: { thread_id: applicationId } });
 }
+
+// For the Applications list page — approved applications only.
+router.get('/', async (req, res) => {
+  try {
+    const applications = await Application.find({ status: 'approved' }).sort({ approvedAt: -1 });
+    return res.json({ applications });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to list applications.' });
+  }
+});
 
 // Section 3 — create + start.
 router.post('/', async (req, res) => {
@@ -164,6 +182,101 @@ router.get('/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to load application.' });
+  }
+});
+
+// On-demand exports (replaces node 11's automatic tracker.xlsx/docx side
+// effects) — generated fresh from Mongo each time, never stored as files.
+// Nothing here is exportable until approved, per the "nothing is used
+// before I approve it" principle enforced elsewhere in this app.
+router.get('/:id/export/resume.docx', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+
+  try {
+    const application = await Application.findById(id);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+    if (application.status !== 'approved') {
+      return res.status(400).json({ error: 'This application has not been approved yet.' });
+    }
+
+    const resume = await MasterResume.findById(application.masterResumeId);
+    const graph = getJobAgentGraph();
+    const snapshot = await graph.getState({ configurable: { thread_id: id } });
+    const originalBullets = snapshot.values?.resumeBullets || [];
+    const originalBulletsById = new Map(originalBullets.map((bullet) => [bullet.bulletId, bullet]));
+
+    const buffer = await buildResumeDocxBuffer({
+      personalInfo: resume?.personalInfo || {},
+      tailoredSummary: application.tailoredSummary,
+      tailoredBullets: application.tailoredBullets,
+      originalBulletsById,
+    });
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Disposition': `attachment; filename="${sanitizeFilename(application.companyName)} - Resume.docx"`,
+    });
+    return res.send(buffer);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to generate resume.' });
+  }
+});
+
+router.get('/:id/export/cover-letter.docx', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+
+  try {
+    const application = await Application.findById(id);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+    if (application.status !== 'approved') {
+      return res.status(400).json({ error: 'This application has not been approved yet.' });
+    }
+    if (!application.coverLetterRequested) {
+      return res.status(400).json({ error: 'No cover letter was requested for this application.' });
+    }
+
+    const resume = await MasterResume.findById(application.masterResumeId);
+    const buffer = await buildCoverLetterDocxBuffer({
+      personalInfo: resume?.personalInfo || {},
+      companyName: application.companyName,
+      coverLetterText: application.coverLetterText,
+    });
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'Content-Disposition': `attachment; filename="${sanitizeFilename(application.companyName)} - Cover Letter.docx"`,
+    });
+    return res.send(buffer);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to generate cover letter.' });
+  }
+});
+
+router.get('/export/tracker.xlsx', async (req, res) => {
+  try {
+    const applications = await Application.find({ status: 'approved' }).sort({ approvedAt: -1 });
+    const buffer = await buildTrackerXlsxBuffer(applications);
+
+    res.set({
+      'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': 'attachment; filename="tracker.xlsx"',
+    });
+    return res.send(buffer);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to generate tracker spreadsheet.' });
   }
 });
 
