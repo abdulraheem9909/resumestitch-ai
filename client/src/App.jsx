@@ -4,6 +4,7 @@ import ResumeBullets from './pages/ResumeBullets.jsx'
 import MasterResumes from './pages/MasterResumes.jsx'
 import JdSubmission from './pages/JdSubmission.jsx'
 import Applications from './pages/Applications.jsx'
+import Approval from './pages/Approval.jsx'
 
 function App() {
   return (
@@ -16,6 +17,7 @@ function App() {
           <Route path="/resumes" element={<MasterResumes />} />
           <Route path="/resumes/:resumeId/apply" element={<JdSubmission />} />
           <Route path="/applications" element={<Applications />} />
+          <Route path="/applications/:applicationId/approve" element={<Approval />} />
         </Routes>
       </main>
     </div>

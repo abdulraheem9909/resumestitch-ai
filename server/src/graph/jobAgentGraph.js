@@ -1,4 +1,4 @@
-import { StateGraph, StateSchema, START, END } from '@langchain/langgraph';
+import { StateGraph, StateSchema, START, END, interrupt } from '@langchain/langgraph';
 import { MongoDBSaver } from '@langchain/langgraph-checkpoint-mongodb';
 import { MongoClient } from 'mongodb';
 import { z } from 'zod';
@@ -79,6 +79,11 @@ const JobAgentState = new StateSchema({
       overallPassed: z.boolean(),
     })
     .optional(),
+  retryNotes: z
+    .string()
+    .optional()
+    .default(() => ''),
+  humanDecision: z.enum(['end', 'retry']).optional(),
 });
 
 // Node 1 (section 4)
@@ -127,6 +132,7 @@ async function tailorContentNode(state) {
     yearsOfExperience,
     applicationId: state.applicationId,
     resumeVersion: state.masterResumeId,
+    retryNotes: state.retryNotes,
   });
 
   return { matchedSkills: matched, yearsOfExperience, tailoredBullets, tailoredSummary, generationId };
@@ -157,12 +163,58 @@ function deterministicVerificationNode(state) {
   return { verificationResult: { bullets, summary, overallPassed } };
 }
 
+// Node 10 (section 4 / 4a): pauses the graph via interrupt() and shows React
+// the tailored diff (or, for a role-mismatch run, the reason instead — same
+// node, per the doc's "or, if routed here from node 4" line). Only "approve"
+// and "retry" ever resume this node — hand-editing and re-check are
+// non-blocking and handled entirely at the Express layer without touching
+// the graph, so this function's only I/O is the interrupt() call itself.
+// Everything after interrupt() runs exactly once, on the resume that
+// actually supplies a value.
+function humanApprovalNode(state) {
+  const isRoleMismatch = state.roleFit?.fit === 'low';
+
+  const resumeValue = interrupt(
+    isRoleMismatch
+      ? { kind: 'role_mismatch', roleFit: state.roleFit }
+      : {
+          kind: 'review',
+          tailoredBullets: state.tailoredBullets,
+          tailoredSummary: state.tailoredSummary,
+          verificationResult: state.verificationResult,
+          keywordGaps: state.keywordGaps,
+        }
+  );
+
+  if (isRoleMismatch) {
+    return { humanDecision: 'end' };
+  }
+
+  if (resumeValue.action === 'approve') {
+    return {
+      tailoredBullets: resumeValue.tailoredBullets ?? state.tailoredBullets,
+      tailoredSummary: resumeValue.tailoredSummary ?? state.tailoredSummary,
+      humanDecision: 'end',
+    };
+  }
+
+  // resumeValue.action === 'retry' — manual "send back with notes" or an
+  // accepted suggest-missing-skills addition, both routed through the same
+  // pathway per section 4a.
+  return {
+    tailoredBullets: resumeValue.tailoredBullets ?? state.tailoredBullets,
+    resumeBullets: resumeValue.resumeBullets ?? state.resumeBullets,
+    retryNotes: resumeValue.notes ?? '',
+    humanDecision: 'retry',
+  };
+}
+
 /**
- * Assembles nodes 1-6 (section 4) into a LangGraph StateGraph with a
- * MongoDB-backed checkpointer. The 'low' branch of node 4's conditional edge
- * still routes to END — node 10 (human approval, for role_mismatch) doesn't
- * exist yet. The 'plausible' branch continues to node 5/6; redirecting 'low'
- * later only requires changing the path map below, not the router function.
+ * Assembles nodes 1-6 and node 10 (sections 4/4a) into a LangGraph
+ * StateGraph with a MongoDB-backed checkpointer. Both the role-mismatch
+ * ('low') and normal ('plausible') paths now end up at node 10 — every run
+ * pauses there, and nothing reaches END without a human resuming with
+ * action: 'approve'.
  */
 export function createJobAgentGraph(mongoUri, dbName) {
   const client = new MongoClient(mongoUri);
@@ -175,13 +227,21 @@ export function createJobAgentGraph(mongoUri, dbName) {
     .addNode('roleFitGate', roleFitGateNode)
     .addNode('tailorContent', tailorContentNode)
     .addNode('deterministicVerification', deterministicVerificationNode)
+    .addNode('humanApproval', humanApprovalNode)
     .addEdge(START, 'extractJdKeywords')
     .addEdge('extractJdKeywords', 'normalizeSkills')
     .addEdge('normalizeSkills', 'gapAnalysis')
     .addEdge('gapAnalysis', 'roleFitGate')
-    .addConditionalEdges('roleFitGate', (state) => state.roleFit.fit, { low: END, plausible: 'tailorContent' })
+    .addConditionalEdges('roleFitGate', (state) => state.roleFit.fit, {
+      low: 'humanApproval',
+      plausible: 'tailorContent',
+    })
     .addEdge('tailorContent', 'deterministicVerification')
-    .addEdge('deterministicVerification', END);
+    .addEdge('deterministicVerification', 'humanApproval')
+    .addConditionalEdges('humanApproval', (state) => state.humanDecision, {
+      end: END,
+      retry: 'tailorContent',
+    });
 
   const graph = builder.compile({ checkpointer });
 
