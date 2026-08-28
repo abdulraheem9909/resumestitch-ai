@@ -31,7 +31,8 @@ async function main() {
   for (const { company, text } of JD_SAMPLES) {
     console.log('\n=====', company, '=====');
 
-    const jdKeywords = await extractJdKeywords(text);
+    const applicationId = new mongoose.Types.ObjectId().toString();
+    const jdKeywords = await extractJdKeywords({ jdText: text, applicationId, resumeVersion: resume._id.toString() });
     console.log('JD keywords:', jdKeywords);
 
     const jdCanonical = normalizeSkills([...jdKeywords.skills, ...jdKeywords.tools]);

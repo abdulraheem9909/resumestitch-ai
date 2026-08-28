@@ -9,6 +9,7 @@ import { normalizeSkills } from '../services/normalizeSkills.js';
 import { canonicalizeSkill } from '../services/canonicalizeSkill.js';
 import { tagBullet } from '../services/tagBullet.js';
 import { verifyBullet, verifySummary } from '../services/deterministicVerification.js';
+import { atsScoreAndRecruiter } from '../services/atsScoreAndRecruiter.js';
 import { getJobAgentGraph } from '../graph/graphInstance.js';
 
 const router = Router();
@@ -235,10 +236,9 @@ router.patch('/:id/summary', async (req, res) => {
 });
 
 // Section 4a — re-check. Non-blocking, informational, no graph resume: runs
-// node 6 directly against the current (possibly hand-edited) finalText. Per
-// section 4a this should eventually also re-run node 9 against the edited
-// text (humanRecheckAtsScore/Flags), but that wasn't requested for this
-// task — deliberately left as node 6 only, a natural follow-up.
+// node 6 AND node 9 against the current (possibly hand-edited) content,
+// populating humanRecheckAtsScore/Flags alongside (never overwriting)
+// atsScore/atsFlags from the original AI pass.
 router.post('/:id/recheck', async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
@@ -259,14 +259,14 @@ router.post('/:id/recheck', async (req, res) => {
     const { resumeBullets = [], matchedSkills = [], yearsOfExperience } = snapshot.values || {};
     const bulletsById = new Map(resumeBullets.map((bullet) => [bullet.bulletId, bullet]));
 
-    const bulletFlags = application.tailoredBullets.flatMap((tailoredBullet) => {
+    const bulletResults = application.tailoredBullets.map((tailoredBullet) => {
       const sourceBullet = bulletsById.get(tailoredBullet.sourceBulletId);
-      const result = verifyBullet({ generatedText: tailoredBullet.finalText, sourceBullet });
-      return [
-        ...result.fabricatedSkills.map((skill) => `bullet ${tailoredBullet.bulletId}: fabricated skill "${skill}"`),
-        ...result.fabricatedMetrics.map((metric) => `bullet ${tailoredBullet.bulletId}: fabricated metric "${metric}"`),
-      ];
+      return { bulletId: tailoredBullet.bulletId, ...verifyBullet({ generatedText: tailoredBullet.finalText, sourceBullet }) };
     });
+    const bulletFlags = bulletResults.flatMap((result) => [
+      ...result.fabricatedSkills.map((skill) => `bullet ${result.bulletId}: fabricated skill "${skill}"`),
+      ...result.fabricatedMetrics.map((metric) => `bullet ${result.bulletId}: fabricated metric "${metric}"`),
+    ]);
 
     const selectedBullets = application.tailoredBullets.map((tailoredBullet) => bulletsById.get(tailoredBullet.sourceBulletId));
     const summaryResult = application.tailoredSummary
@@ -276,19 +276,34 @@ router.post('/:id/recheck', async (req, res) => {
           selectedBullets,
           yearsOfExperience,
         })
-      : { fabricatedSkills: [], fabricatedMetrics: [] };
+      : { passed: true, fabricatedSkills: [], fabricatedMetrics: [], claimedSkills: [] };
 
     const summaryFlags = [
       ...summaryResult.fabricatedSkills.map((skill) => `summary: fabricated skill "${skill}"`),
       ...summaryResult.fabricatedMetrics.map((metric) => `summary: fabricated metric "${metric}"`),
     ];
 
-    const flags = [...bulletFlags, ...summaryFlags];
+    const overallPassed = bulletResults.every((result) => result.passed) && summaryResult.passed;
 
-    application.humanRecheckAtsFlags = flags;
+    const atsResult = await atsScoreAndRecruiter({
+      jdText: application.jdSnapshot,
+      tailoredBullets: application.tailoredBullets,
+      tailoredSummary: application.tailoredSummary,
+      coverLetterText: application.coverLetterText,
+      keywordGaps: application.keywordGaps,
+      verificationResult: { bullets: bulletResults, summary: summaryResult, overallPassed },
+      applicationId: id,
+      resumeVersion: application.masterResumeId,
+    });
+
+    application.humanRecheckAtsScore = atsResult.atsScore;
+    application.humanRecheckAtsFlags = [...bulletFlags, ...summaryFlags, ...atsResult.atsFlags.map((flag) => `ats: ${flag}`)];
     await application.save();
 
-    return res.json({ humanRecheckAtsFlags: flags });
+    return res.json({
+      humanRecheckAtsScore: application.humanRecheckAtsScore,
+      humanRecheckAtsFlags: application.humanRecheckAtsFlags,
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to re-check application.' });

@@ -102,7 +102,11 @@ const JobAgentState = new StateSchema({
 
 // Node 1 (section 4)
 async function extractJdKeywordsNode(state) {
-  const jdKeywords = await extractJdKeywords(state.jdText);
+  const jdKeywords = await extractJdKeywords({
+    jdText: state.jdText,
+    applicationId: state.applicationId,
+    resumeVersion: state.masterResumeId,
+  });
   return { jdKeywords };
 }
 

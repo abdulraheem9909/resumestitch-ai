@@ -1,5 +1,10 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { ChatOpenAI } from '@langchain/openai';
 import { z } from 'zod';
+import GenerationCache from '../models/GenerationCache.js';
+
+export const EXTRACT_JD_KEYWORDS_PROMPT_VERSION = 'extract-jd-keywords-v1';
+const EXTRACT_JD_KEYWORDS_MODEL = 'gpt-4o-mini';
 
 const jdKeywordsSchema = z.object({
   skills: z
@@ -26,18 +31,41 @@ const jdKeywordsSchema = z.object({
     ),
 });
 
-const model = new ChatOpenAI({ model: 'gpt-4o-mini', temperature: 0 }).withStructuredOutput(jdKeywordsSchema, {
+const model = new ChatOpenAI({ model: EXTRACT_JD_KEYWORDS_MODEL, temperature: 0 }).withStructuredOutput(jdKeywordsSchema, {
   name: 'extract_jd_keywords',
   strict: true,
 });
 
+function computeInputHash({ jdText }) {
+  return createHash('sha256').update(JSON.stringify({ jdText })).digest('hex');
+}
+
 /**
- * Structured-output extraction of required skills, tools, and seniority
- * signals from a pasted JD, per section 4 node 1 — never inferred beyond
- * what the text states.
+ * Node 1 (section 4): structured-output extraction of required skills,
+ * tools, and seniority signals from a pasted JD — never inferred beyond
+ * what the text states. Cached per section 6 like nodes 5/7/9.
  */
-export async function extractJdKeywords(jdText) {
-  return model.invoke([
+export async function extractJdKeywords({ jdText, applicationId, resumeVersion }) {
+  const inputHash = computeInputHash({ jdText });
+
+  const cached = await GenerationCache.findOne({
+    applicationId,
+    nodeName: 'extractJdKeywords',
+    inputHash,
+    promptVersion: EXTRACT_JD_KEYWORDS_PROMPT_VERSION,
+    model: EXTRACT_JD_KEYWORDS_MODEL,
+  });
+  if (cached) {
+    console.log(
+      `[extractJdKeywords] cache HIT — applicationId=${applicationId}, inputHash=${inputHash.slice(0, 12)}… — reusing generationId ${cached.generationId}, no LLM call.`
+    );
+    return cached.output;
+  }
+  console.log(
+    `[extractJdKeywords] cache MISS — applicationId=${applicationId}, inputHash=${inputHash.slice(0, 12)}… — calling ${EXTRACT_JD_KEYWORDS_MODEL}.`
+  );
+
+  const output = await model.invoke([
     {
       role: 'system',
       content:
@@ -55,4 +83,33 @@ export async function extractJdKeywords(jdText) {
     },
     { role: 'user', content: `<job_description>\n${jdText}\n</job_description>` },
   ]);
+
+  const generationId = randomUUID();
+
+  try {
+    await GenerationCache.create({
+      applicationId,
+      nodeName: 'extractJdKeywords',
+      inputHash,
+      promptVersion: EXTRACT_JD_KEYWORDS_PROMPT_VERSION,
+      model: EXTRACT_JD_KEYWORDS_MODEL,
+      resumeVersion,
+      generationId,
+      output,
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      const winner = await GenerationCache.findOne({
+        applicationId,
+        nodeName: 'extractJdKeywords',
+        inputHash,
+        promptVersion: EXTRACT_JD_KEYWORDS_PROMPT_VERSION,
+        model: EXTRACT_JD_KEYWORDS_MODEL,
+      });
+      return winner.output;
+    }
+    throw err;
+  }
+
+  return output;
 }

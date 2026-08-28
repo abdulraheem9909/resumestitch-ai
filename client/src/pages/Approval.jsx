@@ -135,7 +135,11 @@ export default function Approval() {
       const res = await fetch(`${API_BASE}/${applicationId}/recheck`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't re-check this application.");
-      setApplication((prev) => ({ ...prev, humanRecheckAtsFlags: data.humanRecheckAtsFlags }));
+      setApplication((prev) => ({
+        ...prev,
+        humanRecheckAtsScore: data.humanRecheckAtsScore,
+        humanRecheckAtsFlags: data.humanRecheckAtsFlags,
+      }));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -415,9 +419,14 @@ export default function Approval() {
               </Button>
             </div>
             <p className="mb-2 text-sm text-muted-foreground">
-              Re-runs fact-checking against whatever you've saved above. It's informational only — it
-              doesn't gate approval and doesn't count as a retry.
+              Re-runs fact-checking and ATS/recruiter scoring against whatever you've saved above.
+              It's informational only — it doesn't gate approval and doesn't count as a retry.
             </p>
+            {application.humanRecheckAtsScore != null && (
+              <Badge variant={application.humanRecheckAtsScore >= 70 ? "secondary" : "destructive"} className="mb-2">
+                Re-check ATS score: {application.humanRecheckAtsScore}
+              </Badge>
+            )}
             {application.humanRecheckAtsFlags && (
               <div className="flex flex-wrap gap-1.5">
                 {application.humanRecheckAtsFlags.length === 0 ? (
