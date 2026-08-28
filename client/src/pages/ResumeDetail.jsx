@@ -68,8 +68,8 @@ export default function ResumeDetail() {
   const experience = groupBulletsByRole(bullets);
 
   return (
-    <section className="mx-auto w-full max-w-5xl pt-7 md:pt-10">
-      <div className="sticky top-0 z-10 bg-background pb-10">
+    <section className="mx-auto w-full max-w-5xl">
+      <div className="sticky top-0 z-10 bg-background pb-10  pt-7 md:pt-10 px=1 md:px-2" >
         <Breadcrumbs
           backTo="/resumes"
           trail={[

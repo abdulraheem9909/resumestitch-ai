@@ -32,7 +32,8 @@ export default function Apply() {
       try {
         const res = await fetch(RESUMES_API);
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Couldn't load your resumes.");
+        if (!res.ok)
+          throw new Error(data.error || "Couldn't load your resumes.");
         setMasterResumes(data.masterResumes);
       } catch (err) {
         setError(err.message);
@@ -59,7 +60,10 @@ export default function Apply() {
         }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't start tailoring for this job description.");
+      if (!res.ok)
+        throw new Error(
+          data.error || "Couldn't start tailoring for this job description.",
+        );
 
       navigate(`/applications/${data.application._id}/approve`);
     } catch (err) {
@@ -70,14 +74,21 @@ export default function Apply() {
 
   return (
     <section className="mx-auto w-full max-w-5xl pt-7 md:pt-10">
-      <div className="sticky top-0 z-10 bg-background pb-10">
-        <Breadcrumbs backTo="/applications" trail={[{ label: "Applications", to: "/applications" }, { label: "Start Application" }]} />
-        <h1 className="font-display mb-3 text-2xl font-semibold text-foreground md:text-3xl">Paste a job description</h1>
-        <p className="max-w-prose text-sm text-muted-foreground md:text-base">
-          Paste the job's text as-is — nothing is fetched from a URL. We'll extract what it's asking
-          for, check it against the resume you pick, and tailor a draft for you to review.
-        </p>
-      </div>
+      <Breadcrumbs
+        backTo="/applications"
+        trail={[
+          { label: "Applications", to: "/applications" },
+          { label: "Start Application" },
+        ]}
+      />
+      <h1 className="font-display mb-3 text-2xl font-semibold text-foreground md:text-3xl">
+        Paste a job description
+      </h1>
+      <p className="max-w-prose text-sm text-muted-foreground md:text-base">
+        Paste the job's text as-is — nothing is fetched from a URL. We'll
+        extract what it's asking for, check it against the resume you pick, and
+        tailor a draft for you to review.
+      </p>
 
       {error && (
         <Alert variant="destructive" className="mb-5">
@@ -113,7 +124,9 @@ export default function Apply() {
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label htmlFor="jd-reference">Reference link (optional, never fetched)</Label>
+          <Label htmlFor="jd-reference">
+            Reference link (optional, never fetched)
+          </Label>
           <Input
             id="jd-reference"
             value={referenceUrl}
@@ -149,7 +162,12 @@ export default function Apply() {
         <Button
           className="w-fit"
           onClick={submit}
-          disabled={submitting || !selectedResumeId || !companyName.trim() || !jdText.trim()}
+          disabled={
+            submitting ||
+            !selectedResumeId ||
+            !companyName.trim() ||
+            !jdText.trim()
+          }
         >
           {submitting ? "Tailoring…" : "Start tailoring"}
         </Button>
