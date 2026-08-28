@@ -15,6 +15,7 @@ export default function JdSubmission() {
   const [companyName, setCompanyName] = useState("");
   const [jdText, setJdText] = useState("");
   const [referenceUrl, setReferenceUrl] = useState("");
+  const [coverLetterRequested, setCoverLetterRequested] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -47,6 +48,7 @@ export default function JdSubmission() {
           companyName,
           jdText,
           referenceUrl: referenceUrl || undefined,
+          coverLetterRequested,
         }),
       });
       const data = await res.json();
@@ -106,6 +108,19 @@ export default function JdSubmission() {
             rows={14}
             placeholder="Paste the full job description here…"
           />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            id="jd-cover-letter"
+            type="checkbox"
+            checked={coverLetterRequested}
+            onChange={(event) => setCoverLetterRequested(event.target.checked)}
+            className="h-4 w-4 rounded border-border"
+          />
+          <Label htmlFor="jd-cover-letter" className="cursor-pointer">
+            Also generate a cover letter
+          </Label>
         </div>
 
         <Button

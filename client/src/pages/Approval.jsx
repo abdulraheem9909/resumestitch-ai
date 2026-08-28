@@ -365,6 +365,45 @@ export default function Approval() {
             })}
           </ul>
 
+          {/* ATS score & recruiter feedback (node 9) */}
+          {application.atsScore != null && (
+            <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">
+                ATS score &amp; recruiter feedback
+              </p>
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                <Badge variant={application.atsScore >= 70 ? "secondary" : "destructive"}>
+                  ATS score: {application.atsScore}
+                </Badge>
+                {application.retryCount > 0 && <Badge variant="outline">retries: {application.retryCount}</Badge>}
+              </div>
+              {application.recruiterFeedback && (
+                <p className="mb-3 text-sm text-foreground">{application.recruiterFeedback}</p>
+              )}
+              <div className="flex flex-wrap gap-1.5">
+                {(application.atsFlags || []).length === 0 ? (
+                  <Badge variant="secondary">No flags raised</Badge>
+                ) : (
+                  application.atsFlags.map((flag) => (
+                    <Badge key={flag} variant="destructive">
+                      {flag}
+                    </Badge>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Cover letter (node 7, conditional) */}
+          {application.coverLetterRequested && (
+            <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Cover letter</p>
+              <p className="whitespace-pre-wrap text-sm text-foreground">
+                {application.coverLetterText || "—"}
+              </p>
+            </div>
+          )}
+
           {/* Re-check */}
           <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
             <div className="mb-3 flex items-center justify-between gap-4">

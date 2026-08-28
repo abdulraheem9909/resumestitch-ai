@@ -10,6 +10,9 @@ import { matchedSkills } from '../services/matchedSkills.js';
 import { calculateYearsOfExperience } from '../services/calculateYearsOfExperience.js';
 import { tailorContent } from '../services/tailorContent.js';
 import { verifyBullet, verifySummary } from '../services/deterministicVerification.js';
+import { generateCoverLetter } from '../services/generateCoverLetter.js';
+import { styleLinting } from '../services/styleLinting.js';
+import { atsScoreAndRecruiter, shouldRetryAutomatically, buildAutoRetryNotes } from '../services/atsScoreAndRecruiter.js';
 
 const resumeBulletSchema = z.object({
   bulletId: z.string(),
@@ -47,6 +50,7 @@ const verificationEntrySchema = z.object({
 const JobAgentState = new StateSchema({
   applicationId: z.string(),
   masterResumeId: z.string().optional(),
+  companyName: z.string().optional(),
   jdText: z.string(),
   resumeSummary: z.string().optional(),
   resumeTitle: z.string().optional(),
@@ -84,6 +88,16 @@ const JobAgentState = new StateSchema({
     .optional()
     .default(() => ''),
   humanDecision: z.enum(['end', 'retry']).optional(),
+  coverLetterRequested: z.boolean().optional().default(() => false),
+  coverLetterText: z.string().optional(),
+  atsScore: z.number().optional(),
+  atsFlags: z
+    .array(z.enum(['missingRequirement', 'unsupportedClaim', 'excessiveRewrite', 'poorReadability']))
+    .optional()
+    .default(() => []),
+  recruiterFeedback: z.string().optional(),
+  retryCount: z.number().optional().default(() => 0),
+  retryDecision: z.enum(['retry', 'end']).optional(),
 });
 
 // Node 1 (section 4)
@@ -163,6 +177,58 @@ function deterministicVerificationNode(state) {
   return { verificationResult: { bullets, summary, overallPassed } };
 }
 
+// Node 7 (section 4): conditional — only reached when coverLetterRequested.
+async function coverLetterGenerationNode(state) {
+  const coverLetterText = await generateCoverLetter({
+    jdText: state.jdText,
+    companyName: state.companyName,
+    resumeTitle: state.resumeTitle,
+    tailoredBullets: state.tailoredBullets,
+    tailoredSummary: state.tailoredSummary,
+    matchedSkills: state.matchedSkills,
+    keywordGaps: state.keywordGaps,
+    applicationId: state.applicationId,
+    resumeVersion: state.masterResumeId,
+    retryNotes: state.retryNotes,
+  });
+  return { coverLetterText };
+}
+
+// Node 8 (section 4): mostly rule-based, no LLM in the common case.
+async function styleLintingNode(state) {
+  return styleLinting({
+    tailoredBullets: state.tailoredBullets,
+    tailoredSummary: state.tailoredSummary,
+    coverLetterText: state.coverLetterText,
+  });
+}
+
+// Node 9 (section 4/5): single structured call; also decides the retry edge.
+async function atsScoreAndRecruiterNode(state) {
+  const { atsScore, atsFlags, recruiterFeedback } = await atsScoreAndRecruiter({
+    jdText: state.jdText,
+    tailoredBullets: state.tailoredBullets,
+    tailoredSummary: state.tailoredSummary,
+    coverLetterText: state.coverLetterText,
+    keywordGaps: state.keywordGaps,
+    verificationResult: state.verificationResult,
+    applicationId: state.applicationId,
+    resumeVersion: state.masterResumeId,
+  });
+
+  const retryCount = state.retryCount ?? 0;
+  const willRetry = shouldRetryAutomatically(atsFlags, retryCount, state.tailoredBullets);
+
+  return {
+    atsScore,
+    atsFlags,
+    recruiterFeedback,
+    retryDecision: willRetry ? 'retry' : 'end',
+    retryCount: willRetry ? retryCount + 1 : retryCount,
+    retryNotes: willRetry ? buildAutoRetryNotes(atsFlags, recruiterFeedback) : state.retryNotes,
+  };
+}
+
 // Node 10 (section 4 / 4a): pauses the graph via interrupt() and shows React
 // the tailored diff (or, for a role-mismatch run, the reason instead — same
 // node, per the doc's "or, if routed here from node 4" line). Only "approve"
@@ -205,16 +271,20 @@ function humanApprovalNode(state) {
     tailoredBullets: resumeValue.tailoredBullets ?? state.tailoredBullets,
     resumeBullets: resumeValue.resumeBullets ?? state.resumeBullets,
     retryNotes: resumeValue.notes ?? '',
+    retryCount: (state.retryCount ?? 0) + 1,
     humanDecision: 'retry',
   };
 }
 
 /**
- * Assembles nodes 1-6 and node 10 (sections 4/4a) into a LangGraph
- * StateGraph with a MongoDB-backed checkpointer. Both the role-mismatch
- * ('low') and normal ('plausible') paths now end up at node 10 — every run
- * pauses there, and nothing reaches END without a human resuming with
- * action: 'approve'.
+ * Assembles nodes 1-10 (sections 4/4a/5) into a LangGraph StateGraph with a
+ * MongoDB-backed checkpointer. The role-mismatch ('low') path skips straight
+ * to node 10, bypassing nodes 5-9 entirely (section 5a). The normal
+ * ('plausible') path runs tailorContent -> deterministicVerification ->
+ * (coverLetterGeneration, conditional) -> styleLinting -> atsScoreAndRecruiter,
+ * whose retry edge loops back to tailorContent on a retryable flag (capped at
+ * 3 automatic retries) or proceeds to node 10. Nothing reaches END without a
+ * human resuming node 10 with action: 'approve'.
  */
 export function createJobAgentGraph(mongoUri, dbName) {
   const client = new MongoClient(mongoUri);
@@ -227,6 +297,9 @@ export function createJobAgentGraph(mongoUri, dbName) {
     .addNode('roleFitGate', roleFitGateNode)
     .addNode('tailorContent', tailorContentNode)
     .addNode('deterministicVerification', deterministicVerificationNode)
+    .addNode('coverLetterGeneration', coverLetterGenerationNode)
+    .addNode('styleLinting', styleLintingNode)
+    .addNode('atsScoreAndRecruiter', atsScoreAndRecruiterNode)
     .addNode('humanApproval', humanApprovalNode)
     .addEdge(START, 'extractJdKeywords')
     .addEdge('extractJdKeywords', 'normalizeSkills')
@@ -237,7 +310,16 @@ export function createJobAgentGraph(mongoUri, dbName) {
       plausible: 'tailorContent',
     })
     .addEdge('tailorContent', 'deterministicVerification')
-    .addEdge('deterministicVerification', 'humanApproval')
+    .addConditionalEdges('deterministicVerification', (state) => (state.coverLetterRequested ? 'coverLetterGeneration' : 'styleLinting'), {
+      coverLetterGeneration: 'coverLetterGeneration',
+      styleLinting: 'styleLinting',
+    })
+    .addEdge('coverLetterGeneration', 'styleLinting')
+    .addEdge('styleLinting', 'atsScoreAndRecruiter')
+    .addConditionalEdges('atsScoreAndRecruiter', (state) => state.retryDecision, {
+      retry: 'tailorContent',
+      end: 'humanApproval',
+    })
     .addConditionalEdges('humanApproval', (state) => state.humanDecision, {
       end: END,
       retry: 'tailorContent',

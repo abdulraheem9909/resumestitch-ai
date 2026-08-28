@@ -94,11 +94,13 @@ router.post('/', async (req, res) => {
       {
         applicationId,
         masterResumeId,
+        companyName: companyName.trim(),
         jdText,
         resumeSummary: resume.summary,
         resumeTitle: resume.personalInfo?.title,
         resumeCanonicalSkills,
         resumeBullets: resumeBulletsForGraph,
+        coverLetterRequested: Boolean(coverLetterRequested),
       },
       { configurable: { thread_id: applicationId } }
     );
@@ -116,6 +118,11 @@ router.post('/', async (req, res) => {
       application.status = 'pending_approval';
       application.tailoredBullets = state.tailoredBullets;
       application.tailoredSummary = state.tailoredSummary;
+      application.coverLetterText = state.coverLetterText;
+      application.atsScore = state.atsScore;
+      application.atsFlags = state.atsFlags;
+      application.recruiterFeedback = state.recruiterFeedback;
+      application.retryCount = state.retryCount ?? 0;
     }
 
     await application.save();
@@ -228,9 +235,10 @@ router.patch('/:id/summary', async (req, res) => {
 });
 
 // Section 4a — re-check. Non-blocking, informational, no graph resume: runs
-// node 6 directly against the current (possibly hand-edited) finalText.
-// Node 9 doesn't exist yet, so humanRecheckAtsScore is deliberately left
-// unset rather than inventing a placeholder.
+// node 6 directly against the current (possibly hand-edited) finalText. Per
+// section 4a this should eventually also re-run node 9 against the edited
+// text (humanRecheckAtsScore/Flags), but that wasn't requested for this
+// task — deliberately left as node 6 only, a natural follow-up.
 router.post('/:id/recheck', async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
@@ -290,7 +298,9 @@ router.post('/:id/recheck', async (req, res) => {
 // The endpoint that actually resumes the paused graph. action: 'approve'
 // merges the current (possibly hand-edited) content and ends the run;
 // action: 'retry' sends it back through tailorContent -> deterministicVerification
-// -> humanApproval with the given notes, pausing again.
+// -> (coverLetterGeneration) -> styleLinting -> atsScoreAndRecruiter -> humanApproval
+// with the given notes, pausing again (possibly after further automatic
+// retries within that same pass, capped at 3 — see shouldRetryAutomatically).
 router.post('/:id/resume', async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
@@ -330,13 +340,22 @@ router.post('/:id/resume', async (req, res) => {
       application.approvedAt = new Date();
       application.tailoredBullets = state.tailoredBullets;
       application.tailoredSummary = state.tailoredSummary;
+      application.coverLetterText = state.coverLetterText;
+      application.atsScore = state.atsScore;
+      application.atsFlags = state.atsFlags;
+      application.recruiterFeedback = state.recruiterFeedback;
+      application.retryCount = state.retryCount ?? application.retryCount;
     } else {
       application.status = 'pending_approval';
-      application.retryCount += 1;
       application.retryNotes.push({ notes });
       application.tailoredBullets = state.tailoredBullets;
       application.tailoredSummary = state.tailoredSummary;
       application.keywordGaps = state.keywordGaps;
+      application.coverLetterText = state.coverLetterText;
+      application.atsScore = state.atsScore;
+      application.atsFlags = state.atsFlags;
+      application.recruiterFeedback = state.recruiterFeedback;
+      application.retryCount = state.retryCount;
     }
 
     await application.save();
@@ -403,11 +422,15 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
     const state = snapshot.values;
 
     application.status = 'pending_approval';
-    application.retryCount += 1;
     application.retryNotes.push({ notes });
     application.tailoredBullets = state.tailoredBullets;
     application.tailoredSummary = state.tailoredSummary;
     application.keywordGaps = state.keywordGaps;
+    application.coverLetterText = state.coverLetterText;
+    application.atsScore = state.atsScore;
+    application.atsFlags = state.atsFlags;
+    application.recruiterFeedback = state.recruiterFeedback;
+    application.retryCount = state.retryCount;
     await application.save();
 
     return res.json({ application, newBullet });
