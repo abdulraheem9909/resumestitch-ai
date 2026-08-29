@@ -21,6 +21,7 @@ export default function Apply() {
   const [masterResumes, setMasterResumes] = useState([]);
   const [selectedResumeId, setSelectedResumeId] = useState("");
   const [companyName, setCompanyName] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
   const [jdText, setJdText] = useState("");
   const [referenceUrl, setReferenceUrl] = useState("");
   const [coverLetterRequested, setCoverLetterRequested] = useState(false);
@@ -43,7 +44,7 @@ export default function Apply() {
   }, []);
 
   async function submit() {
-    if (!selectedResumeId || !companyName.trim() || !jdText.trim()) return;
+    if (!selectedResumeId || !companyName.trim() || !jobTitle.trim() || !jdText.trim()) return;
 
     setSubmitting(true);
     setError("");
@@ -54,6 +55,7 @@ export default function Apply() {
         body: JSON.stringify({
           masterResumeId: selectedResumeId,
           companyName,
+          jobTitle,
           jdText,
           referenceUrl: referenceUrl || undefined,
           coverLetterRequested,
@@ -126,6 +128,16 @@ export default function Apply() {
         </div>
 
         <div className="flex flex-col gap-1.5">
+          <Label htmlFor="jd-title">Job title</Label>
+          <Input
+            id="jd-title"
+            value={jobTitle}
+            onChange={(event) => setJobTitle(event.target.value)}
+            placeholder="e.g. Senior Full-Stack Engineer"
+          />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
           <Label htmlFor="jd-reference">
             Reference link (optional, never fetched)
           </Label>
@@ -169,6 +181,7 @@ export default function Apply() {
             submitting ||
             !selectedResumeId ||
             !companyName.trim() ||
+            !jobTitle.trim() ||
             !jdText.trim()
           }
         >

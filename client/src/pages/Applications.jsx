@@ -1,14 +1,41 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronDown, ChevronRight, ChevronUp, ChevronsUpDown, Download, FileText, Plus } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  ChevronsUpDown,
+  Download,
+  FileText,
+  Plus,
+  Search,
+  Trash2,
+} from "lucide-react";
 import { APPLICATIONS_API } from "../lib/api.js";
 import { cn } from "@/lib/utils.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const COLUMNS = [
   { key: "companyName", label: "Company", align: "left" },
+  { key: "jobTitle", label: "Job title", align: "left" },
   { key: "approvedAt", label: "Approved", align: "right" },
   { key: "atsScore", label: "ATS score", align: "right" },
 ];
@@ -56,6 +83,14 @@ export default function Applications() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sort, setSort] = useState({ key: "approvedAt", direction: "desc" });
+  const [search, setSearch] = useState("");
+  const [atsFilter, setAtsFilter] = useState("all");
+  const [coverLetterFilter, setCoverLetterFilter] = useState("all");
+
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -82,18 +117,56 @@ export default function Applications() {
     );
   }
 
+  const filteredApplications = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return applications.filter((application) => {
+      if (query) {
+        const haystack = `${application.companyName} ${application.jobTitle || ""}`.toLowerCase();
+        if (!haystack.includes(query)) return false;
+      }
+      if (atsFilter !== "all" && scoreTier(application.atsScore) !== atsFilter) return false;
+      if (coverLetterFilter === "yes" && !application.coverLetterRequested) return false;
+      if (coverLetterFilter === "no" && application.coverLetterRequested) return false;
+      return true;
+    });
+  }, [applications, search, atsFilter, coverLetterFilter]);
+
   const sortedApplications = useMemo(() => {
     const factor = sort.direction === "asc" ? 1 : -1;
-    return [...applications].sort((a, b) => {
+    return [...filteredApplications].sort((a, b) => {
       if (sort.key === "companyName") {
         return a.companyName.localeCompare(b.companyName) * factor;
+      }
+      if (sort.key === "jobTitle") {
+        return (a.jobTitle || "").localeCompare(b.jobTitle || "") * factor;
       }
       if (sort.key === "atsScore") {
         return ((a.atsScore ?? -1) - (b.atsScore ?? -1)) * factor;
       }
       return (new Date(a.approvedAt ?? 0) - new Date(b.approvedAt ?? 0)) * factor;
     });
-  }, [applications, sort]);
+  }, [filteredApplications, sort]);
+
+  async function deleteApplication() {
+    if (!deleteTarget) return;
+
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      const res = await fetch(`${APPLICATIONS_API}/${deleteTarget._id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't delete this application.");
+
+      setApplications((prev) => prev.filter((application) => application._id !== deleteTarget._id));
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  const hasActiveFilters = search.trim() || atsFilter !== "all" || coverLetterFilter !== "all";
 
   return (
     <section className="mx-auto w-full max-w-5xl">
@@ -116,11 +189,44 @@ export default function Applications() {
             </Button>
           </div>
         </div>
-        <p className="max-w-prose text-sm text-muted-foreground md:text-base">
+        <p className="mb-5 max-w-prose text-sm text-muted-foreground md:text-base">
           Once you approve an application, it shows up here — company, when you approved it, and
           the score it landed. Click a row for the full JD, tailored resume, and every insight
           alongside it.
         </p>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search by company or job title…"
+              className="pl-9"
+            />
+          </div>
+          <Select value={atsFilter} onValueChange={setAtsFilter}>
+            <SelectTrigger className="w-full sm:w-44">
+              <SelectValue placeholder="ATS score" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All scores</SelectItem>
+              <SelectItem value="strong">Strong (≥70)</SelectItem>
+              <SelectItem value="weak">Weak (&lt;70)</SelectItem>
+              <SelectItem value="unknown">Unscored</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={coverLetterFilter} onValueChange={setCoverLetterFilter}>
+            <SelectTrigger className="w-full sm:w-52">
+              <SelectValue placeholder="Cover letter" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">With or without cover letter</SelectItem>
+              <SelectItem value="yes">With cover letter</SelectItem>
+              <SelectItem value="no">Without cover letter</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       {error && (
@@ -134,15 +240,23 @@ export default function Applications() {
         <p className="py-4 text-sm text-muted-foreground">No approved applications yet.</p>
       )}
 
-      {!loading && applications.length > 0 && (
+      {!loading && applications.length > 0 && sortedApplications.length === 0 && (
+        <p className="py-4 text-sm text-muted-foreground">
+          {hasActiveFilters
+            ? "No applications match your search or filters."
+            : "No approved applications yet."}
+        </p>
+      )}
+
+      {!loading && sortedApplications.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
-          <table className="w-full min-w-[560px] border-collapse text-sm">
+          <table className="w-full min-w-[720px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-border">
                 {COLUMNS.map((column) => (
                   <SortableHeader key={column.key} column={column} sort={sort} onSort={handleSort} />
                 ))}
-                <th scope="col" className="w-10" aria-hidden="true" />
+                <th scope="col" className="w-20" aria-hidden="true" />
               </tr>
             </thead>
             <tbody>
@@ -172,6 +286,9 @@ export default function Applications() {
                         )}
                       </div>
                     </td>
+                    <td className="py-3.5 pl-4 text-foreground">
+                      {application.jobTitle || <span className="text-muted-foreground">—</span>}
+                    </td>
                     <td className="py-3.5 pr-4 text-right font-mono text-xs tracking-wide text-muted-foreground uppercase">
                       {application.approvedAt ? new Date(application.approvedAt).toLocaleDateString() : "—"}
                     </td>
@@ -185,7 +302,21 @@ export default function Applications() {
                       )}
                     </td>
                     <td className="py-3.5 pr-4 text-right">
-                      <ChevronRight className="ml-auto size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          className="text-muted-foreground hover:text-destructive"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setDeleteTarget(application);
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                        <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5" />
+                      </div>
                     </td>
                   </tr>
                 );
@@ -194,6 +325,36 @@ export default function Applications() {
           </table>
         </div>
       )}
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Delete "{deleteTarget?.companyName}
+              {deleteTarget?.jobTitle ? ` — ${deleteTarget.jobTitle}` : ""}"?
+            </DialogTitle>
+            <DialogDescription>
+              This permanently deletes this application — the JD, tailored resume, cover letter,
+              and scoring history. This can't be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteError && (
+            <Alert variant="destructive">
+              <AlertDescription>{deleteError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={deleteApplication} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

@@ -215,6 +215,10 @@ export default function Approval() {
 
   const busy = savingBulletId !== null || savingSummary || rechecking || addingSkill || sendingRetry || approving;
 
+  const applicationLabel = application?.companyName
+    ? [application.companyName, application.jobTitle].filter(Boolean).join(" — ")
+    : "Review application";
+
   return (
     <section className="mx-auto w-full max-w-5xl">
       <div className="sticky top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
@@ -222,11 +226,11 @@ export default function Approval() {
           backTo="/applications"
           trail={[
             { label: "Applications", to: "/applications" },
-            { label: application?.companyName || "Review application" },
+            { label: applicationLabel },
           ]}
         />
         <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">
-          {application?.companyName || "Review application"}
+          {applicationLabel}
         </h1>
         <p className="max-w-prose text-sm text-muted-foreground md:text-base">
           Nothing here is saved or exported until you approve it — hand-edit anything that doesn't
