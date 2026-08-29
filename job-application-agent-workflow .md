@@ -43,6 +43,14 @@ Deleting a master resume is destructive and cascades in full, in this order, bef
 
 This is what makes room under the 5-resume cap — uploading a 6th resume requires deleting one of the existing 5 first, which triggers the full cascade above.
 
+### 2.5 Single-application deletion
+Deleting one `applications` document (independent of, and lighter than, the resume-wide cascade in 2.4 — no `resumeBullets` or `masterResumes` involvement) does, in order:
+1. Delete the `applications` document itself.
+2. Delete its LangGraph checkpoint/thread history.
+3. Delete its `GenerationCache` entries.
+
+Not gated by application status — this can delete an application in any state, not just `approved` ones.
+
 ---
 
 ## 3. Single-JD submission (no batching, no URL fetching)
@@ -207,6 +215,7 @@ and lives on `applications.tailoredSummary` (see below), the same way tailored b
   _id,                       // also used as LangGraph thread_id
   masterResumeId: string,    // which resume this JD was run against
   companyName: string,
+  jobTitle: string,          // the specific role, so multiple applications to the same company stay distinguishable
   referenceUrl: string,      // optional, unfetched, user's own link back to the listing
   jdSnapshot: string,        // the pasted JD text
   jdTextHash: string,        // used for dedupe
