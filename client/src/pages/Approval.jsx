@@ -343,7 +343,10 @@ export default function Approval() {
               ];
 
               return (
-                <li key={bullet.bulletId} className="rounded-lg border border-border bg-card p-5 shadow-card">
+                <li
+                  key={bullet.bulletId}
+                  className={`rounded-lg border border-border bg-card p-5 shadow-card${bullet.rejected ? " opacity-60" : ""}`}
+                >
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <p className="mb-1 text-xs font-medium text-muted-foreground">Original</p>
@@ -354,6 +357,9 @@ export default function Approval() {
                         <p className="text-xs font-medium text-muted-foreground">Tailored</p>
                         <Badge variant="secondary">{bullet.editSource}</Badge>
                         <Badge variant="outline">rephrase {bullet.rephraseIntensity}</Badge>
+                        {bullet.rejected && (
+                          <Badge variant="destructive">Out of context — excluded from export</Badge>
+                        )}
                       </div>
                       {isEditing ? (
                         <>
@@ -375,7 +381,7 @@ export default function Approval() {
                       ) : (
                         <>
                           <p className="text-sm text-foreground">{bullet.finalText}</p>
-                          {application.status !== "approved" && (
+                          {application.status !== "approved" && !bullet.rejected && (
                             <Button
                               size="sm"
                               variant="ghost"
