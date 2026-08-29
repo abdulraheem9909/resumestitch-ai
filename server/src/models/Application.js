@@ -27,6 +27,7 @@ const applicationSchema = new mongoose.Schema(
   {
     masterResumeId: { type: String, required: true },
     companyName: { type: String, required: true },
+    jobTitle: { type: String, required: true },
     referenceUrl: String,
     jdSnapshot: { type: String, required: true },
     jdTextHash: { type: String, required: true },

@@ -13,7 +13,8 @@ import { atsScoreAndRecruiter } from '../services/atsScoreAndRecruiter.js';
 import { buildResumeDocxBuffer } from '../services/exportResumeDocx.js';
 import { buildCoverLetterDocxBuffer } from '../services/exportCoverLetterDocx.js';
 import { buildTrackerXlsxBuffer } from '../services/exportTrackerXlsx.js';
-import { getJobAgentGraph } from '../graph/graphInstance.js';
+import { getJobAgentGraph, getCheckpointer } from '../graph/graphInstance.js';
+import GenerationCache from '../models/GenerationCache.js';
 
 const router = Router();
 
@@ -53,7 +54,7 @@ router.get('/', async (req, res) => {
 
 // Section 3 — create + start.
 router.post('/', async (req, res) => {
-  const { masterResumeId, jdText, companyName, referenceUrl, coverLetterRequested } = req.body;
+  const { masterResumeId, jdText, companyName, jobTitle, referenceUrl, coverLetterRequested } = req.body;
 
   if (!mongoose.isValidObjectId(masterResumeId)) {
     return res.status(400).json({ error: 'Invalid masterResumeId.' });
@@ -63,6 +64,9 @@ router.post('/', async (req, res) => {
   }
   if (typeof companyName !== 'string' || !companyName.trim()) {
     return res.status(400).json({ error: 'companyName is required.' });
+  }
+  if (typeof jobTitle !== 'string' || !jobTitle.trim()) {
+    return res.status(400).json({ error: 'jobTitle is required.' });
   }
 
   try {
@@ -92,6 +96,7 @@ router.post('/', async (req, res) => {
       application = await Application.create({
         masterResumeId,
         companyName: companyName.trim(),
+        jobTitle: jobTitle.trim(),
         referenceUrl: (referenceUrl || '').trim(),
         jdSnapshot: jdText,
         jdTextHash,
@@ -182,6 +187,35 @@ router.get('/:id', async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to load application.' });
+  }
+});
+
+// Single-application delete (distinct from resumes.js's whole-resume cascade
+// in section 2.4) — see workflow doc section 2.5. Deletes the application
+// document, its checkpoint/thread, and its GenerationCache entries. Not
+// gated by status; the only UI entry point (Applications.jsx) happens to
+// only ever show approved rows, but this route itself is general.
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+
+  try {
+    const application = await Application.findById(id);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+
+    await Application.deleteOne({ _id: id });
+    const checkpointer = getCheckpointer();
+    await checkpointer.deleteThread(id);
+    await GenerationCache.deleteMany({ applicationId: id });
+
+    return res.json({ deleted: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to delete application.' });
   }
 });
 
