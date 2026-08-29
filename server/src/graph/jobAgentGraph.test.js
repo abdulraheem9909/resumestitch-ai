@@ -50,7 +50,7 @@ test('gapAnalysisNode handles missing/empty resumeBullets without throwing', () 
   assert.deepEqual(result.keywordGaps, ['docker']);
 });
 
-test('mergeHumanEditedBullets preserves a human edit whose sourceBulletId is still selected, and drops one that is no longer selected', () => {
+test('mergeHumanEditedBullets preserves a human edit whose sourceBulletId is still present, and drops one that is no longer present', () => {
   const previousBullets = [
     { bulletId: 'old-1', sourceBulletId: 'src-1', finalText: 'human edited text', editSource: 'human' },
     { bulletId: 'old-2', sourceBulletId: 'src-2', finalText: 'ai text (unedited)', editSource: 'ai' },
@@ -64,13 +64,28 @@ test('mergeHumanEditedBullets preserves a human edit whose sourceBulletId is sti
   const merged = mergeHumanEditedBullets(freshBullets, previousBullets);
 
   assert.equal(merged.length, 2);
-  assert.deepEqual(merged[0], previousBullets[0]);
+  assert.deepEqual(merged[0], { ...previousBullets[0], rejected: false });
   assert.equal(merged[1], freshBullets[1]);
 });
 
 test('mergeHumanEditedBullets is a no-op on the first pass (no previous bullets)', () => {
   const freshBullets = [{ bulletId: 'new-1', sourceBulletId: 'src-1', finalText: 'text', editSource: 'ai' }];
   assert.deepEqual(mergeHumanEditedBullets(freshBullets, undefined), freshBullets);
+});
+
+test('mergeHumanEditedBullets forces rejected: false onto a carried-over human edit even when the fresh pass marked that source rejected', () => {
+  const previousBullets = [
+    { bulletId: 'old-1', sourceBulletId: 'src-1', finalText: 'human edited text', editSource: 'human' },
+  ];
+  const freshBullets = [
+    { bulletId: 'new-1', sourceBulletId: 'src-1', finalText: 'source text', editSource: 'ai', rejected: true },
+  ];
+
+  const merged = mergeHumanEditedBullets(freshBullets, previousBullets);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].rejected, false);
+  assert.equal(merged[0].finalText, 'human edited text');
 });
 
 test('ensureRequiredBulletIncluded appends the required bullet verbatim when missing', () => {
@@ -88,14 +103,31 @@ test('ensureRequiredBulletIncluded appends the required bullet verbatim when mis
   assert.equal(added.finalText, 'Used Git for version control across team projects.');
   assert.equal(added.humanEditedText, null);
   assert.equal(added.editSource, 'ai');
+  assert.equal(added.rejected, false);
 });
 
-test('ensureRequiredBulletIncluded no-ops when already present or requiredBulletId is null', () => {
-  const bullets = [{ bulletId: 'b1', sourceBulletId: 'src-1', finalText: 'existing' }];
+test('ensureRequiredBulletIncluded no-ops when already present and not rejected, or requiredBulletId is null', () => {
+  const bullets = [{ bulletId: 'b1', sourceBulletId: 'src-1', finalText: 'existing', rejected: false }];
   const resumeBulletsById = new Map([['src-1', { bulletId: 'src-1', text: 'existing' }]]);
 
   assert.deepEqual(ensureRequiredBulletIncluded(bullets, 'src-1', resumeBulletsById), bullets);
   assert.deepEqual(ensureRequiredBulletIncluded(bullets, null, resumeBulletsById), bullets);
+});
+
+test('ensureRequiredBulletIncluded un-rejects an existing-but-rejected entry in place', () => {
+  const bullets = [
+    { bulletId: 'b0', sourceBulletId: 'src-0', finalText: 'other bullet', rejected: false },
+    { bulletId: 'b1', sourceBulletId: 'src-1', finalText: 'src-1 text', editSource: 'ai', rejected: true },
+  ];
+  const resumeBulletsById = new Map([['src-1', { bulletId: 'src-1', text: 'Used Git for version control.' }]]);
+
+  const result = ensureRequiredBulletIncluded(bullets, 'src-1', resumeBulletsById);
+
+  assert.equal(result.length, 2);
+  assert.equal(result[0], bullets[0]);
+  assert.equal(result[1].sourceBulletId, 'src-1');
+  assert.equal(result[1].rejected, false);
+  assert.equal(result[1].finalText, 'Used Git for version control.');
 });
 
 test('ensureEveryEmployerRepresented adds one bullet per unrepresented company, picking the highest JD-overlap candidate', () => {
@@ -106,7 +138,7 @@ test('ensureEveryEmployerRepresented adds one bullet per unrepresented company, 
     { bulletId: 'r1', company: 'Root Pointers', canonicalSkills: [], text: 'r1 text' },
     { bulletId: 'o1', company: undefined, canonicalSkills: ['git'], text: 'orphan, no company' },
   ];
-  const bullets = [{ bulletId: 'b1', sourceBulletId: 'a1', finalText: 'selected acme bullet' }];
+  const bullets = [{ bulletId: 'b1', sourceBulletId: 'a1', finalText: 'selected acme bullet', rejected: false }];
   const jdCanonicalSkills = ['docker', 'node.js'];
 
   const result = ensureEveryEmployerRepresented(bullets, resumeBullets, jdCanonicalSkills);
@@ -118,4 +150,26 @@ test('ensureEveryEmployerRepresented adds one bullet per unrepresented company, 
   assert.ok(!bySource.has('g1'));
   assert.ok(bySource.has('r1'));
   assert.ok(!bySource.has('o1'), 'orphan bullets with no company are never force-included');
+});
+
+test('ensureEveryEmployerRepresented un-rejects the best existing entry for an employer whose bullets are all currently rejected, instead of appending a duplicate', () => {
+  const resumeBullets = [
+    { bulletId: 'a1', company: 'Acme', canonicalSkills: ['react'], text: 'a1 text' },
+    { bulletId: 'g1', company: 'Geekybugs', canonicalSkills: ['node.js'], text: 'g1 text' },
+    { bulletId: 'g2', company: 'Geekybugs', canonicalSkills: ['node.js', 'docker'], text: 'g2 text (better match)' },
+  ];
+  const bullets = [
+    { bulletId: 'b1', sourceBulletId: 'a1', finalText: 'selected acme bullet', rejected: false },
+    { bulletId: 'b2', sourceBulletId: 'g1', finalText: 'g1 tailored', rejected: true },
+    { bulletId: 'b3', sourceBulletId: 'g2', finalText: 'g2 tailored', rejected: true },
+  ];
+  const jdCanonicalSkills = ['docker', 'node.js'];
+
+  const result = ensureEveryEmployerRepresented(bullets, resumeBullets, jdCanonicalSkills);
+
+  assert.equal(result.length, 3, 'no duplicate bullet should be appended');
+  const bySource = new Map(result.map((b) => [b.sourceBulletId, b]));
+  assert.equal(bySource.get('a1').rejected, false);
+  assert.equal(bySource.get('g1').rejected, true, 'g1 stays rejected — g2 is the better-overlap pick');
+  assert.equal(bySource.get('g2').rejected, false, 'g2 is un-rejected in place for Geekybugs');
 });

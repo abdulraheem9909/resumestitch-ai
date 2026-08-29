@@ -247,7 +247,7 @@ router.get('/:id/export/resume.docx', async (req, res) => {
     const buffer = await buildResumeDocxBuffer({
       personalInfo: resume?.personalInfo || {},
       tailoredSummary: application.tailoredSummary,
-      tailoredBullets: application.tailoredBullets,
+      tailoredBullets: application.tailoredBullets.filter((bullet) => !bullet.rejected),
       originalBulletsById,
       education: resume?.education || [],
       projects: resume?.projects || [],
@@ -418,7 +418,9 @@ router.post('/:id/recheck', async (req, res) => {
       ...result.fabricatedMetrics.map((metric) => `bullet ${result.bulletId}: fabricated metric "${metric}"`),
     ]);
 
-    const selectedBullets = application.tailoredBullets.map((tailoredBullet) => bulletsById.get(tailoredBullet.sourceBulletId));
+    const selectedBullets = application.tailoredBullets
+      .filter((tailoredBullet) => !tailoredBullet.rejected)
+      .map((tailoredBullet) => bulletsById.get(tailoredBullet.sourceBulletId));
     const summaryResult = application.tailoredSummary
       ? verifySummary({
           generatedText: application.tailoredSummary.finalText,
@@ -437,7 +439,7 @@ router.post('/:id/recheck', async (req, res) => {
 
     const atsResult = await atsScoreAndRecruiter({
       jdText: application.jdSnapshot,
-      tailoredBullets: application.tailoredBullets,
+      tailoredBullets: application.tailoredBullets.filter((bullet) => !bullet.rejected),
       tailoredSummary: application.tailoredSummary,
       coverLetterText: application.coverLetterText,
       keywordGaps: application.keywordGaps,

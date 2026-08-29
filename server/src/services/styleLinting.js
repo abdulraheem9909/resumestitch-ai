@@ -104,6 +104,11 @@ async function lintOneItem(text, kind) {
 export async function styleLinting({ tailoredBullets, tailoredSummary, coverLetterText }) {
   const lintedBullets = await Promise.all(
     tailoredBullets.map(async (bullet) => {
+      // A rejected bullet's text is forced verbatim to its source (section 4,
+      // node 5) and never leaves the tailored set — leave it untouched rather
+      // than spending a lint pass (or an escalation call) on content that will
+      // never be shown as tailored output.
+      if (bullet.rejected) return bullet;
       const text = await lintOneItem(bullet.finalText, 'resume bullet');
       return { ...bullet, generatedText: text, finalText: text };
     })

@@ -33,6 +33,7 @@ const tailoredBulletSchema = z.object({
   finalText: z.string(),
   editSource: z.enum(['ai', 'human']),
   rephraseIntensity: z.number(),
+  rejected: z.boolean().default(() => false),
 });
 
 const tailoredSummarySchema = z.object({
@@ -152,7 +153,7 @@ export function mergeHumanEditedBullets(freshBullets, previousBullets) {
   const editedBySource = new Map(
     (previousBullets || [])
       .filter((bullet) => bullet.editSource === 'human')
-      .map((bullet) => [bullet.sourceBulletId, bullet])
+      .map((bullet) => [bullet.sourceBulletId, { ...bullet, rejected: false }])
   );
   return freshBullets.map((bullet) => editedBySource.get(bullet.sourceBulletId) || bullet);
 }
@@ -166,28 +167,43 @@ function verbatimTailoredBullet(sourceBullet) {
     finalText: sourceBullet.text,
     editSource: 'ai',
     rephraseIntensity: rephraseIntensity(sourceBullet.text, sourceBullet.text),
+    rejected: false,
   };
 }
 
 // Guarantees a bullet added specifically to plug a JD skill gap actually ends up
-// in the tailored resume, rather than depending on the model's discretion.
+// in the tailored resume, rather than depending on the model's discretion. The
+// candidate pool now always contains an entry for every source bullet, so this
+// also has to un-reject one the model marked out of context, not just append a
+// missing one.
 export function ensureRequiredBulletIncluded(bullets, requiredBulletId, resumeBulletsById) {
-  if (!requiredBulletId || bullets.some((bullet) => bullet.sourceBulletId === requiredBulletId)) {
+  if (!requiredBulletId) {
     return bullets;
   }
+  const index = bullets.findIndex((bullet) => bullet.sourceBulletId === requiredBulletId);
   const sourceBullet = resumeBulletsById.get(requiredBulletId);
-  if (!sourceBullet) {
+  if (index === -1) {
+    return sourceBullet ? [...bullets, verbatimTailoredBullet(sourceBullet)] : bullets;
+  }
+  if (!bullets[index].rejected) {
     return bullets;
   }
-  return [...bullets, verbatimTailoredBullet(sourceBullet)];
+  const forced = verbatimTailoredBullet(sourceBullet || { bulletId: requiredBulletId, text: bullets[index].finalText });
+  const updated = [...bullets];
+  updated[index] = forced;
+  return updated;
 }
 
 // Guarantees every real employer (one with a `company` on its source bullets)
-// keeps at least one bullet on the tailored resume, so bullet selection can never
-// silently erase an entire job from the work history.
+// keeps at least one non-rejected bullet on the tailored resume, so an
+// out-of-context classification can never silently erase an entire job from the
+// work history. "Represented" now means "has a kept bullet" — if an employer's
+// bullets are all currently rejected, the best-overlap one is un-rejected in
+// place rather than appended as a duplicate.
 export function ensureEveryEmployerRepresented(bullets, resumeBullets, jdCanonicalSkills) {
   const representedCompanies = new Set(
     bullets
+      .filter((bullet) => !bullet.rejected)
       .map((bullet) => resumeBullets.find((rb) => rb.bulletId === bullet.sourceBulletId)?.company)
       .filter(Boolean)
   );
@@ -203,8 +219,13 @@ export function ensureEveryEmployerRepresented(bullets, resumeBullets, jdCanonic
       bestByCompany.set(resumeBullet.company, { bullet: resumeBullet, overlap });
     }
   }
-  const additions = [...bestByCompany.values()].map(({ bullet }) => verbatimTailoredBullet(bullet));
-  return [...bullets, ...additions];
+  let result = bullets;
+  for (const { bullet: resumeBullet } of bestByCompany.values()) {
+    const index = result.findIndex((bullet) => bullet.sourceBulletId === resumeBullet.bulletId);
+    const forced = verbatimTailoredBullet(resumeBullet);
+    result = index === -1 ? [...result, forced] : result.map((bullet, i) => (i === index ? forced : bullet));
+  }
+  return result;
 }
 
 // Node 5 (section 4)
@@ -251,7 +272,9 @@ function deterministicVerificationNode(state) {
     }),
   }));
 
-  const selectedBullets = state.tailoredBullets.map((tailoredBullet) => bulletsById.get(tailoredBullet.sourceBulletId));
+  const selectedBullets = state.tailoredBullets
+    .filter((tailoredBullet) => !tailoredBullet.rejected)
+    .map((tailoredBullet) => bulletsById.get(tailoredBullet.sourceBulletId));
   const summary = verifySummary({
     generatedText: state.tailoredSummary.finalText,
     matchedSkills: state.matchedSkills,
@@ -270,7 +293,7 @@ async function coverLetterGenerationNode(state) {
     jdText: state.jdText,
     companyName: state.companyName,
     resumeTitle: state.resumeTitle,
-    tailoredBullets: state.tailoredBullets,
+    tailoredBullets: state.tailoredBullets.filter((bullet) => !bullet.rejected),
     tailoredSummary: state.tailoredSummary,
     matchedSkills: state.matchedSkills,
     keywordGaps: state.keywordGaps,
@@ -281,7 +304,11 @@ async function coverLetterGenerationNode(state) {
   return { coverLetterText };
 }
 
-// Node 8 (section 4): mostly rule-based, no LLM in the common case.
+// Node 8 (section 4): mostly rule-based, no LLM in the common case. Its return
+// value replaces state.tailoredBullets wholesale (unlike the cover-letter/ATS
+// nodes, which only return their own fields) — so it must always be handed
+// and must always hand back every bullet, rejected included, or a rejected
+// bullet silently disappears from the application instead of staying tagged.
 async function styleLintingNode(state) {
   return styleLinting({
     tailoredBullets: state.tailoredBullets,
@@ -292,9 +319,10 @@ async function styleLintingNode(state) {
 
 // Node 9 (section 4/5): single structured call; also decides the retry edge.
 async function atsScoreAndRecruiterNode(state) {
+  const activeTailoredBullets = state.tailoredBullets.filter((bullet) => !bullet.rejected);
   const { atsScore, atsFlags, recruiterFeedback } = await atsScoreAndRecruiter({
     jdText: state.jdText,
-    tailoredBullets: state.tailoredBullets,
+    tailoredBullets: activeTailoredBullets,
     tailoredSummary: state.tailoredSummary,
     coverLetterText: state.coverLetterText,
     keywordGaps: state.keywordGaps,
@@ -304,7 +332,7 @@ async function atsScoreAndRecruiterNode(state) {
   });
 
   const retryCount = state.retryCount ?? 0;
-  const willRetry = shouldRetryAutomatically(atsFlags, retryCount, state.tailoredBullets);
+  const willRetry = shouldRetryAutomatically(atsFlags, retryCount, activeTailoredBullets);
 
   return {
     atsScore,

@@ -9,6 +9,7 @@ const tailoredBulletSchema = new mongoose.Schema(
     finalText: String,
     editSource: { type: String, enum: ['ai', 'human'] },
     rephraseIntensity: Number,
+    rejected: { type: Boolean, default: false },
   },
   { _id: false }
 );
