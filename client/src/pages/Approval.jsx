@@ -217,7 +217,7 @@ export default function Approval() {
 
   return (
     <section className="mx-auto w-full max-w-5xl">
-      <div className="sticky top-0 z-10 bg-background pb-10 pb-10  pt-7 md:pt-10 px=1 md:px-2">
+      <div className="sticky top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
         <Breadcrumbs
           backTo="/applications"
           trail={[

@@ -96,8 +96,8 @@ export default function Applications() {
   }, [applications, sort]);
 
   return (
-    <section className="mx-auto w-full max-w-5xl pt-7 md:pt-10">
-      <div className="sticky top-0 z-10 bg-background pb-10">
+    <section className="mx-auto w-full max-w-5xl">
+      <div className="sticky top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
         <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Applications
         </p>
