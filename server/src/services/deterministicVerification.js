@@ -80,7 +80,9 @@ function buildResult(generatedText, allowedSkills, allowedNumericText) {
  * against hand-edited text.
  */
 export function verifyBullet({ generatedText, sourceBullet }) {
-  return buildResult(generatedText, sourceBullet.canonicalSkills || [], sourceBullet.text || '');
+  const sourceText = sourceBullet.text || '';
+  const allowedSkills = new Set([...(sourceBullet.canonicalSkills || []), ...extractClaimedSkills(sourceText)]);
+  return buildResult(generatedText, [...allowedSkills], sourceText);
 }
 
 /**
@@ -91,7 +93,10 @@ export function verifyBullet({ generatedText, sourceBullet }) {
 export function verifySummary({ generatedText, matchedSkills, selectedBullets, yearsOfExperience }) {
   const allowedSkills = new Set([
     ...(matchedSkills || []),
-    ...(selectedBullets || []).flatMap((bullet) => bullet.canonicalSkills || []),
+    ...(selectedBullets || []).flatMap((bullet) => [
+      ...(bullet.canonicalSkills || []),
+      ...extractClaimedSkills(bullet.text || ''),
+    ]),
   ]);
   const allowedNumericText = [
     (selectedBullets || []).map((bullet) => bullet.text).join(' '),

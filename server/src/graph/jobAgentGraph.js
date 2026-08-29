@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { StateGraph, StateSchema, START, END, interrupt } from '@langchain/langgraph';
 import { MongoDBSaver } from '@langchain/langgraph-checkpoint-mongodb';
 import { MongoClient } from 'mongodb';
@@ -9,6 +10,7 @@ import { roleFitGate } from '../services/roleFitGate.js';
 import { matchedSkills } from '../services/matchedSkills.js';
 import { calculateYearsOfExperience } from '../services/calculateYearsOfExperience.js';
 import { tailorContent } from '../services/tailorContent.js';
+import { rephraseIntensity } from '../services/rephraseIntensity.js';
 import { verifyBullet, verifySummary } from '../services/deterministicVerification.js';
 import { generateCoverLetter } from '../services/generateCoverLetter.js';
 import { styleLinting } from '../services/styleLinting.js';
@@ -56,6 +58,10 @@ const JobAgentState = new StateSchema({
   resumeTitle: z.string().optional(),
   resumeCanonicalSkills: z.array(z.string()).default(() => []),
   resumeBullets: z.array(resumeBulletSchema).default(() => []),
+  // Transient: set only when a retry is adding a bullet meant to plug a specific
+  // JD skill gap, so tailorContent can guarantee its inclusion. Reset to null on
+  // every retry unless explicitly re-supplied (section 4a).
+  requiredBulletId: z.string().nullable().optional().default(() => null),
   jdKeywords: z
     .object({
       skills: z.array(z.string()),
@@ -117,9 +123,15 @@ function normalizeSkillsNode(state) {
 }
 
 // Node 3 (section 4)
-function gapAnalysisNode(state) {
-  const keywordGaps = gapAnalysis(state.jdCanonicalSkills, state.resumeCanonicalSkills);
-  return { keywordGaps };
+// Recomputes resumeCanonicalSkills from the current resumeBullets on every run
+// (not just the first pass) so a bullet added mid-flow (e.g. via the
+// suggest-missing-skills flow) is reflected in keywordGaps after a retry.
+export function gapAnalysisNode(state) {
+  const resumeCanonicalSkills = [...new Set(
+    (state.resumeBullets || []).flatMap((bullet) => bullet.canonicalSkills || [])
+  )];
+  const keywordGaps = gapAnalysis(state.jdCanonicalSkills, resumeCanonicalSkills);
+  return { resumeCanonicalSkills, keywordGaps };
 }
 
 // Node 4 (section 5a)
@@ -134,6 +146,67 @@ async function roleFitGateNode(state) {
   return { roleFit };
 }
 
+// Preserves a bullet the human already hand-edited across a retry, instead of
+// letting tailorContent's fresh regeneration silently overwrite it.
+export function mergeHumanEditedBullets(freshBullets, previousBullets) {
+  const editedBySource = new Map(
+    (previousBullets || [])
+      .filter((bullet) => bullet.editSource === 'human')
+      .map((bullet) => [bullet.sourceBulletId, bullet])
+  );
+  return freshBullets.map((bullet) => editedBySource.get(bullet.sourceBulletId) || bullet);
+}
+
+function verbatimTailoredBullet(sourceBullet) {
+  return {
+    bulletId: randomUUID(),
+    sourceBulletId: sourceBullet.bulletId,
+    generatedText: sourceBullet.text,
+    humanEditedText: null,
+    finalText: sourceBullet.text,
+    editSource: 'ai',
+    rephraseIntensity: rephraseIntensity(sourceBullet.text, sourceBullet.text),
+  };
+}
+
+// Guarantees a bullet added specifically to plug a JD skill gap actually ends up
+// in the tailored resume, rather than depending on the model's discretion.
+export function ensureRequiredBulletIncluded(bullets, requiredBulletId, resumeBulletsById) {
+  if (!requiredBulletId || bullets.some((bullet) => bullet.sourceBulletId === requiredBulletId)) {
+    return bullets;
+  }
+  const sourceBullet = resumeBulletsById.get(requiredBulletId);
+  if (!sourceBullet) {
+    return bullets;
+  }
+  return [...bullets, verbatimTailoredBullet(sourceBullet)];
+}
+
+// Guarantees every real employer (one with a `company` on its source bullets)
+// keeps at least one bullet on the tailored resume, so bullet selection can never
+// silently erase an entire job from the work history.
+export function ensureEveryEmployerRepresented(bullets, resumeBullets, jdCanonicalSkills) {
+  const representedCompanies = new Set(
+    bullets
+      .map((bullet) => resumeBullets.find((rb) => rb.bulletId === bullet.sourceBulletId)?.company)
+      .filter(Boolean)
+  );
+  const jdSkillSet = new Set(jdCanonicalSkills || []);
+  const bestByCompany = new Map();
+  for (const resumeBullet of resumeBullets) {
+    if (!resumeBullet.company || representedCompanies.has(resumeBullet.company)) {
+      continue;
+    }
+    const overlap = (resumeBullet.canonicalSkills || []).filter((skill) => jdSkillSet.has(skill)).length;
+    const best = bestByCompany.get(resumeBullet.company);
+    if (!best || overlap > best.overlap) {
+      bestByCompany.set(resumeBullet.company, { bullet: resumeBullet, overlap });
+    }
+  }
+  const additions = [...bestByCompany.values()].map(({ bullet }) => verbatimTailoredBullet(bullet));
+  return [...bullets, ...additions];
+}
+
 // Node 5 (section 4)
 async function tailorContentNode(state) {
   if (!state.resumeBullets?.length) {
@@ -143,7 +216,7 @@ async function tailorContentNode(state) {
   const matched = matchedSkills(state.jdCanonicalSkills, state.resumeCanonicalSkills);
   const yearsOfExperience = calculateYearsOfExperience(state.resumeBullets);
 
-  const { tailoredBullets, tailoredSummary, generationId } = await tailorContent({
+  const generated = await tailorContent({
     jdText: state.jdText,
     resumeBullets: state.resumeBullets,
     matchedSkills: matched,
@@ -152,6 +225,16 @@ async function tailorContentNode(state) {
     resumeVersion: state.masterResumeId,
     retryNotes: state.retryNotes,
   });
+  const { generationId } = generated;
+
+  const resumeBulletsById = new Map(state.resumeBullets.map((bullet) => [bullet.bulletId, bullet]));
+
+  let tailoredBullets = mergeHumanEditedBullets(generated.tailoredBullets, state.tailoredBullets);
+  tailoredBullets = ensureRequiredBulletIncluded(tailoredBullets, state.requiredBulletId, resumeBulletsById);
+  tailoredBullets = ensureEveryEmployerRepresented(tailoredBullets, state.resumeBullets, state.jdCanonicalSkills);
+
+  const tailoredSummary =
+    state.tailoredSummary?.editSource === 'human' ? state.tailoredSummary : generated.tailoredSummary;
 
   return { matchedSkills: matched, yearsOfExperience, tailoredBullets, tailoredSummary, generationId };
 }
@@ -275,6 +358,7 @@ function humanApprovalNode(state) {
     tailoredBullets: resumeValue.tailoredBullets ?? state.tailoredBullets,
     resumeBullets: resumeValue.resumeBullets ?? state.resumeBullets,
     retryNotes: resumeValue.notes ?? '',
+    requiredBulletId: resumeValue.requiredBulletId ?? null,
     retryCount: (state.retryCount ?? 0) + 1,
     humanDecision: 'retry',
   };
@@ -308,7 +392,10 @@ export function createJobAgentGraph(mongoUri, dbName) {
     .addEdge(START, 'extractJdKeywords')
     .addEdge('extractJdKeywords', 'normalizeSkills')
     .addEdge('normalizeSkills', 'gapAnalysis')
-    .addEdge('gapAnalysis', 'roleFitGate')
+    .addConditionalEdges('gapAnalysis', (state) => ((state.retryCount ?? 0) > 0 ? 'retry' : 'first'), {
+      first: 'roleFitGate',
+      retry: 'tailorContent',
+    })
     .addConditionalEdges('roleFitGate', (state) => state.roleFit.fit, {
       low: 'humanApproval',
       plausible: 'tailorContent',
@@ -321,12 +408,12 @@ export function createJobAgentGraph(mongoUri, dbName) {
     .addEdge('coverLetterGeneration', 'styleLinting')
     .addEdge('styleLinting', 'atsScoreAndRecruiter')
     .addConditionalEdges('atsScoreAndRecruiter', (state) => state.retryDecision, {
-      retry: 'tailorContent',
+      retry: 'gapAnalysis',
       end: 'humanApproval',
     })
     .addConditionalEdges('humanApproval', (state) => state.humanDecision, {
       end: END,
-      retry: 'tailorContent',
+      retry: 'gapAnalysis',
     });
 
   const graph = builder.compile({ checkpointer });

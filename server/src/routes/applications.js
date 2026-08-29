@@ -249,6 +249,9 @@ router.get('/:id/export/resume.docx', async (req, res) => {
       tailoredSummary: application.tailoredSummary,
       tailoredBullets: application.tailoredBullets,
       originalBulletsById,
+      education: resume?.education || [],
+      projects: resume?.projects || [],
+      skills: resume?.skills || [],
     });
 
     res.set({
@@ -538,7 +541,7 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
     return res.status(400).json({ error: 'Invalid application id.' });
   }
 
-  const { skill, bulletText } = req.body;
+  const { skill, bulletText, role, company, dateRange } = req.body;
   if (typeof skill !== 'string' || !skill.trim()) {
     return res.status(400).json({ error: 'skill is required.' });
   }
@@ -566,6 +569,9 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
       skills,
       canonicalSkills,
       metrics,
+      role: typeof role === 'string' && role.trim() ? role.trim() : undefined,
+      company: typeof company === 'string' && company.trim() ? company.trim() : undefined,
+      dateRange: typeof dateRange === 'string' && dateRange.trim() ? dateRange.trim() : undefined,
     });
 
     const allBullets = await ResumeBullet.find({ masterResumeId: application.masterResumeId });
@@ -580,6 +586,7 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
       notes,
       tailoredBullets: application.tailoredBullets,
       resumeBullets: resumeBulletsForGraph,
+      requiredBulletId: newBullet._id.toString(),
     });
     const state = snapshot.values;
 

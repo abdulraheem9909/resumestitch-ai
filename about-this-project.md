@@ -26,4 +26,6 @@ Just me, for now. It's scoped around one person managing a handful of master res
 
 ## Current state
 
-Architecture and full workflow are designed and documented; build hasn't started yet. The workflow document includes a suggested build order — starting with resume parsing and the core tailoring loop, ending with the deletion cascade and any polish.
+The full pipeline described in the workflow document is built and working end-to-end: resume upload/parsing, the tailoring loop, deterministic verification, ATS scoring, human approval (with re-check and suggest-missing-skills), retry policy, resume deletion cascade, and on-demand `.docx`/`.xlsx` export. Real applications have been run through it against actual job postings (e.g. ConnexAI), which surfaced and led to fixing four real bugs: a stale skill-gap list after a retry, hand-edits getting silently overwritten by a later retry, a bullet added to plug a JD skill gap not reliably surviving the model's own selection, and bullet selection being able to drop an entire employer from the tailored resume. See `key-decisions-log.md` for the reasoning behind each fix.
+
+Remaining work is mostly refinement rather than net-new pipeline stages — see the workflow document for anything still open.

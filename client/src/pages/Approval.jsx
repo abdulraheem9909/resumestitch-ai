@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Approval() {
   const { applicationId } = useParams();
@@ -31,6 +32,7 @@ export default function Approval() {
 
   const [activeSuggestSkill, setActiveSuggestSkill] = useState(null);
   const [suggestBulletText, setSuggestBulletText] = useState("");
+  const [suggestBulletTarget, setSuggestBulletTarget] = useState("");
   const [addingSkill, setAddingSkill] = useState(false);
 
   const [retryNotes, setRetryNotes] = useState("");
@@ -68,6 +70,17 @@ export default function Approval() {
     () => new Map((verificationResult?.bullets || []).map((entry) => [entry.bulletId, entry])),
     [verificationResult]
   );
+  const employerOptions = useMemo(() => {
+    const seen = new Map();
+    for (const bullet of originalBullets) {
+      if (!bullet.company) continue;
+      const key = `${bullet.company}|${bullet.role || ""}|${bullet.dateRange || ""}`;
+      if (!seen.has(key)) {
+        seen.set(key, { key, role: bullet.role || "", company: bullet.company, dateRange: bullet.dateRange || "" });
+      }
+    }
+    return [...seen.values()];
+  }, [originalBullets]);
 
   function startEditingBullet(bullet) {
     setEditingBulletId(bullet.bulletId);
@@ -152,18 +165,27 @@ export default function Approval() {
   async function acceptSuggestedSkill(skill) {
     if (!suggestBulletText.trim()) return;
 
+    const target = employerOptions.find((option) => option.key === suggestBulletTarget);
+
     setAddingSkill(true);
     setError("");
     try {
       const res = await fetch(`${API_BASE}/${applicationId}/suggest-skills/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ skill, bulletText: suggestBulletText }),
+        body: JSON.stringify({
+          skill,
+          bulletText: suggestBulletText,
+          role: target?.role,
+          company: target?.company,
+          dateRange: target?.dateRange,
+        }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't add this skill.");
       setActiveSuggestSkill(null);
       setSuggestBulletText("");
+      setSuggestBulletTarget("");
       await loadApplication();
     } catch (err) {
       setError(err.message);
@@ -469,6 +491,7 @@ export default function Approval() {
                     onClick={() => {
                       setActiveSuggestSkill(activeSuggestSkill === skill ? null : skill);
                       setSuggestBulletText("");
+                      setSuggestBulletTarget("");
                     }}
                   >
                     {skill}
@@ -481,6 +504,21 @@ export default function Approval() {
                     If you genuinely have real experience with "{activeSuggestSkill}", write the real
                     bullet below — it'll be added to your resume and this application retried with it.
                   </p>
+                  {employerOptions.length > 0 && (
+                    <Select value={suggestBulletTarget} onValueChange={setSuggestBulletTarget}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Attach to which job? (optional)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {employerOptions.map((option) => (
+                          <SelectItem key={option.key} value={option.key}>
+                            {[option.company, option.role].filter(Boolean).join(" — ")}
+                            {option.dateRange ? ` (${option.dateRange})` : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                   <Textarea
                     value={suggestBulletText}
                     onChange={(event) => setSuggestBulletText(event.target.value)}
