@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
-import { Download, Pencil } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { Download, Pencil, Trash2 } from "lucide-react";
 import { APPLICATIONS_API as API_BASE } from "../lib/api.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -10,9 +10,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 export default function Approval() {
   const { applicationId } = useParams();
+  const navigate = useNavigate();
 
   const [application, setApplication] = useState(null);
   const [originalBullets, setOriginalBullets] = useState([]);
@@ -42,6 +51,10 @@ export default function Approval() {
   const [retryNotes, setRetryNotes] = useState("");
   const [sendingRetry, setSendingRetry] = useState(false);
   const [approving, setApproving] = useState(false);
+
+  const [discardDialogOpen, setDiscardDialogOpen] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+  const [discardError, setDiscardError] = useState("");
 
   // Focus each text box as it appears without letting the browser's default
   // autoFocus behavior yank the page's scroll position to wherever that box
@@ -288,7 +301,23 @@ export default function Approval() {
     }
   }
 
-  const busy = savingBulletId !== null || savingSummary || rechecking || addingSkill || sendingRetry || approving;
+  async function discardApplication() {
+    setDiscarding(true);
+    setDiscardError("");
+    try {
+      const res = await fetch(`${API_BASE}/${applicationId}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't discard this application.");
+      navigate("/applications");
+    } catch (err) {
+      setDiscardError(err.message);
+    } finally {
+      setDiscarding(false);
+    }
+  }
+
+  const busy =
+    savingBulletId !== null || savingSummary || rechecking || addingSkill || sendingRetry || approving || discarding;
 
   const applicationLabel = application?.companyName
     ? [application.companyName, application.jobTitle].filter(Boolean).join(" — ")
@@ -314,14 +343,56 @@ export default function Approval() {
             { label: applicationLabel },
           ]}
         />
-        <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">
-          {applicationLabel}
-        </h1>
-        <p className="max-w-prose text-sm text-muted-foreground md:text-base">
-          Nothing here is saved or exported until you approve it — hand-edit anything that doesn't
-          sound like you, or send it back with notes for another pass.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">
+              {applicationLabel}
+            </h1>
+            <p className="max-w-prose text-sm text-muted-foreground md:text-base">
+              Nothing here is saved or exported until you approve it — hand-edit anything that
+              doesn't sound like you, or send it back with notes for another pass.
+            </p>
+          </div>
+          {application && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="text-destructive hover:text-destructive"
+              onClick={() => setDiscardDialogOpen(true)}
+              disabled={busy}
+            >
+              <Trash2 className="size-4" /> Discard
+            </Button>
+          )}
+        </div>
       </div>
+
+      <Dialog open={discardDialogOpen} onOpenChange={(open) => !open && setDiscardDialogOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Discard this application?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes the JD, tailored resume, cover letter, and scoring history
+              for {applicationLabel}. This can't be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {discardError && (
+            <Alert variant="destructive">
+              <AlertDescription>{discardError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDiscardDialogOpen(false)} disabled={discarding}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={discardApplication} disabled={discarding}>
+              {discarding ? "Discarding…" : "Discard permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {error && (
         <Alert variant="destructive" className="mb-5">

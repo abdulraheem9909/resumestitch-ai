@@ -136,10 +136,10 @@ async function computeHumanRecheck(application) {
   };
 }
 
-// For the Applications list page — approved applications only.
+// For the Applications list page — every application, most recently active first.
 router.get('/', async (req, res) => {
   try {
-    const applications = await Application.find({ status: 'approved' }).sort({ approvedAt: -1 });
+    const applications = await Application.find({}).sort({ updatedAt: -1 });
     return res.json({ applications });
   } catch (err) {
     console.error(err);
