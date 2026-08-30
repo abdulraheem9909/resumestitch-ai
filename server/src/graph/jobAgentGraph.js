@@ -11,7 +11,7 @@ import { matchedSkills } from '../services/matchedSkills.js';
 import { calculateYearsOfExperience } from '../services/calculateYearsOfExperience.js';
 import { tailorContent } from '../services/tailorContent.js';
 import { rephraseIntensity } from '../services/rephraseIntensity.js';
-import { verifyBullet, verifySummary } from '../services/deterministicVerification.js';
+import { verifyBullet, verifySummary, trustHumanEdit } from '../services/deterministicVerification.js';
 import { generateCoverLetter } from '../services/generateCoverLetter.js';
 import { styleLinting } from '../services/styleLinting.js';
 import { atsScoreAndRecruiter, shouldRetryAutomatically, buildAutoRetryNotes } from '../services/atsScoreAndRecruiter.js';
@@ -266,21 +266,26 @@ function deterministicVerificationNode(state) {
 
   const bullets = state.tailoredBullets.map((tailoredBullet) => ({
     bulletId: tailoredBullet.bulletId,
-    ...verifyBullet({
-      generatedText: tailoredBullet.finalText,
-      sourceBullet: bulletsById.get(tailoredBullet.sourceBulletId),
-    }),
+    ...(tailoredBullet.editSource === 'human'
+      ? trustHumanEdit(tailoredBullet.finalText)
+      : verifyBullet({
+          generatedText: tailoredBullet.finalText,
+          sourceBullet: bulletsById.get(tailoredBullet.sourceBulletId),
+        })),
   }));
 
   const selectedBullets = state.tailoredBullets
     .filter((tailoredBullet) => !tailoredBullet.rejected)
     .map((tailoredBullet) => bulletsById.get(tailoredBullet.sourceBulletId));
-  const summary = verifySummary({
-    generatedText: state.tailoredSummary.finalText,
-    matchedSkills: state.matchedSkills,
-    selectedBullets,
-    yearsOfExperience: state.yearsOfExperience,
-  });
+  const summary =
+    state.tailoredSummary.editSource === 'human'
+      ? trustHumanEdit(state.tailoredSummary.finalText)
+      : verifySummary({
+          generatedText: state.tailoredSummary.finalText,
+          matchedSkills: state.matchedSkills,
+          selectedBullets,
+          yearsOfExperience: state.yearsOfExperience,
+        });
 
   const overallPassed = bullets.every((bullet) => bullet.passed) && summary.passed;
 

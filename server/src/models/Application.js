@@ -47,6 +47,8 @@ const applicationSchema = new mongoose.Schema(
     atsFlags: [String],
     humanRecheckAtsScore: { type: Number, default: null },
     humanRecheckAtsFlags: { type: [String], default: undefined },
+    humanRecheckRecruiterFeedback: { type: String, default: null },
+    humanRecheckKeywordGaps: { type: [String], default: undefined },
     recruiterFeedback: String,
     resumeFilename: String,
     coverLetterFilename: String,

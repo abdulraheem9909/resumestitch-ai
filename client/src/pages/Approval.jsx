@@ -154,6 +154,8 @@ export default function Approval() {
         ...prev,
         humanRecheckAtsScore: data.humanRecheckAtsScore,
         humanRecheckAtsFlags: data.humanRecheckAtsFlags,
+        humanRecheckRecruiterFeedback: data.humanRecheckRecruiterFeedback,
+        humanRecheckKeywordGaps: data.humanRecheckKeywordGaps,
       }));
     } catch (err) {
       setError(err.message);
@@ -478,6 +480,23 @@ export default function Approval() {
                     </Badge>
                   ))
                 )}
+              </div>
+            )}
+            {application.humanRecheckRecruiterFeedback && (
+              <p className="mt-2 text-sm text-muted-foreground">{application.humanRecheckRecruiterFeedback}</p>
+            )}
+            {application.humanRecheckKeywordGaps && (
+              <div className="mt-3">
+                <p className="mb-1.5 text-xs font-medium text-muted-foreground">Still missing after your edits</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {application.humanRecheckKeywordGaps.length === 0 ? (
+                    <Badge variant="secondary">No gaps remaining</Badge>
+                  ) : (
+                    application.humanRecheckKeywordGaps.map((skill) => (
+                      <Badge key={skill} variant="outline">{skill}</Badge>
+                    ))
+                  )}
+                </div>
               </div>
             )}
           </div>

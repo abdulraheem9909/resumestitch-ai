@@ -80,5 +80,17 @@
   "rest api": "rest-api",
   "rest apis": "rest-api",
   "restful api": "rest-api",
-  "restful apis": "rest-api"
+  "restful apis": "rest-api",
+
+  "docker": "docker",
+
+  "linux": "linux",
+
+  "api": "api",
+  "apis": "api",
+
+  "websocket": "websocket",
+  "websockets": "websocket",
+  "web socket": "websocket",
+  "web sockets": "websocket"
 }

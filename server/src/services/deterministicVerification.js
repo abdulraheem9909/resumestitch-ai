@@ -73,6 +73,19 @@ function buildResult(generatedText, allowedSkills, allowedNumericText) {
   };
 }
 
+// A human-edited bullet/summary is a direct claim by the person approving this
+// resume, not the AI inventing something — there's nothing to fact-check against
+// a source. Trust it outright, but still report what it claims (claimedSkills)
+// so callers can credit those skills elsewhere (e.g. a live "still missing" view).
+export function trustHumanEdit(text) {
+  return {
+    passed: true,
+    fabricatedSkills: [],
+    fabricatedMetrics: [],
+    claimedSkills: [...extractClaimedSkills(text || '')],
+  };
+}
+
 /**
  * Node 6 (section 4): rule-based, no LLM. Verifies a single tailored bullet's
  * finalText against its source bullet. Kept decoupled from graph state — the
