@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { RESUMES_API as API_BASE } from "../lib/api.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -31,6 +31,10 @@ export default function ResumeBullets() {
   const [newBulletText, setNewBulletText] = useState("");
   const [addingBullet, setAddingBullet] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
+
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
     async function loadResume() {
@@ -124,6 +128,25 @@ export default function ResumeBullets() {
     }
   }
 
+  async function deleteBullet() {
+    if (!deleteTarget) return;
+
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      const res = await fetch(`${API_BASE}/bullets/${deleteTarget._id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't delete this bullet.");
+
+      setBullets((prev) => prev.filter((bullet) => bullet._id !== deleteTarget._id));
+      setDeleteTarget(null);
+    } catch (err) {
+      setDeleteError(err.message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <section className="mx-auto w-full max-w-5xl">
       <div className="sticky top-0 z-10 bg-background pb-10  pt-7 md:pt-10 px=1 md:px-2">
@@ -214,14 +237,25 @@ export default function ResumeBullets() {
                         ))}
                       </div>
                     )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="w-fit"
-                      onClick={() => startEditing(bullet)}
-                    >
-                      Edit
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-fit"
+                        onClick={() => startEditing(bullet)}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-fit text-destructive hover:text-destructive"
+                        onClick={() => setDeleteTarget(bullet)}
+                      >
+                        <Trash2 className="size-4" />
+                        Delete
+                      </Button>
+                    </div>
                   </>
                 )}
               </div>
@@ -249,6 +283,35 @@ export default function ResumeBullets() {
           <DialogFooter>
             <Button onClick={addBullet} disabled={addingBullet || !newBulletText.trim()}>
               {addingBullet ? "Adding…" : "Add bullet"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this bullet?</DialogTitle>
+            <DialogDescription>
+              This permanently removes it from your master resume — it can't be undone. It won't change
+              anything already shown for an application currently in review or already approved. But if
+              you later use "Suggest missing skills" on an application that already has this bullet, it
+              won't be available to include from that point on.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteError && (
+            <Alert variant="destructive">
+              <AlertDescription>{deleteError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={deleteBullet} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete permanently"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -307,6 +307,47 @@ router.patch("/bullets/:id", async (req, res) => {
   }
 });
 
+// Permanent delete of a single master-resume bullet. Safe for any existing
+// application: node 5/6/9, computeHumanRecheck, the docx export route, and
+// the Approval page's "Original" column all read resumeBullets off that
+// application's own frozen LangGraph checkpoint, never a live query here —
+// so this can never retroactively change an in-progress or already-approved
+// application's score, flags, or feedback. The one live-refresh path is
+// "Suggest missing skills" (applications.js), which re-fetches master
+// bullets fresh — if this bullet is still on some application's tailored
+// resume, it will drop out of that application's next round, even if it was
+// hand-edited or manually excluded there. That's this action doing exactly
+// what it says, not a bug to guard against.
+router.delete("/bullets/:id", async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: "Invalid bullet id." });
+  }
+
+  try {
+    const bullet = await ResumeBullet.findById(id);
+    if (!bullet) {
+      return res.status(404).json({ error: "Bullet not found." });
+    }
+
+    // A resume with zero bullets can never be used to create an application
+    // (see the `bullets.length === 0` check in applications.js's POST /) —
+    // refuse here instead of letting that surface later as a confusing error.
+    const remainingCount = await ResumeBullet.countDocuments({ masterResumeId: bullet.masterResumeId });
+    if (remainingCount <= 1) {
+      return res.status(400).json({
+        error: "Cannot delete the last bullet on a resume — a resume needs at least one bullet to create an application.",
+      });
+    }
+
+    await ResumeBullet.deleteOne({ _id: id });
+    return res.json({ deleted: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to delete bullet." });
+  }
+});
+
 // Section 2.4 — full cascading delete, in the given order:
 // 1. applications linked to this resume, 2. their generated output files,
 // 3. their LangGraph checkpoint/thread history (also cleans up GenerationCache
