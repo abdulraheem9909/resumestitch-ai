@@ -78,6 +78,13 @@ function scoreTier(atsScore) {
   return atsScore >= 70 ? "strong" : "weak";
 }
 
+// Whichever is current: the human re-check's score if one was ever run before
+// approval, otherwise the original AI-time score — same "current" rule the
+// Approval page itself uses, so this table never shows a stale number.
+function currentAtsScore(application) {
+  return application.humanRecheckAtsScore ?? application.atsScore;
+}
+
 export default function Applications() {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -124,7 +131,7 @@ export default function Applications() {
         const haystack = `${application.companyName} ${application.jobTitle || ""}`.toLowerCase();
         if (!haystack.includes(query)) return false;
       }
-      if (atsFilter !== "all" && scoreTier(application.atsScore) !== atsFilter) return false;
+      if (atsFilter !== "all" && scoreTier(currentAtsScore(application)) !== atsFilter) return false;
       if (coverLetterFilter === "yes" && !application.coverLetterRequested) return false;
       if (coverLetterFilter === "no" && application.coverLetterRequested) return false;
       return true;
@@ -141,7 +148,7 @@ export default function Applications() {
         return (a.jobTitle || "").localeCompare(b.jobTitle || "") * factor;
       }
       if (sort.key === "atsScore") {
-        return ((a.atsScore ?? -1) - (b.atsScore ?? -1)) * factor;
+        return ((currentAtsScore(a) ?? -1) - (currentAtsScore(b) ?? -1)) * factor;
       }
       return (new Date(a.approvedAt ?? 0) - new Date(b.approvedAt ?? 0)) * factor;
     });
@@ -261,7 +268,8 @@ export default function Applications() {
             </thead>
             <tbody>
               {sortedApplications.map((application) => {
-                const tier = scoreTier(application.atsScore);
+                const score = currentAtsScore(application);
+                const tier = scoreTier(score);
                 return (
                   <tr
                     key={application._id}
@@ -293,9 +301,9 @@ export default function Applications() {
                       {application.approvedAt ? new Date(application.approvedAt).toLocaleDateString() : "—"}
                     </td>
                     <td className="py-3.5 pr-4 text-right">
-                      {application.atsScore != null ? (
+                      {score != null ? (
                         <Badge variant={tier === "strong" ? "secondary" : "destructive"}>
-                          {application.atsScore}
+                          {score}
                         </Badge>
                       ) : (
                         <span className="text-muted-foreground">—</span>

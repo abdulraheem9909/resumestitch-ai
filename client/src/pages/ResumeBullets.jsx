@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { RESUMES_API as API_BASE } from "../lib/api.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -244,6 +244,7 @@ export default function ResumeBullets() {
                         className="w-fit"
                         onClick={() => startEditing(bullet)}
                       >
+                        <Pencil className="size-4" />
                         Edit
                       </Button>
                       <Button

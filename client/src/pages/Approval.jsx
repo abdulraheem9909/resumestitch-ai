@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Download } from "lucide-react";
+import { Download, Pencil } from "lucide-react";
 import { APPLICATIONS_API as API_BASE } from "../lib/api.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -31,6 +31,7 @@ export default function Approval() {
   const [savingSummary, setSavingSummary] = useState(false);
 
   const [rechecking, setRechecking] = useState(false);
+  const [showOriginalFeedback, setShowOriginalFeedback] = useState(false);
 
   const [activeSuggestSkill, setActiveSuggestSkill] = useState(null);
   const [suggestBulletText, setSuggestBulletText] = useState("");
@@ -41,6 +42,25 @@ export default function Approval() {
   const [retryNotes, setRetryNotes] = useState("");
   const [sendingRetry, setSendingRetry] = useState(false);
   const [approving, setApproving] = useState(false);
+
+  // Focus each text box as it appears without letting the browser's default
+  // autoFocus behavior yank the page's scroll position to wherever that box
+  // happens to sit — preventScroll keeps the cursor ready without the jump.
+  const summaryTextareaRef = useRef(null);
+  const bulletTextareaRef = useRef(null);
+  const suggestTextareaRef = useRef(null);
+
+  useEffect(() => {
+    if (editingSummary) summaryTextareaRef.current?.focus({ preventScroll: true });
+  }, [editingSummary]);
+
+  useEffect(() => {
+    if (editingBulletId) bulletTextareaRef.current?.focus({ preventScroll: true });
+  }, [editingBulletId]);
+
+  useEffect(() => {
+    if (activeSuggestSkill) suggestTextareaRef.current?.focus({ preventScroll: true });
+  }, [activeSuggestSkill]);
 
   const loadApplication = useCallback(async () => {
     setLoading(true);
@@ -84,6 +104,13 @@ export default function Approval() {
     }
     return [...seen.values()];
   }, [originalBullets]);
+  // Falls back to the original AI-time gap list until a re-check has run —
+  // once it has, the re-check's live view (which credits anything your
+  // current edits actually cover) is the accurate one to show and act on.
+  const effectiveKeywordGaps = useMemo(
+    () => application?.humanRecheckKeywordGaps ?? application?.keywordGaps ?? [],
+    [application?.humanRecheckKeywordGaps, application?.keywordGaps]
+  );
 
   function startEditingBullet(bullet) {
     setEditingBulletId(bullet.bulletId);
@@ -267,6 +294,16 @@ export default function Approval() {
     ? [application.companyName, application.jobTitle].filter(Boolean).join(" — ")
     : "Review application";
 
+  // Once a re-check has run, its result is "current" and the original AI pass
+  // becomes historical — shown only on request, never side-by-side with equal
+  // weight, so there's never a moment where two scores compete for attention.
+  const hasRecheck = application?.humanRecheckAtsScore != null;
+  const currentAtsScore = hasRecheck ? application.humanRecheckAtsScore : application?.atsScore;
+  const currentRecruiterFeedback = hasRecheck
+    ? application?.humanRecheckRecruiterFeedback
+    : application?.recruiterFeedback;
+  const currentAtsFlags = hasRecheck ? application?.humanRecheckAtsFlags || [] : application?.atsFlags || [];
+
   return (
     <section className="mx-auto w-full max-w-5xl">
       <div className="sticky top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
@@ -323,10 +360,10 @@ export default function Approval() {
                 {editingSummary ? (
                   <>
                     <Textarea
+                      ref={summaryTextareaRef}
                       value={editingSummaryText}
                       onChange={(event) => setEditingSummaryText(event.target.value)}
                       rows={4}
-                      autoFocus
                     />
                     <div className="mt-2 flex gap-2">
                       <Button size="sm" onClick={saveSummary} disabled={savingSummary}>
@@ -347,6 +384,7 @@ export default function Approval() {
                     <p className="text-sm text-foreground">{application.tailoredSummary?.finalText}</p>
                     {application.status !== "approved" && (
                       <Button size="sm" variant="ghost" className="mt-2 w-fit" onClick={startEditingSummary}>
+                        <Pencil className="size-4" />
                         Edit
                       </Button>
                     )}
@@ -408,10 +446,10 @@ export default function Approval() {
                       {isEditing ? (
                         <>
                           <Textarea
+                            ref={bulletTextareaRef}
                             value={editingBulletText}
                             onChange={(event) => setEditingBulletText(event.target.value)}
                             rows={3}
-                            autoFocus
                           />
                           <div className="mt-2 flex gap-2">
                             <Button size="sm" onClick={() => saveBullet(bullet.bulletId)} disabled={isSaving}>
@@ -432,6 +470,7 @@ export default function Approval() {
                               className="mt-2 w-fit"
                               onClick={() => startEditingBullet(bullet)}
                             >
+                              <Pencil className="size-4" />
                               Edit
                             </Button>
                           )}
@@ -453,32 +492,77 @@ export default function Approval() {
             })}
           </ul>
 
-          {/* ATS score & recruiter feedback (node 9) */}
-          {application.atsScore != null && (
+          {/* ATS score & recruiter feedback — always shows whichever is current: the
+              original AI pass, or the re-check once one has run. Never both at once. */}
+          {currentAtsScore != null && (
             <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
-              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">
-                ATS score &amp; recruiter feedback
+              <div className="mb-3 flex items-center justify-between gap-4">
+                <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
+                  ATS score &amp; recruiter feedback
+                </p>
+                <Button size="sm" variant="outline" onClick={runRecheck} disabled={busy}>
+                  {rechecking ? "Re-checking…" : "Re-check edited text"}
+                </Button>
+              </div>
+              <p className="mb-3 text-sm text-muted-foreground">
+                Re-runs fact-checking and ATS/recruiter scoring against whatever you've saved above.
+                It's informational only — it doesn't gate approval and doesn't count as a retry.
               </p>
+
               <div className="mb-3 flex flex-wrap items-center gap-2">
-                <Badge variant={application.atsScore >= 70 ? "secondary" : "destructive"}>
-                  ATS score: {application.atsScore}
+                <Badge variant={currentAtsScore >= 70 ? "secondary" : "destructive"}>
+                  ATS score: {currentAtsScore}
                 </Badge>
+                {hasRecheck && <Badge variant="secondary">Updated after your edit</Badge>}
                 {application.retryCount > 0 && <Badge variant="outline">retries: {application.retryCount}</Badge>}
               </div>
-              {application.recruiterFeedback && (
-                <p className="mb-3 text-sm text-foreground">{application.recruiterFeedback}</p>
+              {currentRecruiterFeedback && (
+                <p className="mb-3 text-sm text-foreground">{currentRecruiterFeedback}</p>
               )}
               <div className="flex flex-wrap gap-1.5">
-                {(application.atsFlags || []).length === 0 ? (
+                {currentAtsFlags.length === 0 ? (
                   <Badge variant="secondary">No flags raised</Badge>
                 ) : (
-                  application.atsFlags.map((flag) => (
+                  currentAtsFlags.map((flag) => (
                     <Badge key={flag} variant="destructive" className="max-w-full min-w-0 shrink flex-wrap whitespace-normal break-words">
                       {flag}
                     </Badge>
                   ))
                 )}
               </div>
+
+              {hasRecheck && (
+                <div className="mt-3 border-t border-border pt-3">
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-muted-foreground hover:text-foreground"
+                    onClick={() => setShowOriginalFeedback((prev) => !prev)}
+                  >
+                    {showOriginalFeedback ? "▾" : "▸"} Show original AI feedback
+                  </button>
+                  {showOriginalFeedback && (
+                    <div className="mt-2">
+                      <Badge variant={application.atsScore >= 70 ? "secondary" : "destructive"} className="mb-2">
+                        ATS score: {application.atsScore}
+                      </Badge>
+                      {application.recruiterFeedback && (
+                        <p className="mb-2 text-sm text-muted-foreground">{application.recruiterFeedback}</p>
+                      )}
+                      <div className="flex flex-wrap gap-1.5">
+                        {(application.atsFlags || []).length === 0 ? (
+                          <Badge variant="secondary">No flags raised</Badge>
+                        ) : (
+                          application.atsFlags.map((flag) => (
+                            <Badge key={flag} variant="outline" className="max-w-full min-w-0 shrink flex-wrap whitespace-normal break-words">
+                              {flag}
+                            </Badge>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -492,65 +576,14 @@ export default function Approval() {
             </div>
           )}
 
-          {/* Re-check */}
-          <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
-            <div className="mb-3 flex items-center justify-between gap-4">
-              <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
-                Human re-check (informational)
-              </p>
-              <Button size="sm" variant="outline" onClick={runRecheck} disabled={busy}>
-                {rechecking ? "Re-checking…" : "Re-check edited text"}
-              </Button>
-            </div>
-            <p className="mb-2 text-sm text-muted-foreground">
-              Re-runs fact-checking and ATS/recruiter scoring against whatever you've saved above.
-              It's informational only — it doesn't gate approval and doesn't count as a retry.
-            </p>
-            {application.humanRecheckAtsScore != null && (
-              <Badge variant={application.humanRecheckAtsScore >= 70 ? "secondary" : "destructive"} className="mb-2">
-                Re-check ATS score: {application.humanRecheckAtsScore}
-              </Badge>
-            )}
-            {application.humanRecheckAtsFlags && (
-              <div className="flex flex-wrap gap-1.5">
-                {application.humanRecheckAtsFlags.length === 0 ? (
-                  <Badge variant="secondary">No issues found</Badge>
-                ) : (
-                  application.humanRecheckAtsFlags.map((flag) => (
-                    <Badge key={flag} variant="destructive" className="max-w-full min-w-0 shrink flex-wrap whitespace-normal break-words">
-                      {flag}
-                    </Badge>
-                  ))
-                )}
-              </div>
-            )}
-            {application.humanRecheckRecruiterFeedback && (
-              <p className="mt-2 text-sm text-muted-foreground">{application.humanRecheckRecruiterFeedback}</p>
-            )}
-            {application.humanRecheckKeywordGaps && (
-              <div className="mt-3">
-                <p className="mb-1.5 text-xs font-medium text-muted-foreground">Still missing after your edits</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {application.humanRecheckKeywordGaps.length === 0 ? (
-                    <Badge variant="secondary">No gaps remaining</Badge>
-                  ) : (
-                    application.humanRecheckKeywordGaps.map((skill) => (
-                      <Badge key={skill} variant="outline">{skill}</Badge>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
           {/* Suggest missing skills */}
-          {application.keywordGaps?.length > 0 && application.status !== "approved" && (
+          {effectiveKeywordGaps.length > 0 && application.status !== "approved" && (
             <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
               <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">
                 Skills the job wants that your resume doesn't cover
               </p>
               <div className="flex flex-wrap gap-1.5">
-                {application.keywordGaps.map((skill) => (
+                {effectiveKeywordGaps.map((skill) => (
                   <Button
                     key={skill}
                     size="sm"
@@ -588,11 +621,11 @@ export default function Approval() {
                     </Select>
                   )}
                   <Textarea
+                    ref={suggestTextareaRef}
                     value={suggestBulletText}
                     onChange={(event) => setSuggestBulletText(event.target.value)}
                     rows={3}
                     placeholder={`Describe how you used ${activeSuggestSkill}…`}
-                    autoFocus
                   />
                   <div className="flex items-center gap-2">
                     <Checkbox

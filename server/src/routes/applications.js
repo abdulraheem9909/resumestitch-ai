@@ -34,6 +34,13 @@ function sanitizeFilename(name) {
   return (name || 'application').replace(/[^a-z0-9 _-]/gi, '').trim() || 'application';
 }
 
+// A short, human-recognizable stand-in for a bullet in a flag message — never
+// its internal id, which means nothing to whoever's reading the flag.
+function truncateForFlag(text, maxLength = 50) {
+  if (!text) return '';
+  return text.length > maxLength ? `${text.slice(0, maxLength).trimEnd()}…` : text;
+}
+
 // Resumes the one interrupt() in node 10 with a Command, then reads back the
 // resulting checkpoint — the only place this route file touches the graph.
 async function resumeGraph(applicationId, resumePayload) {
@@ -60,12 +67,15 @@ async function computeHumanRecheck(application) {
       tailoredBullet.editSource === 'human'
         ? trustHumanEdit(tailoredBullet.finalText)
         : verifyBullet({ generatedText: tailoredBullet.finalText, sourceBullet });
-    return { bulletId: tailoredBullet.bulletId, rejected: tailoredBullet.rejected, ...result };
+    return { bulletId: tailoredBullet.bulletId, rejected: tailoredBullet.rejected, finalText: tailoredBullet.finalText, ...result };
   });
-  const bulletFlags = bulletResults.flatMap((result) => [
-    ...result.fabricatedSkills.map((skill) => `bullet ${result.bulletId}: fabricated skill "${skill}"`),
-    ...result.fabricatedMetrics.map((metric) => `bullet ${result.bulletId}: fabricated metric "${metric}"`),
-  ]);
+  const bulletFlags = bulletResults.flatMap((result) => {
+    const label = truncateForFlag(result.finalText);
+    return [
+      ...result.fabricatedSkills.map((skill) => `Bullet "${label}": fabricated skill "${skill}"`),
+      ...result.fabricatedMetrics.map((metric) => `Bullet "${label}": fabricated metric "${metric}"`),
+    ];
+  });
 
   const selectedBullets = application.tailoredBullets
     .filter((tailoredBullet) => !tailoredBullet.rejected)
@@ -82,23 +92,26 @@ async function computeHumanRecheck(application) {
         });
 
   const summaryFlags = [
-    ...summaryResult.fabricatedSkills.map((skill) => `summary: fabricated skill "${skill}"`),
-    ...summaryResult.fabricatedMetrics.map((metric) => `summary: fabricated metric "${metric}"`),
+    ...summaryResult.fabricatedSkills.map((skill) => `Summary: fabricated skill "${skill}"`),
+    ...summaryResult.fabricatedMetrics.map((metric) => `Summary: fabricated metric "${metric}"`),
   ];
 
   const overallPassed = bulletResults.every((result) => result.passed) && summaryResult.passed;
 
-  // A live, application-scoped view of what's still missing — credits any
-  // skill the current tailored content actually claims and gets to keep
-  // (verified AI claims + trusted human claims), on top of the master
-  // resume's own coverage. Never overwrites the original keywordGaps, which
-  // stays tied purely to the master resume.
-  const resumeCanonicalSkills = [...new Set(resumeBullets.flatMap((bullet) => bullet.canonicalSkills || []))];
+  // A live view of what's actually missing from the file you're about to
+  // download — deliberately NOT unioned with the master resume's permanent
+  // skill tags. Those tags describe your resume as a whole, not this specific
+  // tailored output; a skill can be permanently tagged on some other bullet
+  // while being completely absent from every bullet that's actually part of
+  // this application (rejected, or edited to remove it) — in that case the
+  // exported file genuinely doesn't cover it, and this list must say so.
+  // Never overwrites the original keywordGaps, which stays tied to the master
+  // resume for the separate "worth adding a permanent bullet" decision.
   const verifiedBulletSkills = bulletResults
     .filter((result) => !result.rejected)
     .flatMap((result) => result.claimedSkills.filter((skill) => !result.fabricatedSkills.includes(skill)));
   const verifiedSummarySkills = summaryResult.claimedSkills.filter((skill) => !summaryResult.fabricatedSkills.includes(skill));
-  const effectiveSkills = [...new Set([...resumeCanonicalSkills, ...verifiedBulletSkills, ...verifiedSummarySkills])];
+  const effectiveSkills = [...new Set([...verifiedBulletSkills, ...verifiedSummarySkills])];
   const humanRecheckKeywordGaps = gapAnalysis(application.jdCanonicalSkills, effectiveSkills);
 
   const atsResult = await atsScoreAndRecruiter({
@@ -114,7 +127,10 @@ async function computeHumanRecheck(application) {
 
   return {
     humanRecheckAtsScore: atsResult.atsScore,
-    humanRecheckAtsFlags: [...bulletFlags, ...summaryFlags, ...atsResult.atsFlags.map((flag) => `ats: ${flag}`)],
+    // No prefix on these — same bare enum values (e.g. "missingRequirement") as
+    // the original AI pass's atsFlags, so the two never look like different
+    // kinds of thing when the UI swaps between them in the same slot.
+    humanRecheckAtsFlags: [...bulletFlags, ...summaryFlags, ...atsResult.atsFlags],
     humanRecheckRecruiterFeedback: atsResult.recruiterFeedback,
     humanRecheckKeywordGaps,
   };
