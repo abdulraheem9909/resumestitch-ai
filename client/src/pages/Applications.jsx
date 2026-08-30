@@ -36,9 +36,32 @@ import {
 const COLUMNS = [
   { key: "companyName", label: "Company", align: "left" },
   { key: "jobTitle", label: "Job title", align: "left" },
-  { key: "approvedAt", label: "Approved", align: "right" },
+  { key: "status", label: "Status", align: "left" },
+  { key: "updatedAt", label: "Updated", align: "right" },
   { key: "atsScore", label: "ATS score", align: "right" },
 ];
+
+const STATUS_LABELS = {
+  approved: "Approved",
+  pending_approval: "In review",
+  role_mismatch: "Role mismatch",
+  in_progress: "Processing",
+};
+
+function statusLabel(status) {
+  return STATUS_LABELS[status] || status;
+}
+
+function statusBadgeClassName(status) {
+  if (status === "approved") {
+    return "border-transparent bg-green-100 text-green-800 dark:bg-green-500/15 dark:text-green-400";
+  }
+  if (status === "role_mismatch") {
+    return "border-transparent bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-400";
+  }
+  // pending_approval / in_progress / anything else still in flight
+  return "border-transparent bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-400";
+}
 
 function SortableHeader({ column, sort, onSort }) {
   const active = sort.key === column.key;
@@ -89,8 +112,9 @@ export default function Applications() {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [sort, setSort] = useState({ key: "approvedAt", direction: "desc" });
+  const [sort, setSort] = useState({ key: "updatedAt", direction: "desc" });
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [atsFilter, setAtsFilter] = useState("all");
   const [coverLetterFilter, setCoverLetterFilter] = useState("all");
 
@@ -131,12 +155,13 @@ export default function Applications() {
         const haystack = `${application.companyName} ${application.jobTitle || ""}`.toLowerCase();
         if (!haystack.includes(query)) return false;
       }
+      if (statusFilter !== "all" && application.status !== statusFilter) return false;
       if (atsFilter !== "all" && scoreTier(currentAtsScore(application)) !== atsFilter) return false;
       if (coverLetterFilter === "yes" && !application.coverLetterRequested) return false;
       if (coverLetterFilter === "no" && application.coverLetterRequested) return false;
       return true;
     });
-  }, [applications, search, atsFilter, coverLetterFilter]);
+  }, [applications, search, statusFilter, atsFilter, coverLetterFilter]);
 
   const sortedApplications = useMemo(() => {
     const factor = sort.direction === "asc" ? 1 : -1;
@@ -147,10 +172,13 @@ export default function Applications() {
       if (sort.key === "jobTitle") {
         return (a.jobTitle || "").localeCompare(b.jobTitle || "") * factor;
       }
+      if (sort.key === "status") {
+        return statusLabel(a.status).localeCompare(statusLabel(b.status)) * factor;
+      }
       if (sort.key === "atsScore") {
         return ((currentAtsScore(a) ?? -1) - (currentAtsScore(b) ?? -1)) * factor;
       }
-      return (new Date(a.approvedAt ?? 0) - new Date(b.approvedAt ?? 0)) * factor;
+      return (new Date(a.updatedAt ?? 0) - new Date(b.updatedAt ?? 0)) * factor;
     });
   }, [filteredApplications, sort]);
 
@@ -173,7 +201,8 @@ export default function Applications() {
     }
   }
 
-  const hasActiveFilters = search.trim() || atsFilter !== "all" || coverLetterFilter !== "all";
+  const hasActiveFilters =
+    search.trim() || statusFilter !== "all" || atsFilter !== "all" || coverLetterFilter !== "all";
 
   return (
     <section className="mx-auto w-full max-w-5xl">
@@ -183,7 +212,7 @@ export default function Applications() {
         </p>
         <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">
-            Every approved application
+            Every application
           </h1>
           <div className="flex flex-wrap gap-2">
             <a href={`${APPLICATIONS_API}/export/tracker.xlsx`}>
@@ -197,9 +226,8 @@ export default function Applications() {
           </div>
         </div>
         <p className="mb-5 max-w-prose text-sm text-muted-foreground md:text-base">
-          Once you approve an application, it shows up here — company, when you approved it, and
-          the score it landed. Click a row for the full JD, tailored resume, and every insight
-          alongside it.
+          Every application you've started shows up here, whatever state it's in — company,
+          status, and the score it landed. Click a row to pick up right where you left off.
         </p>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
@@ -212,6 +240,17 @@ export default function Applications() {
               className="pl-9"
             />
           </div>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-full sm:w-40">
+              <SelectValue placeholder="Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All statuses</SelectItem>
+              <SelectItem value="approved">Approved</SelectItem>
+              <SelectItem value="pending_approval">In review</SelectItem>
+              <SelectItem value="role_mismatch">Role mismatch</SelectItem>
+            </SelectContent>
+          </Select>
           <Select value={atsFilter} onValueChange={setAtsFilter}>
             <SelectTrigger className="w-full sm:w-44">
               <SelectValue placeholder="ATS score" />
@@ -244,14 +283,12 @@ export default function Applications() {
       {loading && <p className="py-4 text-sm text-muted-foreground">Loading your applications…</p>}
 
       {!loading && applications.length === 0 && !error && (
-        <p className="py-4 text-sm text-muted-foreground">No approved applications yet.</p>
+        <p className="py-4 text-sm text-muted-foreground">No applications yet.</p>
       )}
 
       {!loading && applications.length > 0 && sortedApplications.length === 0 && (
         <p className="py-4 text-sm text-muted-foreground">
-          {hasActiveFilters
-            ? "No applications match your search or filters."
-            : "No approved applications yet."}
+          {hasActiveFilters ? "No applications match your search or filters." : "No applications yet."}
         </p>
       )}
 
@@ -297,8 +334,13 @@ export default function Applications() {
                     <td className="py-3.5 pl-4 text-foreground">
                       {application.jobTitle || <span className="text-muted-foreground">—</span>}
                     </td>
+                    <td className="py-3.5 pl-4">
+                      <Badge className={statusBadgeClassName(application.status)}>
+                        {statusLabel(application.status)}
+                      </Badge>
+                    </td>
                     <td className="py-3.5 pr-4 text-right font-mono text-xs tracking-wide text-muted-foreground uppercase">
-                      {application.approvedAt ? new Date(application.approvedAt).toLocaleDateString() : "—"}
+                      {application.updatedAt ? new Date(application.updatedAt).toLocaleDateString() : "—"}
                     </td>
                     <td className="py-3.5 pr-4 text-right">
                       {score != null ? (
