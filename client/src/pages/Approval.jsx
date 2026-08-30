@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Download, Pencil, Trash2 } from "lucide-react";
+import { Download, Pencil, Trash2, X } from "lucide-react";
 import { APPLICATIONS_API as API_BASE, RESUMES_API } from "../lib/api.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
@@ -49,6 +50,9 @@ export default function Approval() {
   const [originalSummary, setOriginalSummary] = useState("");
   const [verificationResult, setVerificationResult] = useState(null);
   const [roleFitReason, setRoleFitReason] = useState("");
+  const [verifiedSkills, setVerifiedSkills] = useState([]);
+  const [skillInput, setSkillInput] = useState("");
+  const [savingSkills, setSavingSkills] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -108,6 +112,7 @@ export default function Approval() {
       setOriginalSummary(data.originalSummary || "");
       setVerificationResult(data.verificationResult || null);
       setRoleFitReason(data.roleFitReason || "");
+      setVerifiedSkills(data.verifiedSkills || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -368,8 +373,51 @@ export default function Approval() {
     }
   }
 
+  const effectiveSkills = application?.tailoredSkills ?? masterResume?.skills ?? [];
+
+  async function updateSkills(nextSkills) {
+    setSavingSkills(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/${applicationId}/skills`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skills: nextSkills }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't update skills.");
+      setApplication(data.application);
+      setVerifiedSkills(data.verifiedSkills || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingSkills(false);
+    }
+  }
+
+  function addSkill() {
+    const value = skillInput.trim();
+    if (!value || effectiveSkills.includes(value)) {
+      setSkillInput("");
+      return;
+    }
+    updateSkills([...effectiveSkills, value]);
+    setSkillInput("");
+  }
+
+  function removeSkill(skill) {
+    updateSkills(effectiveSkills.filter((existing) => existing !== skill));
+  }
+
   const busy =
-    savingBulletId !== null || savingSummary || rechecking || addingSkill || sendingRetry || approving || discarding;
+    savingBulletId !== null ||
+    savingSummary ||
+    rechecking ||
+    addingSkill ||
+    savingSkills ||
+    sendingRetry ||
+    approving ||
+    discarding;
 
   const applicationLabel = application?.companyName
     ? [application.companyName, application.jobTitle].filter(Boolean).join(" — ")
@@ -681,15 +729,57 @@ export default function Approval() {
             </div>
           )}
 
-          {masterResume?.skills?.length > 0 && (
+          {masterResume && (
             <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
-              <h3 className="mb-3 font-display text-lg font-semibold text-foreground">Skills</h3>
-              <div className="flex flex-wrap gap-1.5">
-                {masterResume.skills.map((skill) => (
-                  <Badge key={skill} variant="secondary">
-                    {skill}
-                  </Badge>
-                ))}
+              <h3 className="mb-1 font-display text-lg font-semibold text-foreground">Skills</h3>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Editing here only changes this application's exported resume — your master resume's
+                list is untouched.
+              </p>
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                {effectiveSkills.length === 0 ? (
+                  <span className="text-sm text-muted-foreground">No skills listed.</span>
+                ) : (
+                  effectiveSkills.map((skill) => {
+                    const isVerified = verifiedSkills.includes(skill);
+                    return (
+                      <Badge
+                        key={skill}
+                        variant={isVerified ? "default" : "outline"}
+                        className="gap-1 pr-1"
+                      >
+                        {skill}
+                        <button
+                          type="button"
+                          onClick={() => removeSkill(skill)}
+                          disabled={busy}
+                          className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
+                          aria-label={`Remove ${skill}`}
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </Badge>
+                    );
+                  })
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={skillInput}
+                  onChange={(event) => setSkillInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      addSkill();
+                    }
+                  }}
+                  placeholder="Add a skill…"
+                  className="max-w-xs"
+                  disabled={busy}
+                />
+                <Button size="sm" variant="outline" onClick={addSkill} disabled={busy || !skillInput.trim()}>
+                  Add
+                </Button>
               </div>
             </div>
           )}

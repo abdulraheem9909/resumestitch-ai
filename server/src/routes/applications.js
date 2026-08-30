@@ -10,6 +10,7 @@ import { canonicalizeSkill } from '../services/canonicalizeSkill.js';
 import { tagBullet } from '../services/tagBullet.js';
 import { verifyBullet, verifySummary, trustHumanEdit } from '../services/deterministicVerification.js';
 import { gapAnalysis } from '../services/gapAnalysis.js';
+import { computeVerifiedSkills } from '../services/verifiedSkills.js';
 import { atsScoreAndRecruiter } from '../services/atsScoreAndRecruiter.js';
 import { buildResumeDocxBuffer } from '../services/exportResumeDocx.js';
 import { buildCoverLetterDocxBuffer } from '../services/exportCoverLetterDocx.js';
@@ -272,12 +273,23 @@ router.get('/:id', async (req, res) => {
     const snapshot = await graph.getState({ configurable: { thread_id: id } });
     const state = snapshot.values || {};
 
+    // Verified-skills is display-only (see verifiedSkills.js) — scoped to what
+    // this specific application will actually export, not the master resume in
+    // general: only non-rejected tailored bullets' current text.
+    const activeTexts = (application.tailoredBullets || [])
+      .filter((bullet) => !bullet.rejected)
+      .map((bullet) => bullet.finalText);
+    const resume = await MasterResume.findById(application.masterResumeId).select('skills');
+    const effectiveSkills = application.tailoredSkills ?? resume?.skills ?? [];
+    const verifiedSkills = computeVerifiedSkills(effectiveSkills, activeTexts);
+
     return res.json({
       application,
       originalBullets: state.resumeBullets || [],
       originalSummary: state.resumeSummary || '',
       verificationResult: state.verificationResult || null,
       roleFitReason: application.status === 'role_mismatch' ? state.roleFit?.reason : undefined,
+      verifiedSkills,
     });
   } catch (err) {
     console.error(err);
@@ -346,7 +358,7 @@ router.get('/:id/export/resume.docx', async (req, res) => {
       originalBulletsById,
       education: resume?.education || [],
       projects: resume?.projects || [],
-      skills: resume?.skills || [],
+      skills: application.tailoredSkills ?? resume?.skills ?? [],
     });
 
     res.set({
@@ -499,6 +511,42 @@ router.patch('/:id/summary', async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to update tailored summary.' });
+  }
+});
+
+// Per-application override of the resume's skills list — display only, never
+// touches gap analysis or ATS scoring (see server/src/services/verifiedSkills.js).
+// Direct Mongo write, no graph interaction, same shape as the summary/bullet
+// edit routes above.
+router.patch('/:id/skills', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+
+  const { skills } = req.body;
+  if (!Array.isArray(skills)) {
+    return res.status(400).json({ error: 'skills must be an array.' });
+  }
+
+  try {
+    const application = await Application.findById(id);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+
+    application.tailoredSkills = skills;
+    await application.save();
+
+    const activeTexts = application.tailoredBullets
+      .filter((bullet) => !bullet.rejected)
+      .map((bullet) => bullet.finalText);
+    const verifiedSkills = computeVerifiedSkills(skills, activeTexts);
+
+    return res.json({ application, verifiedSkills });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to update skills.' });
   }
 });
 

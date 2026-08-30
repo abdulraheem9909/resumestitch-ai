@@ -26,7 +26,7 @@ const skillMatchers = knownTerms.map((term) => ({
 // otherwise e.g. "React.js" (-> react) would also register a spurious
 // separate "js" (-> javascript) match, since "." is a word-boundary
 // character and "js" is itself a valid standalone alias.
-function extractClaimedSkills(text) {
+export function extractClaimedSkills(text) {
   const claimed = new Set();
   const claimedSpans = [];
 

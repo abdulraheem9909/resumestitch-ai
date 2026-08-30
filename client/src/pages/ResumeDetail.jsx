@@ -30,6 +30,7 @@ export default function ResumeDetail() {
   const navigate = useNavigate();
 
   const [resume, setResume] = useState(null);
+  const [verifiedSkills, setVerifiedSkills] = useState([]);
   const [bullets, setBullets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -49,6 +50,7 @@ export default function ResumeDetail() {
         if (!bulletsRes.ok) throw new Error(bulletsData.error || "Couldn't load this resume's experience.");
 
         setResume(resumeData.masterResume);
+        setVerifiedSkills(resumeData.verifiedSkills || []);
         setBullets(bulletsData.resumeBullets);
       } catch (err) {
         setError(err.message);
@@ -174,11 +176,17 @@ export default function ResumeDetail() {
             <div className="rounded-lg border border-border bg-card p-5 shadow-card">
               <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Skills</p>
               <div className="flex flex-wrap gap-1.5">
-                {resume.skills.map((skill) => (
-                  <Badge key={skill} variant="secondary">
-                    {skill}
-                  </Badge>
-                ))}
+                {resume.skills.map((skill) =>
+                  verifiedSkills.includes(skill) ? (
+                    <Badge key={skill} variant="default">
+                      {skill}
+                    </Badge>
+                  ) : (
+                    <Badge key={skill} variant="outline">
+                      {skill}
+                    </Badge>
+                  )
+                )}
               </div>
             </div>
           )}

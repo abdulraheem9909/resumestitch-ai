@@ -55,6 +55,10 @@ const applicationSchema = new mongoose.Schema(
     humanRecheckAtsFlags: { type: [String], default: undefined },
     humanRecheckRecruiterFeedback: { type: String, default: null },
     humanRecheckKeywordGaps: { type: [String], default: undefined },
+    // Per-application override of the master resume's skills list — display
+    // only, never fed into gap analysis/ATS scoring. Falls back to the master
+    // resume's live skills when unset (see GET /:id and the docx export route).
+    tailoredSkills: { type: [String], default: undefined },
     recruiterFeedback: String,
     resumeFilename: String,
     coverLetterFilename: String,

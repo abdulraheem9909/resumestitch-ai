@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -44,6 +45,8 @@ export default function MasterResumes() {
 
   const [editTarget, setEditTarget] = useState(null);
   const [editPersonalInfo, setEditPersonalInfo] = useState(EMPTY_PERSONAL_INFO);
+  const [editSkills, setEditSkills] = useState([]);
+  const [skillInput, setSkillInput] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
 
@@ -122,7 +125,23 @@ export default function MasterResumes() {
   function startEditing(resume) {
     setEditTarget(resume);
     setEditPersonalInfo({ ...EMPTY_PERSONAL_INFO, ...resume.personalInfo });
+    setEditSkills(resume.skills || []);
+    setSkillInput("");
     setEditError("");
+  }
+
+  function addEditSkill() {
+    const value = skillInput.trim();
+    if (!value || editSkills.includes(value)) {
+      setSkillInput("");
+      return;
+    }
+    setEditSkills((prev) => [...prev, value]);
+    setSkillInput("");
+  }
+
+  function removeEditSkill(skill) {
+    setEditSkills((prev) => prev.filter((existing) => existing !== skill));
   }
 
   async function saveEdit() {
@@ -134,7 +153,7 @@ export default function MasterResumes() {
       const res = await fetch(`${RESUMES_API}/${editTarget._id}/profile`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ personalInfo: editPersonalInfo }),
+        body: JSON.stringify({ personalInfo: editPersonalInfo, skills: editSkills }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't save these changes.");
@@ -393,6 +412,53 @@ export default function MasterResumes() {
                 value={editPersonalInfo.portfolio}
                 onChange={updateEditPersonalInfoField("portfolio")}
               />
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Skills</Label>
+            <div className="flex flex-wrap gap-1.5">
+              {editSkills.length === 0 ? (
+                <span className="text-sm text-muted-foreground">No skills listed.</span>
+              ) : (
+                editSkills.map((skill) => (
+                  <Badge key={skill} variant="secondary" className="gap-1 pr-1">
+                    {skill}
+                    <button
+                      type="button"
+                      onClick={() => removeEditSkill(skill)}
+                      disabled={savingEdit}
+                      className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
+                      aria-label={`Remove ${skill}`}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
+                ))
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Input
+                value={skillInput}
+                onChange={(event) => setSkillInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addEditSkill();
+                  }
+                }}
+                placeholder="Add a skill…"
+                disabled={savingEdit}
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={addEditSkill}
+                disabled={savingEdit || !skillInput.trim()}
+              >
+                Add
+              </Button>
             </div>
           </div>
 

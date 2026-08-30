@@ -6,6 +6,7 @@ import { segmentResume } from "../services/segmentResume.js";
 import { segmentResumeSections } from "../services/segmentResumeSections.js";
 import { tagBullet } from "../services/tagBullet.js";
 import { canonicalizeSkill } from "../services/canonicalizeSkill.js";
+import { computeVerifiedSkills } from "../services/verifiedSkills.js";
 import MasterResume from "../models/MasterResume.js";
 import ResumeBullet from "../models/ResumeBullet.js";
 import Application from "../models/Application.js";
@@ -139,7 +140,9 @@ router.get("/:id", async (req, res) => {
     if (!resume) {
       return res.status(404).json({ error: "Resume not found." });
     }
-    return res.json({ masterResume: resume });
+    const bullets = await ResumeBullet.find({ masterResumeId: id });
+    const verifiedSkills = computeVerifiedSkills(resume.skills, bullets.map((bullet) => bullet.text));
+    return res.json({ masterResume: resume, verifiedSkills });
   } catch (err) {
     return res.status(500).json({ error: "Failed to load resume." });
   }
