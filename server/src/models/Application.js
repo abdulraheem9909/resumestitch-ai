@@ -10,6 +10,12 @@ const tailoredBulletSchema = new mongoose.Schema(
     editSource: { type: String, enum: ['ai', 'human'] },
     rephraseIntensity: Number,
     rejected: { type: Boolean, default: false },
+    // Who last set `rejected`, independent of editSource (which is about the
+    // bullet's TEXT, not its inclusion). Lets a human's manual include/exclude
+    // choice survive a retry even when node 5's own guarantees would otherwise
+    // override it — see mergeHumanEditedBullets/ensureRequiredBulletIncluded/
+    // ensureEveryEmployerRepresented in jobAgentGraph.js.
+    rejectionSource: { type: String, enum: ['ai', 'human'], default: 'ai' },
   },
   { _id: false }
 );

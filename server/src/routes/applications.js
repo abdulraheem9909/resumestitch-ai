@@ -403,9 +403,17 @@ router.patch('/:id/bullets/:bulletId', async (req, res) => {
     return res.status(400).json({ error: 'Invalid application id.' });
   }
 
-  const { text } = req.body;
-  if (typeof text !== 'string' || !text.trim()) {
+  const { text, rejected } = req.body;
+  const hasText = text !== undefined;
+  const hasRejected = rejected !== undefined;
+  if (!hasText && !hasRejected) {
+    return res.status(400).json({ error: 'text or rejected is required.' });
+  }
+  if (hasText && (typeof text !== 'string' || !text.trim())) {
     return res.status(400).json({ error: 'text is required.' });
+  }
+  if (hasRejected && typeof rejected !== 'boolean') {
+    return res.status(400).json({ error: 'rejected must be a boolean.' });
   }
 
   try {
@@ -419,9 +427,23 @@ router.patch('/:id/bullets/:bulletId', async (req, res) => {
       return res.status(404).json({ error: 'Tailored bullet not found.' });
     }
 
-    bullet.humanEditedText = text;
-    bullet.finalText = text;
-    bullet.editSource = 'human';
+    if (hasText) {
+      bullet.humanEditedText = text;
+      bullet.finalText = text;
+      bullet.editSource = 'human';
+    }
+    // Human override of node 5's keep/reject call — independent of text edits,
+    // so it can re-include a bullet the model judged out of context (its text
+    // is already the verbatim source, per tailorContent.js, so no fabrication
+    // risk) or exclude one the model kept. Tagging it rejectionSource: 'human'
+    // (as opposed to node 5's own default 'ai') is what lets this decision
+    // survive a later retry instead of being silently overridden — see
+    // mergeHumanEditedBullets/ensureRequiredBulletIncluded/
+    // ensureEveryEmployerRepresented in jobAgentGraph.js.
+    if (hasRejected) {
+      bullet.rejected = rejected;
+      bullet.rejectionSource = 'human';
+    }
     await application.save();
 
     return res.json({ application });

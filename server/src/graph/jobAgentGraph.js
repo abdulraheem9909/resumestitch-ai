@@ -34,6 +34,11 @@ const tailoredBulletSchema = z.object({
   editSource: z.enum(['ai', 'human']),
   rephraseIntensity: z.number(),
   rejected: z.boolean().default(() => false),
+  // Who last set `rejected` — independent of editSource, which is only about
+  // the bullet's text. 'human' means a manual include/exclude toggle on the
+  // Approval page, and it must survive a retry even when node 5's own
+  // guarantees would otherwise override it.
+  rejectionSource: z.enum(['ai', 'human']).default(() => 'ai'),
 });
 
 const tailoredSummarySchema = z.object({
@@ -147,13 +152,17 @@ async function roleFitGateNode(state) {
   return { roleFit };
 }
 
-// Preserves a bullet the human already hand-edited across a retry, instead of
-// letting tailorContent's fresh regeneration silently overwrite it.
+// Preserves a bullet the human already hand-edited AND/OR manually
+// included/excluded across a retry, instead of letting tailorContent's fresh
+// regeneration silently overwrite either decision. Carrying the whole previous
+// entry forward (rather than just its `rejected` flag) also means the human's
+// include/exclude choice keeps whatever text it already had, exactly like a
+// text edit would.
 export function mergeHumanEditedBullets(freshBullets, previousBullets) {
   const editedBySource = new Map(
     (previousBullets || [])
-      .filter((bullet) => bullet.editSource === 'human')
-      .map((bullet) => [bullet.sourceBulletId, { ...bullet, rejected: false }])
+      .filter((bullet) => bullet.editSource === 'human' || bullet.rejectionSource === 'human')
+      .map((bullet) => [bullet.sourceBulletId, { ...bullet }])
   );
   return freshBullets.map((bullet) => editedBySource.get(bullet.sourceBulletId) || bullet);
 }
@@ -175,7 +184,9 @@ function verbatimTailoredBullet(sourceBullet) {
 // in the tailored resume, rather than depending on the model's discretion. The
 // candidate pool now always contains an entry for every source bullet, so this
 // also has to un-reject one the model marked out of context, not just append a
-// missing one.
+// missing one. A human's own manual exclude always wins, though — if you
+// deliberately took this exact bullet back out, that decision is left alone
+// even though it's the one this retry was meant to guarantee.
 export function ensureRequiredBulletIncluded(bullets, requiredBulletId, resumeBulletsById) {
   if (!requiredBulletId) {
     return bullets;
@@ -185,7 +196,7 @@ export function ensureRequiredBulletIncluded(bullets, requiredBulletId, resumeBu
   if (index === -1) {
     return sourceBullet ? [...bullets, verbatimTailoredBullet(sourceBullet)] : bullets;
   }
-  if (!bullets[index].rejected) {
+  if (!bullets[index].rejected || bullets[index].rejectionSource === 'human') {
     return bullets;
   }
   const forced = verbatimTailoredBullet(sourceBullet || { bulletId: requiredBulletId, text: bullets[index].finalText });
@@ -199,8 +210,15 @@ export function ensureRequiredBulletIncluded(bullets, requiredBulletId, resumeBu
 // out-of-context classification can never silently erase an entire job from the
 // work history. "Represented" now means "has a kept bullet" — if an employer's
 // bullets are all currently rejected, the best-overlap one is un-rejected in
-// place rather than appended as a duplicate.
+// place rather than appended as a duplicate. A human's own manual exclude
+// always wins, though: a bullet the human deliberately took out is never
+// eligible to be picked back up as that employer's fallback — if every one of
+// an employer's bullets was manually excluded, that employer just goes
+// unrepresented rather than having an exclude silently reversed.
 export function ensureEveryEmployerRepresented(bullets, resumeBullets, jdCanonicalSkills) {
+  const humanExcluded = new Set(
+    bullets.filter((bullet) => bullet.rejected && bullet.rejectionSource === 'human').map((bullet) => bullet.sourceBulletId)
+  );
   const representedCompanies = new Set(
     bullets
       .filter((bullet) => !bullet.rejected)
@@ -210,7 +228,7 @@ export function ensureEveryEmployerRepresented(bullets, resumeBullets, jdCanonic
   const jdSkillSet = new Set(jdCanonicalSkills || []);
   const bestByCompany = new Map();
   for (const resumeBullet of resumeBullets) {
-    if (!resumeBullet.company || representedCompanies.has(resumeBullet.company)) {
+    if (!resumeBullet.company || representedCompanies.has(resumeBullet.company) || humanExcluded.has(resumeBullet.bulletId)) {
       continue;
     }
     const overlap = (resumeBullet.canonicalSkills || []).filter((skill) => jdSkillSet.has(skill)).length;

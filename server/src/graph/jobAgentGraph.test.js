@@ -52,9 +52,9 @@ test('gapAnalysisNode handles missing/empty resumeBullets without throwing', () 
 
 test('mergeHumanEditedBullets preserves a human edit whose sourceBulletId is still present, and drops one that is no longer present', () => {
   const previousBullets = [
-    { bulletId: 'old-1', sourceBulletId: 'src-1', finalText: 'human edited text', editSource: 'human' },
-    { bulletId: 'old-2', sourceBulletId: 'src-2', finalText: 'ai text (unedited)', editSource: 'ai' },
-    { bulletId: 'old-3', sourceBulletId: 'src-3', finalText: 'human edited but dropped this round', editSource: 'human' },
+    { bulletId: 'old-1', sourceBulletId: 'src-1', finalText: 'human edited text', editSource: 'human', rejected: false },
+    { bulletId: 'old-2', sourceBulletId: 'src-2', finalText: 'ai text (unedited)', editSource: 'ai', rejected: false },
+    { bulletId: 'old-3', sourceBulletId: 'src-3', finalText: 'human edited but dropped this round', editSource: 'human', rejected: false },
   ];
   const freshBullets = [
     { bulletId: 'new-1', sourceBulletId: 'src-1', finalText: 'freshly regenerated text', editSource: 'ai' },
@@ -64,7 +64,7 @@ test('mergeHumanEditedBullets preserves a human edit whose sourceBulletId is sti
   const merged = mergeHumanEditedBullets(freshBullets, previousBullets);
 
   assert.equal(merged.length, 2);
-  assert.deepEqual(merged[0], { ...previousBullets[0], rejected: false });
+  assert.deepEqual(merged[0], previousBullets[0]);
   assert.equal(merged[1], freshBullets[1]);
 });
 
@@ -73,9 +73,9 @@ test('mergeHumanEditedBullets is a no-op on the first pass (no previous bullets)
   assert.deepEqual(mergeHumanEditedBullets(freshBullets, undefined), freshBullets);
 });
 
-test('mergeHumanEditedBullets forces rejected: false onto a carried-over human edit even when the fresh pass marked that source rejected', () => {
+test('mergeHumanEditedBullets preserves a human-edited bullet\'s own rejected state across a retry, instead of forcing it back to included', () => {
   const previousBullets = [
-    { bulletId: 'old-1', sourceBulletId: 'src-1', finalText: 'human edited text', editSource: 'human' },
+    { bulletId: 'old-1', sourceBulletId: 'src-1', finalText: 'human edited text', editSource: 'human', rejected: false },
   ];
   const freshBullets = [
     { bulletId: 'new-1', sourceBulletId: 'src-1', finalText: 'source text', editSource: 'ai', rejected: true },
@@ -86,6 +86,50 @@ test('mergeHumanEditedBullets forces rejected: false onto a carried-over human e
   assert.equal(merged.length, 1);
   assert.equal(merged[0].rejected, false);
   assert.equal(merged[0].finalText, 'human edited text');
+});
+
+test('mergeHumanEditedBullets preserves a manual exclude (rejectionSource: human) even when the fresh AI pass would include it', () => {
+  const previousBullets = [
+    {
+      bulletId: 'old-1',
+      sourceBulletId: 'src-1',
+      finalText: 'human edited text',
+      editSource: 'human',
+      rejected: true,
+      rejectionSource: 'human',
+    },
+  ];
+  const freshBullets = [
+    { bulletId: 'new-1', sourceBulletId: 'src-1', finalText: 'source text', editSource: 'ai', rejected: false },
+  ];
+
+  const merged = mergeHumanEditedBullets(freshBullets, previousBullets);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].rejected, true, 'a manual exclude must survive the retry');
+  assert.equal(merged[0].finalText, 'human edited text');
+});
+
+test('mergeHumanEditedBullets also carries forward a manual include/exclude toggle on a bullet whose text was never hand-edited', () => {
+  const previousBullets = [
+    {
+      bulletId: 'old-1',
+      sourceBulletId: 'src-1',
+      finalText: 'ai text, never edited',
+      editSource: 'ai',
+      rejected: true,
+      rejectionSource: 'human',
+    },
+  ];
+  const freshBullets = [
+    { bulletId: 'new-1', sourceBulletId: 'src-1', finalText: 'freshly regenerated text', editSource: 'ai', rejected: false },
+  ];
+
+  const merged = mergeHumanEditedBullets(freshBullets, previousBullets);
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].rejected, true);
+  assert.equal(merged[0].finalText, 'ai text, never edited', 'carries the whole previous entry forward, not just the rejected flag');
 });
 
 test('ensureRequiredBulletIncluded appends the required bullet verbatim when missing', () => {
@@ -130,6 +174,24 @@ test('ensureRequiredBulletIncluded un-rejects an existing-but-rejected entry in 
   assert.equal(result[1].finalText, 'Used Git for version control.');
 });
 
+test('ensureRequiredBulletIncluded does not override a human\'s manual exclude, even for the exact bullet this retry was meant to guarantee', () => {
+  const bullets = [
+    {
+      bulletId: 'b1',
+      sourceBulletId: 'src-1',
+      finalText: 'src-1 text, manually excluded',
+      editSource: 'human',
+      rejected: true,
+      rejectionSource: 'human',
+    },
+  ];
+  const resumeBulletsById = new Map([['src-1', { bulletId: 'src-1', text: 'Used Git for version control.' }]]);
+
+  const result = ensureRequiredBulletIncluded(bullets, 'src-1', resumeBulletsById);
+
+  assert.equal(result, bullets, 'no-op — the human exclude wins even over the required-bullet guarantee');
+});
+
 test('ensureEveryEmployerRepresented adds one bullet per unrepresented company, picking the highest JD-overlap candidate', () => {
   const resumeBullets = [
     { bulletId: 'a1', company: 'Acme', canonicalSkills: ['react'] },
@@ -172,4 +234,22 @@ test('ensureEveryEmployerRepresented un-rejects the best existing entry for an e
   assert.equal(bySource.get('a1').rejected, false);
   assert.equal(bySource.get('g1').rejected, true, 'g1 stays rejected — g2 is the better-overlap pick');
   assert.equal(bySource.get('g2').rejected, false, 'g2 is un-rejected in place for Geekybugs');
+});
+
+test('ensureEveryEmployerRepresented leaves an employer unrepresented if every one of its bullets was manually excluded by the human', () => {
+  const resumeBullets = [
+    { bulletId: 'a1', company: 'Acme', canonicalSkills: ['react'], text: 'a1 text' },
+    { bulletId: 'g1', company: 'Geekybugs', canonicalSkills: ['node.js'], text: 'g1 text' },
+  ];
+  const bullets = [
+    { bulletId: 'b1', sourceBulletId: 'a1', finalText: 'selected acme bullet', rejected: false },
+    { bulletId: 'b2', sourceBulletId: 'g1', finalText: 'g1 tailored, manually excluded', rejected: true, rejectionSource: 'human' },
+  ];
+  const jdCanonicalSkills = ['node.js'];
+
+  const result = ensureEveryEmployerRepresented(bullets, resumeBullets, jdCanonicalSkills);
+
+  assert.equal(result.length, 2, 'no bullet force-added for Geekybugs — its only bullet was manually excluded');
+  const bySource = new Map(result.map((b) => [b.sourceBulletId, b]));
+  assert.equal(bySource.get('g1').rejected, true);
 });

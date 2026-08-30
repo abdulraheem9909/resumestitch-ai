@@ -7,6 +7,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Approval() {
@@ -90,6 +92,25 @@ export default function Approval() {
   function cancelEditingBullet() {
     setEditingBulletId(null);
     setEditingBulletText("");
+  }
+
+  async function toggleBulletRejected(bulletId, nextRejected) {
+    setSavingBulletId(bulletId);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/${applicationId}/bullets/${bulletId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rejected: nextRejected }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't update this bullet.");
+      setApplication(data.application);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingBulletId(null);
+    }
   }
 
   async function saveBullet(bulletId) {
@@ -363,6 +384,24 @@ export default function Approval() {
                           <Badge variant="destructive">Out of context — excluded from export</Badge>
                         )}
                       </div>
+                      {application.status !== "approved" && (
+                        <div className="mb-2 flex items-center gap-2">
+                          <Checkbox
+                            id={`exclude-${bullet.bulletId}`}
+                            checked={bullet.rejected}
+                            disabled={isSaving}
+                            onCheckedChange={(checked) =>
+                              toggleBulletRejected(bullet.bulletId, checked === true)
+                            }
+                          />
+                          <Label
+                            htmlFor={`exclude-${bullet.bulletId}`}
+                            className="text-xs font-normal text-muted-foreground"
+                          >
+                            Exclude from resume (out of context)
+                          </Label>
+                        </div>
+                      )}
                       {isEditing ? (
                         <>
                           <Textarea
