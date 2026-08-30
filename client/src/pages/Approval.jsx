@@ -35,6 +35,7 @@ export default function Approval() {
   const [activeSuggestSkill, setActiveSuggestSkill] = useState(null);
   const [suggestBulletText, setSuggestBulletText] = useState("");
   const [suggestBulletTarget, setSuggestBulletTarget] = useState("");
+  const [saveToMasterResume, setSaveToMasterResume] = useState(true);
   const [addingSkill, setAddingSkill] = useState(false);
 
   const [retryNotes, setRetryNotes] = useState("");
@@ -202,6 +203,7 @@ export default function Approval() {
           role: target?.role,
           company: target?.company,
           dateRange: target?.dateRange,
+          saveToMasterResume,
         }),
       });
       const data = await res.json();
@@ -209,6 +211,7 @@ export default function Approval() {
       setActiveSuggestSkill(null);
       setSuggestBulletText("");
       setSuggestBulletTarget("");
+      setSaveToMasterResume(true);
       await loadApplication();
     } catch (err) {
       setError(err.message);
@@ -556,6 +559,7 @@ export default function Approval() {
                       setActiveSuggestSkill(activeSuggestSkill === skill ? null : skill);
                       setSuggestBulletText("");
                       setSuggestBulletTarget("");
+                      setSaveToMasterResume(true);
                     }}
                   >
                     {skill}
@@ -590,6 +594,22 @@ export default function Approval() {
                     placeholder={`Describe how you used ${activeSuggestSkill}…`}
                     autoFocus
                   />
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="save-to-master-resume"
+                      checked={saveToMasterResume}
+                      onCheckedChange={(checked) => setSaveToMasterResume(checked === true)}
+                    />
+                    <Label htmlFor="save-to-master-resume" className="text-xs font-normal text-muted-foreground">
+                      Also keep this on my master resume (available to future applications too)
+                    </Label>
+                  </div>
+                  {!saveToMasterResume && (
+                    <p className="text-xs text-muted-foreground">
+                      This bullet will only be used for this application — it won't be saved to your master
+                      resume or show up when tailoring other applications.
+                    </p>
+                  )}
                   <Button
                     size="sm"
                     className="w-fit"
