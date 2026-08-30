@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Download, Pencil, Trash2 } from "lucide-react";
-import { APPLICATIONS_API as API_BASE } from "../lib/api.js";
+import { APPLICATIONS_API as API_BASE, RESUMES_API } from "../lib/api.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -19,11 +19,32 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+// Same role|company|dateRange grouping the .docx export already uses
+// (server/src/services/exportResumeDocx.js) — keyed off each tailored bullet's
+// source, so the on-screen preview matches the shape of the exported file.
+function groupTailoredBulletsByEmployer(tailoredBullets, originalsById) {
+  const groups = [];
+  const groupsByKey = new Map();
+  for (const bullet of tailoredBullets) {
+    const source = originalsById.get(bullet.sourceBulletId) || {};
+    const key = `${source.role || ""}|${source.company || ""}|${source.dateRange || ""}`;
+    let group = groupsByKey.get(key);
+    if (!group) {
+      group = { role: source.role, company: source.company, dateRange: source.dateRange, bullets: [] };
+      groupsByKey.set(key, group);
+      groups.push(group);
+    }
+    group.bullets.push(bullet);
+  }
+  return groups;
+}
+
 export default function Approval() {
   const { applicationId } = useParams();
   const navigate = useNavigate();
 
   const [application, setApplication] = useState(null);
+  const [masterResume, setMasterResume] = useState(null);
   const [originalBullets, setOriginalBullets] = useState([]);
   const [originalSummary, setOriginalSummary] = useState("");
   const [verificationResult, setVerificationResult] = useState(null);
@@ -98,6 +119,27 @@ export default function Approval() {
     loadApplication();
   }, [loadApplication]);
 
+  // Read-only CV shape (name, contact, education, projects, skills) — lives on
+  // the master resume, not the application, so it's a separate fetch once we
+  // know which resume this application was tailored from.
+  useEffect(() => {
+    if (!application?.masterResumeId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${RESUMES_API}/${application.masterResumeId}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Couldn't load resume details.");
+        if (!cancelled) setMasterResume(data.masterResume);
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [application?.masterResumeId]);
+
   const originalsById = useMemo(
     () => new Map(originalBullets.map((bullet) => [bullet.bulletId, bullet])),
     [originalBullets]
@@ -117,6 +159,16 @@ export default function Approval() {
     }
     return [...seen.values()];
   }, [originalBullets]);
+  const bulletGroups = useMemo(
+    () => groupTailoredBulletsByEmployer(application?.tailoredBullets || [], originalsById),
+    [application?.tailoredBullets, originalsById]
+  );
+  const contactLine = useMemo(() => {
+    const personalInfo = masterResume?.personalInfo || {};
+    return [personalInfo.location, personalInfo.phone, personalInfo.email, personalInfo.linkedin, personalInfo.portfolio]
+      .filter(Boolean)
+      .join(" · ");
+  }, [masterResume]);
   // Falls back to the original AI-time gap list until a re-check has run —
   // once it has, the re-check's live view (which credits anything your
   // current edits actually cover) is the accurate one to show and act on.
@@ -413,9 +465,25 @@ export default function Approval() {
 
       {!loading && application && application.status !== "role_mismatch" && (
         <>
+          {/* Candidate info — read-only, from the master resume */}
+          {masterResume && (
+            <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">
+                Your resume — read-only here, edit it on your Master Resume page
+              </p>
+              <p className="font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                {masterResume.personalInfo?.title || ""}
+              </p>
+              <h2 className="font-display text-xl font-semibold text-foreground">
+                {masterResume.personalInfo?.fullName}
+              </h2>
+              {contactLine && <p className="mt-1 text-sm text-muted-foreground">{contactLine}</p>}
+            </div>
+          )}
+
           {/* Tailored summary */}
           <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
-            <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Summary</p>
+            <h3 className="mb-3 font-display text-lg font-semibold text-foreground">Summary</h3>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">Original</p>
@@ -465,9 +533,25 @@ export default function Approval() {
             </div>
           </div>
 
-          {/* Tailored bullets */}
-          <ul className="mb-6 flex flex-col gap-3">
-            {application.tailoredBullets?.map((bullet) => {
+          {/* Tailored bullets, grouped by employer — same shape as the exported resume */}
+          <h3 className="mb-3 font-display text-lg font-semibold text-foreground">Experience</h3>
+          <div className="mb-6 flex flex-col gap-5">
+            {bulletGroups.map((group, groupIndex) => (
+              <div key={groupIndex}>
+                {group.company && (
+                  <div className="mb-2">
+                    <p className="text-sm font-medium text-foreground">
+                      {[group.company, group.role].filter(Boolean).join(" — ")}
+                    </p>
+                    {group.dateRange && (
+                      <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
+                        {group.dateRange}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <ul className="flex flex-col gap-3">
+                  {group.bullets.map((bullet) => {
               const original = originalsById.get(bullet.sourceBulletId);
               const verification = verificationByBulletId.get(bullet.bulletId);
               const isEditing = editingBulletId === bullet.bulletId;
@@ -560,8 +644,55 @@ export default function Approval() {
                   )}
                 </li>
               );
-            })}
-          </ul>
+                  })}
+                </ul>
+              </div>
+            ))}
+          </div>
+
+          {/* Education / Projects / Skills — read-only, from the master resume */}
+          {masterResume?.education?.length > 0 && (
+            <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+              <h3 className="mb-3 font-display text-lg font-semibold text-foreground">Education</h3>
+              <ul className="flex flex-col gap-3">
+                {masterResume.education.map((entry, index) => (
+                  <li key={index}>
+                    <p className="text-sm font-medium text-foreground">{entry.degree}</p>
+                    <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
+                      {[entry.institution, entry.location, entry.dateRange].filter(Boolean).join(" · ")}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {masterResume?.projects?.length > 0 && (
+            <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+              <h3 className="mb-3 font-display text-lg font-semibold text-foreground">Projects</h3>
+              <ul className="flex flex-col gap-3">
+                {masterResume.projects.map((entry, index) => (
+                  <li key={index}>
+                    <p className="text-sm font-medium text-foreground">{entry.name}</p>
+                    <p className="text-sm text-muted-foreground">{entry.description}</p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {masterResume?.skills?.length > 0 && (
+            <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+              <h3 className="mb-3 font-display text-lg font-semibold text-foreground">Skills</h3>
+              <div className="flex flex-wrap gap-1.5">
+                {masterResume.skills.map((skill) => (
+                  <Badge key={skill} variant="secondary">
+                    {skill}
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ATS score & recruiter feedback — always shows whichever is current: the
               original AI pass, or the re-check once one has run. Never both at once. */}
