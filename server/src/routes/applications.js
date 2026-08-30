@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import mongoose from 'mongoose';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Command } from '@langchain/langgraph';
 import Application from '../models/Application.js';
 import MasterResume from '../models/MasterResume.js';
@@ -595,20 +595,32 @@ router.post('/:id/resume', async (req, res) => {
 });
 
 // Section 4a — suggest missing skills. Never inserts text directly into the
-// tailored output: writes a real resumeBullets document through the same
-// tagBullet flow as a normal upload, then retries with it in the pool.
+// tailored output: goes through the same tagBullet flow as a normal upload,
+// then retries with it in the pool. saveToMasterResume (default true) decides
+// where it lives:
+//   true  — a real resumeBullets document, same as today: permanent, shared
+//           with every other application against this master resume.
+//   false — scoped to just this application. Never written to resumeBullets
+//           at all, so no other application, gap-analysis run, or the Master
+//           Resume bullets page ever sees it — it only exists inside this
+//           application's own graph state, and disappears automatically
+//           if/when this application is deleted (its checkpoint thread is
+//           deleted too, and that's the only place this bullet ever lived).
 router.post('/:id/suggest-skills/accept', async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
     return res.status(400).json({ error: 'Invalid application id.' });
   }
 
-  const { skill, bulletText, role, company, dateRange } = req.body;
+  const { skill, bulletText, role, company, dateRange, saveToMasterResume = true } = req.body;
   if (typeof skill !== 'string' || !skill.trim()) {
     return res.status(400).json({ error: 'skill is required.' });
   }
   if (typeof bulletText !== 'string' || !bulletText.trim()) {
     return res.status(400).json({ error: 'bulletText is required.' });
+  }
+  if (typeof saveToMasterResume !== 'boolean') {
+    return res.status(400).json({ error: 'saveToMasterResume must be a boolean.' });
   }
 
   try {
@@ -625,19 +637,65 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
 
     const { skills, metrics } = await tagBullet(bulletText);
     const canonicalSkills = skills.map(canonicalizeSkill);
-    const newBullet = await ResumeBullet.create({
-      masterResumeId: application.masterResumeId,
-      text: bulletText,
-      skills,
-      canonicalSkills,
-      metrics,
-      role: typeof role === 'string' && role.trim() ? role.trim() : undefined,
-      company: typeof company === 'string' && company.trim() ? company.trim() : undefined,
-      dateRange: typeof dateRange === 'string' && dateRange.trim() ? dateRange.trim() : undefined,
-    });
+    const trimmedRole = typeof role === 'string' && role.trim() ? role.trim() : undefined;
+    const trimmedCompany = typeof company === 'string' && company.trim() ? company.trim() : undefined;
+    const trimmedDateRange = typeof dateRange === 'string' && dateRange.trim() ? dateRange.trim() : undefined;
 
-    const allBullets = await ResumeBullet.find({ masterResumeId: application.masterResumeId });
-    const resumeBulletsForGraph = buildResumeBulletsForGraph(allBullets);
+    const masterBullets = await ResumeBullet.find({ masterResumeId: application.masterResumeId });
+
+    let newBullet;
+    let resumeBulletsForGraph;
+    let requiredBulletId;
+
+    if (saveToMasterResume) {
+      newBullet = await ResumeBullet.create({
+        masterResumeId: application.masterResumeId,
+        text: bulletText,
+        skills,
+        canonicalSkills,
+        metrics,
+        role: trimmedRole,
+        company: trimmedCompany,
+        dateRange: trimmedDateRange,
+      });
+      resumeBulletsForGraph = buildResumeBulletsForGraph([...masterBullets, newBullet]);
+      requiredBulletId = newBullet._id.toString();
+    } else {
+      // A bullet privately added earlier in THIS application lives only in
+      // this thread's own state, never in resumeBullets — so a fresh Mongo
+      // read alone would silently drop it. Carry forward anything already in
+      // the current candidate pool that isn't one of the real master bullets.
+      const masterBulletIds = new Set(masterBullets.map((bullet) => bullet._id.toString()));
+      const graph = getJobAgentGraph();
+      const currentSnapshot = await graph.getState({ configurable: { thread_id: id } });
+      const existingPrivateBullets = (currentSnapshot.values?.resumeBullets || []).filter(
+        (bullet) => !masterBulletIds.has(bullet.bulletId)
+      );
+
+      newBullet = {
+        bulletId: randomUUID(),
+        text: bulletText,
+        skills,
+        canonicalSkills,
+        metrics,
+        role: trimmedRole,
+        company: trimmedCompany,
+        dateRange: trimmedDateRange,
+      };
+      resumeBulletsForGraph = [
+        ...buildResumeBulletsForGraph(masterBullets),
+        ...existingPrivateBullets,
+        {
+          bulletId: newBullet.bulletId,
+          text: newBullet.text,
+          role: newBullet.role,
+          company: newBullet.company,
+          dateRange: newBullet.dateRange,
+          canonicalSkills: newBullet.canonicalSkills,
+        },
+      ];
+      requiredBulletId = newBullet.bulletId;
+    }
 
     const notes =
       `New skill added to resume: "${skill}". New bullet: "${bulletText}". ` +
@@ -648,7 +706,7 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
       notes,
       tailoredBullets: application.tailoredBullets,
       resumeBullets: resumeBulletsForGraph,
-      requiredBulletId: newBullet._id.toString(),
+      requiredBulletId,
     });
     const state = snapshot.values;
 
@@ -664,7 +722,7 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
     application.retryCount = state.retryCount;
     await application.save();
 
-    return res.json({ application, newBullet });
+    return res.json({ application, newBullet, scope: saveToMasterResume ? 'master' : 'application' });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to add suggested skill.' });
