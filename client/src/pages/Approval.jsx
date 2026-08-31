@@ -204,6 +204,7 @@ export default function Approval() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't update this bullet.");
       setApplication(data.application);
+      setVerifiedSkills(data.verifiedSkills || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -225,6 +226,7 @@ export default function Approval() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't save this bullet.");
       setApplication(data.application);
+      setVerifiedSkills(data.verifiedSkills || []);
       setEditingBulletId(null);
       setEditingBulletText("");
     } catch (err) {
