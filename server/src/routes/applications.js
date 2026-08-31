@@ -20,6 +20,17 @@ import GenerationCache from '../models/GenerationCache.js';
 
 const router = Router();
 
+// LangGraph's default recursionLimit is 25 super-steps. A single pass that
+// legitimately uses all 3 automatic retries (section 5) costs 9 + 3×6 = 27
+// steps with a cover letter requested (coverLetterGeneration adds one node
+// per cycle), or 8 + 3×5 = 23 without one — so the documented, correctly-
+// enforced retry cap could still blow past the default limit and crash with
+// an uncaught GraphRecursionError before ever reaching node 10. Raised with
+// headroom rather than tuned to the exact worst case, since a manual retry
+// or an accepted skill suggestion (also routed through this same invoke)
+// can itself trigger further automatic retries on top.
+const GRAPH_RECURSION_LIMIT = 60;
+
 function buildResumeBulletsForGraph(bullets) {
   return bullets.map((bullet) => ({
     bulletId: bullet._id.toString(),
@@ -46,7 +57,10 @@ function truncateForFlag(text, maxLength = 50) {
 // resulting checkpoint — the only place this route file touches the graph.
 async function resumeGraph(applicationId, resumePayload) {
   const graph = getJobAgentGraph();
-  await graph.invoke(new Command({ resume: resumePayload }), { configurable: { thread_id: applicationId } });
+  await graph.invoke(new Command({ resume: resumePayload }), {
+    configurable: { thread_id: applicationId },
+    recursionLimit: GRAPH_RECURSION_LIMIT,
+  });
   return graph.getState({ configurable: { thread_id: applicationId } });
 }
 
@@ -222,7 +236,7 @@ router.post('/', async (req, res) => {
         resumeBullets: resumeBulletsForGraph,
         coverLetterRequested: Boolean(coverLetterRequested),
       },
-      { configurable: { thread_id: applicationId } }
+      { configurable: { thread_id: applicationId }, recursionLimit: GRAPH_RECURSION_LIMIT }
     );
 
     const snapshot = await graph.getState({ configurable: { thread_id: applicationId } });
@@ -622,7 +636,7 @@ router.post('/:id/resume', async (req, res) => {
     const resumePayload =
       action === 'approve'
         ? { action: 'approve', tailoredBullets: application.tailoredBullets, tailoredSummary: application.tailoredSummary }
-        : { action: 'retry', notes, tailoredBullets: application.tailoredBullets };
+        : { action: 'retry', notes, tailoredBullets: application.tailoredBullets, tailoredSummary: application.tailoredSummary };
 
     const snapshot = await resumeGraph(id, resumePayload);
     const state = snapshot.values;
@@ -776,6 +790,7 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
       action: 'retry',
       notes,
       tailoredBullets: application.tailoredBullets,
+      tailoredSummary: application.tailoredSummary,
       resumeBullets: resumeBulletsForGraph,
       requiredBulletId,
     });

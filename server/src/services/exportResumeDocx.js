@@ -58,14 +58,12 @@ export function buildResumeDocxBuffer({
 
   children.push(new Paragraph({ text: 'EXPERIENCE', heading: HeadingLevel.HEADING_2 }));
   for (const group of groups) {
-    const heading = [group.company, group.role].filter(Boolean).join(' — ');
-    if (heading) {
-      children.push(new Paragraph({ text: heading, heading: HeadingLevel.HEADING_3 }));
-    } else {
-      // Orphan bullet with no employer attached — keep it visually separated
-      // from whichever group happened to print before it.
-      children.push(new Paragraph({ text: '' }));
-    }
+    // A bullet added with no role/company attached (e.g. an unassigned
+    // suggest-missing-skills addition) still gets a real heading rather than
+    // a blank line, so it doesn't read as a formatting glitch in the
+    // exported file.
+    const heading = [group.company, group.role].filter(Boolean).join(' — ') || 'Additional Experience';
+    children.push(new Paragraph({ text: heading, heading: HeadingLevel.HEADING_3 }));
     if (group.dateRange) {
       children.push(new Paragraph({ children: [new TextRun({ text: group.dateRange, italics: true })] }));
     }

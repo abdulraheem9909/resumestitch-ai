@@ -2,11 +2,16 @@ import { ChatOpenAI } from '@langchain/openai';
 import { z } from 'zod';
 import { gapAnalysis } from './gapAnalysis.js';
 
-// Section 5a: "tune this empirically — start around 15-20%". Below this floor,
-// exit immediately with no LLM call.
-const OVERLAP_FLOOR = 0.2;
-// Not specified numerically in the doc, only as "obviously fine" — above this,
-// also skip the LLM call, so only the genuinely ambiguous middle band pays for stage 2.
+// Section 5a: only a *fast-pass* threshold — high literal skill overlap can
+// never itself indicate a discipline mismatch, so it's safe to skip the LLM
+// call above this line. There is deliberately no symmetric fast-*reject*
+// floor below it: a low or 0% overlap is structurally ambiguous between
+// "wrong tech stack, same discipline" (e.g. a Java JD against a Node.js/React
+// resume) and "wrong discipline entirely" (e.g. a recruiter JD against an
+// engineer resume) — both can legitimately produce 0% canonical overlap, and
+// only the stage-2 LLM judgment below can tell them apart. A previous floor
+// here auto-rejected real, same-discipline job postings; see
+// key-decisions-log.md for the live-testing evidence that removed it.
 const OVERLAP_CONFIDENT = 0.5;
 
 const plausibilitySchema = z.object({
@@ -27,7 +32,7 @@ const model = new ChatOpenAI({ model: 'gpt-4o-mini', temperature: 0 }).withStruc
   strict: true,
 });
 
-function computeOverlap(jdCanonicalSkills, resumeCanonicalSkills) {
+export function computeOverlap(jdCanonicalSkills, resumeCanonicalSkills) {
   if (!jdCanonicalSkills || jdCanonicalSkills.length === 0) return null;
   const gaps = gapAnalysis(jdCanonicalSkills, resumeCanonicalSkills);
   const overlapCount = jdCanonicalSkills.length - gaps.length;
@@ -36,9 +41,11 @@ function computeOverlap(jdCanonicalSkills, resumeCanonicalSkills) {
 
 /**
  * Section 5a: two-stage role fit gate, run before any tailoring/retry spend.
- * Stage 1 is a free skill-overlap floor derived from node 3's gap analysis;
- * stage 2 (one GPT-4o-mini call) only runs for the ambiguous middle band, or
- * when the JD yielded no canonical skills to compute an overlap from at all.
+ * Stage 1 is a free high-overlap fast-pass derived from node 3's gap
+ * analysis; stage 2 (one GPT-4o-mini call) runs for everything else,
+ * including a 0% or unmeasurable (null) overlap — raw overlap percentage
+ * cannot on its own distinguish a same-discipline stack mismatch from a
+ * genuine cross-discipline mismatch, so there is no safe fast-reject path.
  */
 export async function roleFitGate({
   jdText,
@@ -49,21 +56,11 @@ export async function roleFitGate({
 }) {
   const overlapPercent = computeOverlap(jdCanonicalSkills, resumeCanonicalSkills);
 
-  if (overlapPercent !== null) {
-    if (overlapPercent < OVERLAP_FLOOR) {
-      return {
-        fit: 'low',
-        reason:
-          `Only ${Math.round(overlapPercent * 100)}% of required skills overlap with the resume ` +
-          `(floor: ${OVERLAP_FLOOR * 100}%).`,
-      };
-    }
-    if (overlapPercent >= OVERLAP_CONFIDENT) {
-      return {
-        fit: 'plausible',
-        reason: `${Math.round(overlapPercent * 100)}% of required skills overlap with the resume — well above the gate floor.`,
-      };
-    }
+  if (overlapPercent !== null && overlapPercent >= OVERLAP_CONFIDENT) {
+    return {
+      fit: 'plausible',
+      reason: `${Math.round(overlapPercent * 100)}% of required skills overlap with the resume — well above the gate floor.`,
+    };
   }
 
   return model.invoke([

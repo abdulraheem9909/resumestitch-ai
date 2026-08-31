@@ -15,7 +15,10 @@ import GenerationCache from "../models/GenerationCache.js";
 import { getCheckpointer } from "../graph/graphInstance.js";
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+// No legitimate resume file needs anywhere near this much room; caps how
+// much an upload can force the server to buffer into memory before any
+// other validation runs.
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const MAX_ACTIVE_RESUMES = 5;
 
@@ -34,7 +37,10 @@ router.post("/extract-text", upload.single("file"), async (req, res) => {
 
     return res.json({ text: segmentResume(bulletedText) });
   } catch (err) {
-    return res.status(500).json({ error: "Failed to extract text from file." });
+    // The only thing that can throw here is mammoth/pdf-parse choking on the
+    // file's actual content — a bad-input problem, not a server fault.
+    console.error(err);
+    return res.status(400).json({ error: "Could not read this file — it may be corrupted or not a valid .docx/.pdf." });
   }
 });
 
@@ -61,8 +67,10 @@ router.post("/parse-preview", upload.single("file"), async (req, res) => {
 
     return res.json({ personalInfo, suggestedLabel });
   } catch (err) {
+    // Same reasoning as /extract-text — a parsing failure here is a bad-input
+    // problem, not a server fault.
     console.error(err);
-    return res.status(500).json({ error: "Failed to parse file for prefill." });
+    return res.status(400).json({ error: "Could not read this file — it may be corrupted or not a valid .docx/.pdf." });
   }
 });
 
@@ -97,20 +105,36 @@ router.post("/", upload.single("file"), async (req, res) => {
     portfolio: (portfolio || "").trim(),
   };
 
-  try {
-    // Step 2 — text extraction
-    const bulletedText = await extractResumeText(req.file);
-    if (bulletedText === null) {
-      return res.status(400).json({
-        error: "Unsupported file type. Only .docx and .pdf are accepted.",
-      });
-    }
+  // Step 2 — cap check. Runs before any text extraction or LLM tagging so a
+  // 6th upload that's going to be rejected anyway never pays for either.
+  const activeCount = await MasterResume.countDocuments({ status: "active" });
+  if (activeCount >= MAX_ACTIVE_RESUMES) {
+    return res.status(409).json({ error: "delete a resume first" });
+  }
 
-    // Step 3 — segmentation
+  // Step 3 — text extraction, isolated in its own try/catch: the only thing
+  // that can throw here is mammoth/pdf-parse choking on the file's actual
+  // content — a bad-input problem, not a server fault, so it gets its own
+  // 400 rather than falling into the generic 500 below.
+  let bulletedText;
+  try {
+    bulletedText = await extractResumeText(req.file);
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({ error: "Could not read this file — it may be corrupted or not a valid .docx/.pdf." });
+  }
+  if (bulletedText === null) {
+    return res.status(400).json({
+      error: "Unsupported file type. Only .docx and .pdf are accepted.",
+    });
+  }
+
+  try {
+    // Step 4 — segmentation
     const segments = segmentResume(bulletedText);
     const { summary, education, projects, skills } = segmentResumeSections(bulletedText);
 
-    // Step 4 — LLM tagging, one call per bullet
+    // Step 5 — LLM tagging, one call per bullet
     const taggedBullets = await Promise.all(
       segments.map(async (segment) => {
         const { skills, metrics } = await tagBullet(segment.text);
@@ -122,12 +146,6 @@ router.post("/", upload.single("file"), async (req, res) => {
         };
       })
     );
-
-    // Step 5 — cap check
-    const activeCount = await MasterResume.countDocuments({ status: "active" });
-    if (activeCount >= MAX_ACTIVE_RESUMES) {
-      return res.status(409).json({ error: "delete a resume first" });
-    }
 
     // Step 6 — save
     const masterResume = await MasterResume.create({
@@ -153,6 +171,7 @@ router.post("/", upload.single("file"), async (req, res) => {
 
     return res.status(201).json({ masterResume, resumeBullets });
   } catch (err) {
+    console.error(err);
     return res.status(500).json({ error: "Failed to process resume upload." });
   }
 });

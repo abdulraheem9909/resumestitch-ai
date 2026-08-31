@@ -404,9 +404,14 @@ function humanApprovalNode(state) {
 
   // resumeValue.action === 'retry' — manual "send back with notes" or an
   // accepted suggest-missing-skills addition, both routed through the same
-  // pathway per section 4a.
+  // pathway per section 4a. tailoredSummary is re-synced from Mongo here the
+  // same way tailoredBullets already is, so a hand-edited summary
+  // (editSource: 'human') is actually visible to tailorContentNode's own
+  // preservation check on the next pass — without this, that check always
+  // saw stale pre-edit state and could never fire (see key-decisions-log.md).
   return {
     tailoredBullets: resumeValue.tailoredBullets ?? state.tailoredBullets,
+    tailoredSummary: resumeValue.tailoredSummary ?? state.tailoredSummary,
     resumeBullets: resumeValue.resumeBullets ?? state.resumeBullets,
     retryNotes: resumeValue.notes ?? '',
     requiredBulletId: resumeValue.requiredBulletId ?? null,
