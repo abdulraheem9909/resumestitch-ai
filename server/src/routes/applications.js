@@ -200,6 +200,7 @@ router.post('/', async (req, res) => {
 
     const resumeCanonicalSkills = normalizeSkills(bullets.flatMap((bullet) => bullet.skills));
     const resumeBulletsForGraph = buildResumeBulletsForGraph(bullets);
+    const projectCanonicalSkills = normalizeSkills((resume.projects || []).flatMap((project) => project.canonicalSkills || []));
 
     let application;
     try {
@@ -234,6 +235,7 @@ router.post('/', async (req, res) => {
         resumeTitle: resume.personalInfo?.title,
         resumeCanonicalSkills,
         resumeBullets: resumeBulletsForGraph,
+        projectCanonicalSkills,
         coverLetterRequested: Boolean(coverLetterRequested),
       },
       { configurable: { thread_id: applicationId }, recursionLimit: GRAPH_RECURSION_LIMIT }
@@ -288,14 +290,16 @@ router.get('/:id', async (req, res) => {
     const state = snapshot.values || {};
 
     // Verified-skills is display-only (see verifiedSkills.js) — scoped to what
-    // this specific application will actually export, not the master resume in
-    // general: only non-rejected tailored bullets' current text.
+    // this specific application will actually export: non-rejected tailored
+    // bullets' current text, plus the master resume's Projects section, which
+    // the export always includes verbatim regardless of JD (see exportResumeDocx.js).
     const activeTexts = (application.tailoredBullets || [])
       .filter((bullet) => !bullet.rejected)
       .map((bullet) => bullet.finalText);
-    const resume = await MasterResume.findById(application.masterResumeId).select('skills');
+    const resume = await MasterResume.findById(application.masterResumeId).select('skills projects');
     const effectiveSkills = application.tailoredSkills ?? resume?.skills ?? [];
-    const verifiedSkills = computeVerifiedSkills(effectiveSkills, activeTexts);
+    const sourceTexts = [...activeTexts, ...(resume?.projects || []).map((project) => project.description)];
+    const verifiedSkills = computeVerifiedSkills(effectiveSkills, sourceTexts);
 
     return res.json({
       application,
@@ -491,9 +495,10 @@ router.patch('/:id/bullets/:bulletId', async (req, res) => {
     const activeTexts = application.tailoredBullets
       .filter((b) => !b.rejected)
       .map((b) => b.finalText);
-    const resume = await MasterResume.findById(application.masterResumeId).select('skills');
+    const resume = await MasterResume.findById(application.masterResumeId).select('skills projects');
     const effectiveSkills = application.tailoredSkills ?? resume?.skills ?? [];
-    const verifiedSkills = computeVerifiedSkills(effectiveSkills, activeTexts);
+    const sourceTexts = [...activeTexts, ...(resume?.projects || []).map((project) => project.description)];
+    const verifiedSkills = computeVerifiedSkills(effectiveSkills, sourceTexts);
 
     return res.json({ application, verifiedSkills });
   } catch (err) {
@@ -562,7 +567,9 @@ router.patch('/:id/skills', async (req, res) => {
     const activeTexts = application.tailoredBullets
       .filter((bullet) => !bullet.rejected)
       .map((bullet) => bullet.finalText);
-    const verifiedSkills = computeVerifiedSkills(skills, activeTexts);
+    const resume = await MasterResume.findById(application.masterResumeId).select('projects');
+    const sourceTexts = [...activeTexts, ...(resume?.projects || []).map((project) => project.description)];
+    const verifiedSkills = computeVerifiedSkills(skills, sourceTexts);
 
     return res.json({ application, verifiedSkills });
   } catch (err) {
@@ -607,6 +614,12 @@ router.post('/:id/recheck', async (req, res) => {
 // -> (coverLetterGeneration) -> styleLinting -> atsScoreAndRecruiter -> humanApproval
 // with the given notes, pausing again (possibly after further automatic
 // retries within that same pass, capped at 3 — see shouldRetryAutomatically).
+// action: 'override' is only valid on a role_mismatch application — the human
+// disagrees with node 4's gate and sends it straight to tailorContent,
+// bypassing the gate entirely rather than re-running it (which would very
+// likely reproduce the same verdict). This is the one place in the pipeline
+// that previously had no recourse once the gate fired — every other decision
+// point already lets the human have the final say.
 router.post('/:id/resume', async (req, res) => {
   const { id } = req.params;
   if (!mongoose.isValidObjectId(id)) {
@@ -614,8 +627,8 @@ router.post('/:id/resume', async (req, res) => {
   }
 
   const { action, notes } = req.body;
-  if (action !== 'approve' && action !== 'retry') {
-    return res.status(400).json({ error: "action must be 'approve' or 'retry'." });
+  if (action !== 'approve' && action !== 'retry' && action !== 'override') {
+    return res.status(400).json({ error: "action must be 'approve', 'retry', or 'override'." });
   }
   if (action === 'retry' && (typeof notes !== 'string' || !notes.trim())) {
     return res.status(400).json({ error: 'notes is required for a retry.' });
@@ -626,17 +639,25 @@ router.post('/:id/resume', async (req, res) => {
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
-    if (application.status === 'role_mismatch') {
-      return res.status(400).json({ error: 'This application was a role mismatch — there is nothing to approve or retry.' });
-    }
-    if (application.status === 'approved') {
-      return res.status(400).json({ error: 'This application has already been approved.' });
+    if (action === 'override') {
+      if (application.status !== 'role_mismatch') {
+        return res.status(400).json({ error: 'override is only valid for a role-mismatch application.' });
+      }
+    } else {
+      if (application.status === 'role_mismatch') {
+        return res.status(400).json({ error: 'This application was a role mismatch — there is nothing to approve or retry.' });
+      }
+      if (application.status === 'approved') {
+        return res.status(400).json({ error: 'This application has already been approved.' });
+      }
     }
 
     const resumePayload =
       action === 'approve'
         ? { action: 'approve', tailoredBullets: application.tailoredBullets, tailoredSummary: application.tailoredSummary }
-        : { action: 'retry', notes, tailoredBullets: application.tailoredBullets, tailoredSummary: application.tailoredSummary };
+        : action === 'retry'
+          ? { action: 'retry', notes, tailoredBullets: application.tailoredBullets, tailoredSummary: application.tailoredSummary }
+          : { action: 'override' };
 
     const snapshot = await resumeGraph(id, resumePayload);
     const state = snapshot.values;
@@ -651,7 +672,7 @@ router.post('/:id/resume', async (req, res) => {
       application.atsFlags = state.atsFlags;
       application.recruiterFeedback = state.recruiterFeedback;
       application.retryCount = state.retryCount ?? application.retryCount;
-    } else {
+    } else if (action === 'retry') {
       application.status = 'pending_approval';
       application.retryNotes.push({ notes });
       application.tailoredBullets = state.tailoredBullets;
@@ -666,6 +687,22 @@ router.post('/:id/resume', async (req, res) => {
       // Refresh the human-recheck panel against this round's fresh content —
       // otherwise it keeps showing whatever it said before this retry, which
       // reads as "nothing changed" even though the tailored content did.
+      const recheckResult = await computeHumanRecheck(application);
+      Object.assign(application, recheckResult);
+    } else {
+      // override — first time this application ever runs tailorContent, so
+      // this mirrors POST /'s own "plausible" branch, not the retry branch.
+      application.status = 'pending_approval';
+      application.retryNotes.push({ notes: 'Role-fit gate manually overridden by user — proceeded to tailoring.' });
+      application.tailoredBullets = state.tailoredBullets;
+      application.tailoredSummary = state.tailoredSummary;
+      application.keywordGaps = state.keywordGaps;
+      application.coverLetterText = state.coverLetterText;
+      application.atsScore = state.atsScore;
+      application.atsFlags = state.atsFlags;
+      application.recruiterFeedback = state.recruiterFeedback;
+      application.retryCount = state.retryCount ?? 0;
+
       const recheckResult = await computeHumanRecheck(application);
       Object.assign(application, recheckResult);
     }

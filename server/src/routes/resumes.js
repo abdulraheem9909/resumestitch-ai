@@ -147,13 +147,23 @@ router.post("/", upload.single("file"), async (req, res) => {
       })
     );
 
+    // Same read-only extraction, applied to each project's description — feeds
+    // gap analysis/role-fit alongside resumeBullets' skills, but a project
+    // itself never becomes a tailorable bullet (see MasterResume.js).
+    const taggedProjects = await Promise.all(
+      projects.map(async (project) => {
+        const { skills: projectSkills } = await tagBullet(project.description);
+        return { ...project, canonicalSkills: projectSkills.map(canonicalizeSkill) };
+      })
+    );
+
     // Step 6 — save
     const masterResume = await MasterResume.create({
       label,
       personalInfo,
       summary,
       education,
-      projects,
+      projects: taggedProjects,
       skills,
     });
     const resumeBullets = await ResumeBullet.insertMany(
@@ -189,7 +199,8 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Resume not found." });
     }
     const bullets = await ResumeBullet.find({ masterResumeId: id });
-    const verifiedSkills = computeVerifiedSkills(resume.skills, bullets.map((bullet) => bullet.text));
+    const sourceTexts = [...bullets.map((bullet) => bullet.text), ...(resume.projects || []).map((project) => project.description)];
+    const verifiedSkills = computeVerifiedSkills(resume.skills, sourceTexts);
     return res.json({ masterResume: resume, verifiedSkills });
   } catch (err) {
     return res.status(500).json({ error: "Failed to load resume." });

@@ -6,7 +6,8 @@ const tagSchema = z.object({
     .array(z.string())
     .describe(
       'Concrete technical skills only: programming languages, frameworks, libraries, databases, ' +
-        'cloud/infra platforms, and named tools/products explicitly mentioned. ' +
+        'cloud/infra platforms, named tools/products, and named methodologies/practices/techniques ' +
+        '(e.g. "RAG", "RBAC", "TDD", "microservices") explicitly mentioned. ' +
         'Exclude soft skills, job activities, and generic descriptions (e.g. "mentoring", "code reviews", ' +
         '"architecture design", "UI responsiveness", "cross-functional collaboration").'
     ),
@@ -36,7 +37,8 @@ export async function tagBullet(bulletText) {
       content:
         'Extract two things from the given resume bullet, per the schema:\n' +
         '1. skills — concrete technical skills only (languages, frameworks, libraries, databases, cloud/infra ' +
-        'platforms, named tools/products). Do not include soft skills, activities, or generic descriptions ' +
+        'platforms, named tools/products, and named methodologies/practices/techniques such as "RAG", "RBAC", ' +
+        '"TDD", "microservices"). Do not include soft skills, activities, or generic descriptions ' +
         '(e.g. "mentoring", "code reviews", "architecture design", "UI responsiveness").\n' +
         '2. metrics — only quantifiable results (a number, percentage, count, currency amount, or time span). ' +
         'If the bullet has no quantifiable result, return an empty array for metrics rather than restating ' +

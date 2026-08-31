@@ -23,6 +23,11 @@ const educationEntrySchema = new mongoose.Schema({
 const projectEntrySchema = new mongoose.Schema({
   name: { type: String, default: '' },
   description: { type: String, default: '' },
+  // Extracted the same way a resume bullet's skills are (tagBullet, read-only,
+  // never rephrased) — feeds gap analysis and the role-fit gate alongside
+  // resumeBullets' own canonicalSkills, but is never itself eligible for
+  // node 5's tailoring/selection pool. See key-decisions-log.md.
+  canonicalSkills: { type: [String], default: [] },
 });
 
 const masterResumeSchema = new mongoose.Schema({

@@ -44,6 +44,19 @@ test('gapAnalysisNode in-graph recompute matches the route-level normalizeSkills
   assert.deepEqual(new Set(resumeCanonicalSkills), new Set(routeLevel));
 });
 
+test('gapAnalysisNode folds projectCanonicalSkills into resumeCanonicalSkills and shrinks keywordGaps accordingly', () => {
+  const jdCanonicalSkills = ['react', 'rag', 'kubernetes'];
+  const resumeBullets = [{ bulletId: '1', canonicalSkills: ['react'] }];
+  const projectCanonicalSkills = ['rag', 'pinecone'];
+
+  const withoutProjects = gapAnalysisNode({ jdCanonicalSkills, resumeBullets });
+  assert.deepEqual(withoutProjects.keywordGaps, ['rag', 'kubernetes']);
+
+  const withProjects = gapAnalysisNode({ jdCanonicalSkills, resumeBullets, projectCanonicalSkills });
+  assert.deepEqual(new Set(withProjects.resumeCanonicalSkills), new Set(['react', 'rag', 'pinecone']));
+  assert.deepEqual(withProjects.keywordGaps, ['kubernetes']);
+});
+
 test('gapAnalysisNode handles missing/empty resumeBullets without throwing', () => {
   const result = gapAnalysisNode({ jdCanonicalSkills: ['docker'], resumeBullets: undefined });
   assert.deepEqual(result.resumeCanonicalSkills, []);

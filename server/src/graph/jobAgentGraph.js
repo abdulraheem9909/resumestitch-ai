@@ -64,6 +64,13 @@ const JobAgentState = new StateSchema({
   resumeTitle: z.string().optional(),
   resumeCanonicalSkills: z.array(z.string()).default(() => []),
   resumeBullets: z.array(resumeBulletSchema).default(() => []),
+  // Skills extracted from the master resume's Projects section the same way a
+  // bullet's skills are (read-only, never rephrased). Set once at creation and
+  // never touched again — projects don't change mid-flow the way resumeBullets
+  // can (suggest-missing-skills), so no retry path needs to resupply this.
+  // Folded into resumeCanonicalSkills by gapAnalysisNode, but a project entry
+  // itself is never added to the resumeBullets tailoring pool.
+  projectCanonicalSkills: z.array(z.string()).default(() => []),
   // Transient: set only when a retry is adding a bullet meant to plug a specific
   // JD skill gap, so tailorContent can guarantee its inclusion. Reset to null on
   // every retry unless explicitly re-supplied (section 4a).
@@ -99,7 +106,7 @@ const JobAgentState = new StateSchema({
     .string()
     .optional()
     .default(() => ''),
-  humanDecision: z.enum(['end', 'retry']).optional(),
+  humanDecision: z.enum(['end', 'retry', 'override']).optional(),
   coverLetterRequested: z.boolean().optional().default(() => false),
   coverLetterText: z.string().optional(),
   atsScore: z.number().optional(),
@@ -133,9 +140,12 @@ function normalizeSkillsNode(state) {
 // (not just the first pass) so a bullet added mid-flow (e.g. via the
 // suggest-missing-skills flow) is reflected in keywordGaps after a retry.
 export function gapAnalysisNode(state) {
-  const resumeCanonicalSkills = [...new Set(
-    (state.resumeBullets || []).flatMap((bullet) => bullet.canonicalSkills || [])
-  )];
+  const resumeCanonicalSkills = [
+    ...new Set([
+      ...(state.resumeBullets || []).flatMap((bullet) => bullet.canonicalSkills || []),
+      ...(state.projectCanonicalSkills || []),
+    ]),
+  ];
   const keywordGaps = gapAnalysis(state.jdCanonicalSkills, resumeCanonicalSkills);
   return { resumeCanonicalSkills, keywordGaps };
 }
@@ -391,7 +401,13 @@ function humanApprovalNode(state) {
   );
 
   if (isRoleMismatch) {
-    return { humanDecision: 'end' };
+    // 'override' — the human disagrees with node 4's gate and wants to
+    // proceed anyway. Everything tailorContent needs (jdCanonicalSkills,
+    // resumeCanonicalSkills, resumeBullets) was already computed by nodes
+    // 1-3 before the gate ever ran, so this can go straight to tailorContent
+    // rather than re-running the gate (which would very likely reproduce
+    // the same verdict on the same inputs).
+    return { humanDecision: resumeValue?.action === 'override' ? 'override' : 'end' };
   }
 
   if (resumeValue.action === 'approve') {
@@ -470,6 +486,7 @@ export function createJobAgentGraph(mongoUri, dbName) {
     .addConditionalEdges('humanApproval', (state) => state.humanDecision, {
       end: END,
       retry: 'gapAnalysis',
+      override: 'tailorContent',
     });
 
   const graph = builder.compile({ checkpointer });
