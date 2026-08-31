@@ -1,5 +1,29 @@
-import { DATE_RANGE_REGEX, PAGE_BREAK_REGEX, trySplitHeaderLine } from './segmentResume.js';
+import {
+  DATE_RANGE_REGEX,
+  PAGE_BREAK_REGEX,
+  trySplitHeaderLine,
+  JOB_TITLE_KEYWORDS,
+  BULLET_REGEX,
+} from './segmentResume.js';
 import { classifySectionHeading, isSectionHeading } from './resumeSectionHeadings.js';
+
+// Contact-info lines (phone/email/URL) sit in the preamble alongside a possible
+// headerless summary — used to tell them apart so name/contact/tagline lines
+// never get swept into the implied-summary fallback below.
+const EMAIL_REGEX = /[^\s@]+@[^\s@]+\.[^\s@]+/;
+const PHONE_REGEX = /(\+?\d[\d\s().-]{7,}\d)/;
+const URL_REGEX = /(https?:\/\/|www\.)\S+|\b[a-z0-9-]+\.(com|io|dev|net|org|co|app|me|ai|uk)\b/i;
+
+function looksLikeContactLine(line) {
+  return EMAIL_REGEX.test(line) || PHONE_REGEX.test(line) || URL_REGEX.test(line);
+}
+
+// A short, punctuation-free job-title tagline (e.g. "Software Engineer" sitting
+// under the candidate's name) rather than a sentence of real summary prose.
+function looksLikeTaglineLine(line) {
+  const wordCount = line.trim().split(/\s+/).filter(Boolean).length;
+  return wordCount > 0 && wordCount <= 6 && !/[.!?]$/.test(line) && JOB_TITLE_KEYWORDS.test(line);
+}
 
 /**
  * Rule-based, deterministic extraction of the non-experience sections of a resume:
@@ -22,7 +46,19 @@ export function segmentResumeSections(rawText) {
   const skillsLines = [];
 
   let pendingEducation = null; // { degree, dateRange } awaiting an institution line
+  // A bare degree-name line seen with no date on it yet, awaiting the
+  // institution+location+date line that some resumes put on the *next* line
+  // instead of sharing the degree's own line.
+  let pendingDegreeName = null;
   let currentProject = null; // { name, description } being accumulated
+
+  // Some resumes never label their summary with a heading at all — the paragraph
+  // just sits under the name/contact/title block. sawAnyHeading gates a fallback
+  // that treats leftover preamble prose (once name/contact/tagline lines are
+  // excluded) as the summary, used only when no explicit SUMMARY-like heading is
+  // ever found (summaryLines stays empty in that case).
+  let sawAnyHeading = false;
+  const impliedSummaryLines = [];
 
   function flushProject() {
     if (currentProject) {
@@ -41,30 +77,68 @@ export function segmentResumeSections(rawText) {
       });
       pendingEducation = null;
     }
+    pendingDegreeName = null;
   }
 
-  for (const line of lines) {
+  lines.forEach((line, index) => {
+    if (!sawAnyHeading) {
+      if (isSectionHeading(line)) {
+        // fall through to the shared heading handling below
+      } else if (index === 0) {
+        // The first non-empty line of a real resume is the candidate's name —
+        // never summary prose, even if it happens to look prose-like.
+        return;
+      } else if (looksLikeContactLine(line) || looksLikeTaglineLine(line)) {
+        return;
+      } else if (BULLET_REGEX.test(line) || DATE_RANGE_REGEX.test(line)) {
+        // Experience content starting with no heading at all — stop treating
+        // anything further as part of the preamble.
+        sawAnyHeading = true;
+        return;
+      } else {
+        impliedSummaryLines.push(line);
+        return;
+      }
+    }
+
     if (isSectionHeading(line)) {
+      sawAnyHeading = true;
       flushProject();
       flushEducation();
       currentSection = classifySectionHeading(line);
-      continue;
+      return;
     }
 
     if (currentSection === 'summary') {
       summaryLines.push(line);
-      continue;
+      return;
     }
 
     if (currentSection === 'education') {
       const dateMatch = line.match(DATE_RANGE_REGEX);
       if (dateMatch) {
-        flushEducation(); // an unterminated prior entry — flush as-is before starting a new one
-        const degree = line
+        const beforeDate = line
           .slice(0, dateMatch.index)
           .replace(/[\s|,•\-–—]+$/, '')
           .trim();
-        pendingEducation = { degree, dateRange: dateMatch[0].trim() };
+        if (pendingDegreeName) {
+          // The degree name was already buffered from the previous (dateless)
+          // line — this line is institution + location sharing a line with
+          // the date instead (e.g. "University of Salford • Manchester,UK
+          // 09/2024 - 01/2026").
+          const split = trySplitHeaderLine(beforeDate);
+          education.push({
+            degree: pendingDegreeName,
+            dateRange: dateMatch[0].trim(),
+            institution: (split ? split.role : beforeDate).replace(/\s+/g, ' '),
+            location: (split ? split.company : '').replace(/\s+/g, ' '),
+          });
+          pendingDegreeName = null;
+        } else {
+          // Today's original layout: the degree name and date share this line.
+          flushEducation();
+          pendingEducation = { degree: beforeDate.replace(/\s+/g, ' '), dateRange: dateMatch[0].trim() };
+        }
       } else if (pendingEducation) {
         const split = trySplitHeaderLine(line);
         education.push({
@@ -74,9 +148,14 @@ export function segmentResumeSections(rawText) {
           location: split ? split.company : '',
         });
         pendingEducation = null;
+      } else if (!pendingDegreeName) {
+        // A dateless line with nothing pending yet — buffer it as a candidate
+        // degree name, in case the date turns up on the *next* line instead.
+        pendingDegreeName = line.replace(/\s+/g, ' ');
       }
-      // else: a stray line with no pending entry — ignored
-      continue;
+      // else: a second dateless line in a row with no date ever turning up —
+      // ambiguous, leave the first buffered line as-is and drop this one.
+      return;
     }
 
     if (currentSection === 'projects') {
@@ -91,7 +170,7 @@ export function segmentResumeSections(rawText) {
           ? `${currentProject.description} ${line}`
           : line;
       }
-      continue;
+      return;
     }
 
     if (currentSection === 'skills') {
@@ -99,7 +178,7 @@ export function segmentResumeSections(rawText) {
     }
     // currentSection === 'experience' or null (unrecognized heading) — ignored here,
     // WORK EXPERIENCE is handled by segmentResume() instead.
-  }
+  });
 
   flushProject();
   flushEducation();
@@ -111,7 +190,7 @@ export function segmentResumeSections(rawText) {
     .filter(Boolean);
 
   return {
-    summary: summaryLines.join(' ').trim(),
+    summary: summaryLines.length ? summaryLines.join(' ').trim() : impliedSummaryLines.join(' ').trim(),
     education,
     projects,
     skills,

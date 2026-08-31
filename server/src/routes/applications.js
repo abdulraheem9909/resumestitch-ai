@@ -474,7 +474,14 @@ router.patch('/:id/bullets/:bulletId', async (req, res) => {
     }
     await application.save();
 
-    return res.json({ application });
+    const activeTexts = application.tailoredBullets
+      .filter((b) => !b.rejected)
+      .map((b) => b.finalText);
+    const resume = await MasterResume.findById(application.masterResumeId).select('skills');
+    const effectiveSkills = application.tailoredSkills ?? resume?.skills ?? [];
+    const verifiedSkills = computeVerifiedSkills(effectiveSkills, activeTexts);
+
+    return res.json({ application, verifiedSkills });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to update tailored bullet.' });

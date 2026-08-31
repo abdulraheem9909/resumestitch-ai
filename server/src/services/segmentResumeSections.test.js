@@ -93,6 +93,61 @@ test('recognizes common heading wording variants', () => {
   assert.deepEqual(result.skills, ['Python', 'Go']);
 });
 
+test('falls back to the preamble paragraph as the summary when there is no SUMMARY-style heading at all', () => {
+  const rawText = [
+    'Abdul Raheem',
+    'Manchester, UK, England • +447700900123 • abdul.raheem@example.com •',
+    'linkedin.com/in/abdulraheem-dev • https://abdul-portfolio.vercel.app',
+    'Software Engineer',
+    'Software developer with 5+ years of experience in delivering impactful solutions and rapidly adapting to new',
+    'technologies. Passionate about building innovative, high-performance applications that drive efficiency and',
+    'enhance user experience.',
+    'WORK EXPERIENCE',
+    'Fullstack Engineer • Freelancer 09/2024 - Present',
+    '● Built things.',
+    'SKILLS',
+    'React, Node.js',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(
+    result.summary,
+    'Software developer with 5+ years of experience in delivering impactful solutions and rapidly adapting to new technologies. Passionate about building innovative, high-performance applications that drive efficiency and enhance user experience.'
+  );
+  assert.deepEqual(result.skills, ['React', 'Node.js']);
+});
+
+test('handles an education entry where the degree name has its own line and the date shares the institution/location line instead', () => {
+  const rawText = [
+    'SUMMARY',
+    'A short summary.',
+    'EDUCATION',
+    'Masters in Software Engineering',
+    'University of Salford • Manchester,UK 09/2024 - 01/2026',
+    'Bachelors  in Computer Science',
+    'University of Central Punjab • Pakistan 10/2015 - 05/2020',
+    'SKILLS',
+    'React',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.education.length, 2);
+  assert.deepEqual(result.education[0], {
+    degree: 'Masters in Software Engineering',
+    dateRange: '09/2024 - 01/2026',
+    institution: 'University of Salford',
+    location: 'Manchester,UK',
+  });
+  assert.deepEqual(result.education[1], {
+    degree: 'Bachelors in Computer Science',
+    dateRange: '10/2015 - 05/2020',
+    institution: 'University of Central Punjab',
+    location: 'Pakistan',
+  });
+});
+
 test('drops content under an unrecognized heading rather than mis-bucketing it', () => {
   const rawText = [
     'SUMMARY',

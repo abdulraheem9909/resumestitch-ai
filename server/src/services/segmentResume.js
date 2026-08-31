@@ -15,7 +15,7 @@ export const DATE_RANGE_REGEX = new RegExp(
 
 // •/● etc. cover the bullet glyphs actually seen from Word/LibreOffice PDF exports,
 // in addition to the plain '-' and '*' called out in the spec.
-const BULLET_REGEX = /^[•●\-*]\s+(.+)$/;
+export const BULLET_REGEX = /^[•●\-*]\s+(.+)$/;
 
 export const PAGE_BREAK_REGEX = /^--\s*\d+\s*of\s*\d+\s*--$/i;
 
@@ -24,7 +24,7 @@ const HEADER_SEPARATORS = [' at ', ' @ ', ' • ', ' — ', ' – ', ' - ', ' | 
 // Signals a job-title line rather than a company name — used to disambiguate role
 // vs. company when only one plain header line and one date-sharing line exist,
 // since which of the two is the role vs. the company is not fixed across resumes.
-const JOB_TITLE_KEYWORDS =
+export const JOB_TITLE_KEYWORDS =
   /\b(engineer|developer|designer|manager|architect|analyst|consultant|specialist|director|lead|officer|intern|associate|coordinator|administrator|scientist|researcher|freelancer)\b/i;
 
 const MAX_HEADER_BUFFER = 2;
