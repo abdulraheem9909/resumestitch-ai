@@ -2,28 +2,11 @@ import {
   DATE_RANGE_REGEX,
   PAGE_BREAK_REGEX,
   trySplitHeaderLine,
-  JOB_TITLE_KEYWORDS,
   BULLET_REGEX,
+  looksLikeContactLine,
+  looksLikeTaglineLine,
 } from './segmentResume.js';
 import { classifySectionHeading, isSectionHeading } from './resumeSectionHeadings.js';
-
-// Contact-info lines (phone/email/URL) sit in the preamble alongside a possible
-// headerless summary — used to tell them apart so name/contact/tagline lines
-// never get swept into the implied-summary fallback below.
-const EMAIL_REGEX = /[^\s@]+@[^\s@]+\.[^\s@]+/;
-const PHONE_REGEX = /(\+?\d[\d\s().-]{7,}\d)/;
-const URL_REGEX = /(https?:\/\/|www\.)\S+|\b[a-z0-9-]+\.(com|io|dev|net|org|co|app|me|ai|uk)\b/i;
-
-function looksLikeContactLine(line) {
-  return EMAIL_REGEX.test(line) || PHONE_REGEX.test(line) || URL_REGEX.test(line);
-}
-
-// A short, punctuation-free job-title tagline (e.g. "Software Engineer" sitting
-// under the candidate's name) rather than a sentence of real summary prose.
-function looksLikeTaglineLine(line) {
-  const wordCount = line.trim().split(/\s+/).filter(Boolean).length;
-  return wordCount > 0 && wordCount <= 6 && !/[.!?]$/.test(line) && JOB_TITLE_KEYWORDS.test(line);
-}
 
 /**
  * Rule-based, deterministic extraction of the non-experience sections of a resume:

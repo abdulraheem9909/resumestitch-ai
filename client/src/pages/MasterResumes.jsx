@@ -36,6 +36,7 @@ export default function MasterResumes() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [file, setFile] = useState(null);
+  const [parsingFile, setParsingFile] = useState(false);
   const [formLabel, setFormLabel] = useState("");
   const [personalInfo, setPersonalInfo] = useState(EMPTY_PERSONAL_INFO);
 
@@ -70,6 +71,39 @@ export default function MasterResumes() {
 
   function updatePersonalInfoField(field) {
     return (event) => setPersonalInfo((prev) => ({ ...prev, [field]: event.target.value }));
+  }
+
+  // Prefill-only — pulls personalInfo + a suggested label out of the file the
+  // moment it's picked, so the fields below start populated instead of blank.
+  // Never overwrites anything already typed, and nothing is saved until the
+  // user reviews the fields and clicks Upload.
+  async function handleFileChange(event) {
+    const selected = event.target.files?.[0] ?? null;
+    setFile(selected);
+    if (!selected) return;
+
+    setParsingFile(true);
+    setUploadError("");
+    try {
+      const body = new FormData();
+      body.append("file", selected);
+      const res = await fetch(`${RESUMES_API}/parse-preview`, { method: "POST", body });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't read this file.");
+
+      setFormLabel((prev) => (prev.trim() ? prev : data.suggestedLabel || ""));
+      setPersonalInfo((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(EMPTY_PERSONAL_INFO)) {
+          if (!next[key]?.trim() && data.personalInfo?.[key]) next[key] = data.personalInfo[key];
+        }
+        return next;
+      });
+    } catch (err) {
+      setUploadError(err.message);
+    } finally {
+      setParsingFile(false);
+    }
   }
 
   async function uploadResume() {
@@ -270,9 +304,10 @@ export default function MasterResumes() {
               id="resume-file"
               type="file"
               accept=".pdf,.docx"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              onChange={handleFileChange}
               className="text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-secondary-foreground"
             />
+            {parsingFile && <p className="text-xs text-muted-foreground">Reading file to pre-fill the fields below…</p>}
           </div>
 
           <div className="flex flex-col gap-1.5">
@@ -319,7 +354,7 @@ export default function MasterResumes() {
           <DialogFooter>
             <Button
               onClick={uploadResume}
-              disabled={uploading || !file || !formLabel.trim() || !personalInfo.fullName.trim()}
+              disabled={uploading || parsingFile || !file || !formLabel.trim() || !personalInfo.fullName.trim()}
             >
               {uploading ? "Uploading…" : "Upload"}
             </Button>

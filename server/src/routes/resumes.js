@@ -4,6 +4,7 @@ import multer from "multer";
 import { extractResumeText } from "../services/extractResumeText.js";
 import { segmentResume } from "../services/segmentResume.js";
 import { segmentResumeSections } from "../services/segmentResumeSections.js";
+import { extractContactInfo } from "../services/extractContactInfo.js";
 import { tagBullet } from "../services/tagBullet.js";
 import { canonicalizeSkill } from "../services/canonicalizeSkill.js";
 import { computeVerifiedSkills } from "../services/verifiedSkills.js";
@@ -34,6 +35,34 @@ router.post("/extract-text", upload.single("file"), async (req, res) => {
     return res.json({ text: segmentResume(bulletedText) });
   } catch (err) {
     return res.status(500).json({ error: "Failed to extract text from file." });
+  }
+});
+
+// Prefill-only: deterministically pulls personalInfo + a suggested label out of
+// the file so the upload form can pre-populate its fields. Nothing is saved
+// here — the user still reviews/edits before the real POST / creates anything.
+router.post("/parse-preview", upload.single("file"), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: "No file uploaded." });
+  }
+
+  try {
+    const bulletedText = await extractResumeText(req.file);
+    if (bulletedText === null) {
+      return res.status(400).json({
+        error: "Unsupported file type. Only .docx and .pdf are accepted.",
+      });
+    }
+
+    const personalInfo = extractContactInfo(bulletedText);
+    const suggestedLabel =
+      [personalInfo.fullName, personalInfo.title].filter(Boolean).join(" — ") ||
+      req.file.originalname.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+
+    return res.json({ personalInfo, suggestedLabel });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to parse file for prefill." });
   }
 });
 
