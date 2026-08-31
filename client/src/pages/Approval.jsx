@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { Download, Pencil, Trash2, X } from "lucide-react";
 import { APPLICATIONS_API as API_BASE, RESUMES_API } from "../lib/api.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
+import { Spinner } from "../components/Spinner.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -795,7 +796,13 @@ export default function Approval() {
                   ATS score &amp; recruiter feedback
                 </p>
                 <Button size="sm" variant="outline" onClick={runRecheck} disabled={busy}>
-                  {rechecking ? "Re-checking…" : "Re-check edited text"}
+                  {rechecking ? (
+                    <>
+                      <Spinner className="size-4" /> Re-checking…
+                    </>
+                  ) : (
+                    "Re-check edited text"
+                  )}
                 </Button>
               </div>
               <p className="mb-3 text-sm text-muted-foreground">
@@ -943,8 +950,19 @@ export default function Approval() {
                     onClick={() => acceptSuggestedSkill(activeSuggestSkill)}
                     disabled={addingSkill || !suggestBulletText.trim()}
                   >
-                    {addingSkill ? "Adding…" : "Add & retry"}
+                    {addingSkill ? (
+                      <>
+                        <Spinner className="size-4" /> Adding…
+                      </>
+                    ) : (
+                      "Add & retry"
+                    )}
                   </Button>
+                  {addingSkill && (
+                    <p className="text-xs text-muted-foreground">
+                      Re-analyzing skill gaps and re-tailoring — this can take up to a minute…
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -988,12 +1006,23 @@ export default function Approval() {
                   onClick={sendBackWithNotes}
                   disabled={busy || !retryNotes.trim()}
                 >
-                  {sendingRetry ? "Sending…" : "Send back with notes"}
+                  {sendingRetry ? (
+                    <>
+                      <Spinner className="size-4" /> Sending…
+                    </>
+                  ) : (
+                    "Send back with notes"
+                  )}
                 </Button>
                 <Button onClick={approve} disabled={busy}>
                   {approving ? "Approving…" : "Approve"}
                 </Button>
               </div>
+              {sendingRetry && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Re-tailoring and re-scoring against your notes — this can take up to a minute…
+                </p>
+              )}
             </div>
           )}
         </>

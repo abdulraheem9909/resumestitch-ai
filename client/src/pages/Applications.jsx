@@ -7,11 +7,15 @@ import {
   ChevronsUpDown,
   Download,
   FileText,
+  Inbox,
   Plus,
   Search,
+  SearchX,
   Trash2,
 } from "lucide-react";
 import { APPLICATIONS_API } from "../lib/api.js";
+import { EmptyState } from "../components/EmptyState.jsx";
+import { LoadingState } from "../components/LoadingState.jsx";
 import { cn } from "@/lib/utils.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -204,6 +208,13 @@ export default function Applications() {
   const hasActiveFilters =
     search.trim() || statusFilter !== "all" || atsFilter !== "all" || coverLetterFilter !== "all";
 
+  function clearFilters() {
+    setSearch("");
+    setStatusFilter("all");
+    setAtsFilter("all");
+    setCoverLetterFilter("all");
+  }
+
   return (
     <section className="mx-auto w-full max-w-5xl">
       <div className="sticky top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
@@ -280,16 +291,32 @@ export default function Applications() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {loading && <p className="py-4 text-sm text-muted-foreground">Loading your applications…</p>}
+      {loading && <LoadingState message="Loading your applications…" />}
 
       {!loading && applications.length === 0 && !error && (
-        <p className="py-4 text-sm text-muted-foreground">No applications yet.</p>
+        <EmptyState
+          icon={Inbox}
+          title="No applications yet"
+          description="Start your first application to tailor a resume against a job description."
+          action={
+            <Button size="sm" onClick={() => navigate("/apply")}>
+              <Plus className="size-4" /> Start application
+            </Button>
+          }
+        />
       )}
 
       {!loading && applications.length > 0 && sortedApplications.length === 0 && (
-        <p className="py-4 text-sm text-muted-foreground">
-          {hasActiveFilters ? "No applications match your search or filters." : "No applications yet."}
-        </p>
+        <EmptyState
+          icon={SearchX}
+          title="No applications match your filters"
+          description="Try adjusting or clearing your search and filters."
+          action={
+            <Button size="sm" variant="outline" onClick={clearFilters}>
+              Clear filters
+            </Button>
+          }
+        />
       )}
 
       {!loading && sortedApplications.length > 0 && (

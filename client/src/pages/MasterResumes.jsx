@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Pencil, Plus, Trash2, X } from "lucide-react";
+import { FileText, Pencil, Plus, Trash2, X } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
+import { EmptyState } from "../components/EmptyState.jsx";
+import { LoadingState } from "../components/LoadingState.jsx";
+import { Spinner } from "../components/Spinner.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -226,10 +229,19 @@ export default function MasterResumes() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {loading && <p className="py-4 text-sm text-muted-foreground">Loading your resumes…</p>}
+      {loading && <LoadingState message="Loading your resumes…" />}
 
       {!loading && masterResumes.length === 0 && !error && (
-        <p className="py-4 text-sm text-muted-foreground">You haven't uploaded a resume yet.</p>
+        <EmptyState
+          icon={FileText}
+          title="No resumes yet"
+          description="Upload a resume to start tailoring applications against it."
+          action={
+            <Button size="sm" onClick={() => setIsUploadOpen(true)}>
+              <Plus className="size-4" /> Upload resume
+            </Button>
+          }
+        />
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 mt-1">
@@ -351,12 +363,22 @@ export default function MasterResumes() {
             </div>
           </div>
 
+          {uploading && (
+            <p className="text-xs text-muted-foreground">Extracting bullets and tagging skills — this can take a moment…</p>
+          )}
+
           <DialogFooter>
             <Button
               onClick={uploadResume}
               disabled={uploading || parsingFile || !file || !formLabel.trim() || !personalInfo.fullName.trim()}
             >
-              {uploading ? "Uploading…" : "Upload"}
+              {uploading ? (
+                <>
+                  <Spinner className="size-4" /> Uploading…
+                </>
+              ) : (
+                "Upload"
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

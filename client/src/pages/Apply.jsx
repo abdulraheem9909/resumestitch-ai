@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { APPLICATIONS_API, RESUMES_API } from "../lib/api.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
+import { LoadingState } from "../components/LoadingState.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -100,6 +101,14 @@ export default function Apply() {
         </Alert>
       )}
 
+      {submitting && (
+        <LoadingState
+          message="Tailoring your resume against this job description. This can take up to a minute."
+          steps={["Checking role fit", "Selecting relevant bullets", "Verifying every claim", "Scoring against the JD"]}
+        />
+      )}
+
+      {!submitting && (
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="apply-resume">Resume</Label>
@@ -185,9 +194,10 @@ export default function Apply() {
             !jdText.trim()
           }
         >
-          {submitting ? "Tailoring…" : "Start tailoring"}
+          Start tailoring
         </Button>
       </div>
+      )}
     </section>
   );
 }
