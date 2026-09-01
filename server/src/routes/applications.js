@@ -162,6 +162,12 @@ router.get('/', async (req, res) => {
   }
 });
 
+// A real job posting is a few KB at most. This exists to fail fast with a
+// clear message instead of letting an absurdly large paste reach the JD-
+// keyword-extraction LLM call, where it can blow past the provider's
+// per-minute token limit and throw from deep inside the graph.
+const MAX_JD_LENGTH = 20000;
+
 // Section 3 — create + start.
 router.post('/', async (req, res) => {
   const { masterResumeId, jdText, companyName, jobTitle, referenceUrl, coverLetterRequested } = req.body;
@@ -171,6 +177,9 @@ router.post('/', async (req, res) => {
   }
   if (typeof jdText !== 'string' || !jdText.trim()) {
     return res.status(400).json({ error: 'jdText is required.' });
+  }
+  if (jdText.length > MAX_JD_LENGTH) {
+    return res.status(400).json({ error: `jdText is too long (max ${MAX_JD_LENGTH} characters).` });
   }
   if (typeof companyName !== 'string' || !companyName.trim()) {
     return res.status(400).json({ error: 'companyName is required.' });
@@ -225,43 +234,57 @@ router.post('/', async (req, res) => {
     const applicationId = application._id.toString();
     const graph = getJobAgentGraph();
 
-    await graph.invoke(
-      {
-        applicationId,
-        masterResumeId,
-        companyName: companyName.trim(),
-        jdText,
-        resumeSummary: resume.summary,
-        resumeTitle: resume.personalInfo?.title,
-        resumeCanonicalSkills,
-        resumeBullets: resumeBulletsForGraph,
-        projectCanonicalSkills,
-        coverLetterRequested: Boolean(coverLetterRequested),
-      },
-      { configurable: { thread_id: applicationId }, recursionLimit: GRAPH_RECURSION_LIMIT }
-    );
+    // Everything from here on can throw mid-flight (an LLM provider rate
+    // limit or outage, a graph error) after the application row above already
+    // exists. Without this guard a thrown error left that row stranded at
+    // status 'in_progress' forever — invisible in the UI, no error recorded,
+    // no way to retry. On any failure past this point, undo the create
+    // instead of leaving a row nothing can ever resolve.
+    try {
+      await graph.invoke(
+        {
+          applicationId,
+          masterResumeId,
+          companyName: companyName.trim(),
+          jdText,
+          resumeSummary: resume.summary,
+          resumeTitle: resume.personalInfo?.title,
+          resumeCanonicalSkills,
+          resumeBullets: resumeBulletsForGraph,
+          projectCanonicalSkills,
+          coverLetterRequested: Boolean(coverLetterRequested),
+        },
+        { configurable: { thread_id: applicationId }, recursionLimit: GRAPH_RECURSION_LIMIT }
+      );
 
-    const snapshot = await graph.getState({ configurable: { thread_id: applicationId } });
-    const state = snapshot.values;
+      const snapshot = await graph.getState({ configurable: { thread_id: applicationId } });
+      const state = snapshot.values;
 
-    application.jdKeywords = state.jdKeywords;
-    application.jdCanonicalSkills = state.jdCanonicalSkills;
-    application.keywordGaps = state.keywordGaps;
+      application.jdKeywords = state.jdKeywords;
+      application.jdCanonicalSkills = state.jdCanonicalSkills;
+      application.keywordGaps = state.keywordGaps;
 
-    if (state.roleFit?.fit === 'low') {
-      application.status = 'role_mismatch';
-    } else {
-      application.status = 'pending_approval';
-      application.tailoredBullets = state.tailoredBullets;
-      application.tailoredSummary = state.tailoredSummary;
-      application.coverLetterText = state.coverLetterText;
-      application.atsScore = state.atsScore;
-      application.atsFlags = state.atsFlags;
-      application.recruiterFeedback = state.recruiterFeedback;
-      application.retryCount = state.retryCount ?? 0;
+      if (state.roleFit?.fit === 'low') {
+        application.status = 'role_mismatch';
+      } else {
+        application.status = 'pending_approval';
+        application.tailoredBullets = state.tailoredBullets;
+        application.tailoredSummary = state.tailoredSummary;
+        application.coverLetterText = state.coverLetterText;
+        application.atsScore = state.atsScore;
+        application.atsFlags = state.atsFlags;
+        application.recruiterFeedback = state.recruiterFeedback;
+        application.retryCount = state.retryCount ?? 0;
+      }
+
+      await application.save();
+    } catch (err) {
+      await Application.deleteOne({ _id: applicationId });
+      const checkpointer = getCheckpointer();
+      await checkpointer.deleteThread(applicationId);
+      await GenerationCache.deleteMany({ applicationId });
+      throw err;
     }
-
-    await application.save();
 
     return res.status(201).json({ application });
   } catch (err) {
