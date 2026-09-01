@@ -310,7 +310,7 @@ router.post("/:id/bullets", async (req, res) => {
     return res.status(400).json({ error: "Invalid resume id." });
   }
 
-  const { text } = req.body;
+  const { text, role, company, dateRange } = req.body;
   if (typeof text !== "string" || !text.trim()) {
     return res.status(400).json({ error: "text is required." });
   }
@@ -324,12 +324,19 @@ router.post("/:id/bullets", async (req, res) => {
     const { skills, metrics } = await tagBullet(text);
     const canonicalSkills = skills.map(canonicalizeSkill);
 
+    // Same optional employer-context fields already supported when a bullet
+    // is added via suggest-missing-skills (applications.js) — a bullet added
+    // here with no company set just won't count toward node 5's per-employer
+    // coverage guarantee, same as any other company-less bullet.
     const resumeBullet = await ResumeBullet.create({
       masterResumeId: id,
       text,
       skills,
       canonicalSkills,
       metrics,
+      role: typeof role === "string" && role.trim() ? role.trim() : undefined,
+      company: typeof company === "string" && company.trim() ? company.trim() : undefined,
+      dateRange: typeof dateRange === "string" && dateRange.trim() ? dateRange.trim() : undefined,
     });
 
     return res.status(201).json({ resumeBullet });

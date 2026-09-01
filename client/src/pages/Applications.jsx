@@ -13,7 +13,7 @@ import {
   SearchX,
   Trash2,
 } from "lucide-react";
-import { APPLICATIONS_API } from "../lib/api.js";
+import { APPLICATIONS_API, RESUMES_API } from "../lib/api.js";
 import { EmptyState } from "../components/EmptyState.jsx";
 import { LoadingState } from "../components/LoadingState.jsx";
 import { cn } from "@/lib/utils.js";
@@ -114,6 +114,7 @@ function currentAtsScore(application) {
 
 export default function Applications() {
   const [applications, setApplications] = useState([]);
+  const [masterResumes, setMasterResumes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sort, setSort] = useState({ key: "updatedAt", direction: "desc" });
@@ -121,6 +122,7 @@ export default function Applications() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [atsFilter, setAtsFilter] = useState("all");
   const [coverLetterFilter, setCoverLetterFilter] = useState("all");
+  const [resumeFilter, setResumeFilter] = useState("all");
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -133,10 +135,17 @@ export default function Applications() {
       setLoading(true);
       setError("");
       try {
-        const res = await fetch(APPLICATIONS_API);
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Couldn't load your applications.");
+        const [applicationsRes, resumesRes] = await Promise.all([
+          fetch(APPLICATIONS_API),
+          fetch(RESUMES_API),
+        ]);
+        const data = await applicationsRes.json();
+        if (!applicationsRes.ok) throw new Error(data.error || "Couldn't load your applications.");
+        const resumesData = await resumesRes.json();
         setApplications(data.applications);
+        // Non-fatal if this one fails — the resume filter just won't have
+        // labels to offer, everything else on the page still works.
+        if (resumesRes.ok) setMasterResumes(resumesData.masterResumes || []);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -163,9 +172,10 @@ export default function Applications() {
       if (atsFilter !== "all" && scoreTier(currentAtsScore(application)) !== atsFilter) return false;
       if (coverLetterFilter === "yes" && !application.coverLetterRequested) return false;
       if (coverLetterFilter === "no" && application.coverLetterRequested) return false;
+      if (resumeFilter !== "all" && application.masterResumeId !== resumeFilter) return false;
       return true;
     });
-  }, [applications, search, statusFilter, atsFilter, coverLetterFilter]);
+  }, [applications, search, statusFilter, atsFilter, coverLetterFilter, resumeFilter]);
 
   const sortedApplications = useMemo(() => {
     const factor = sort.direction === "asc" ? 1 : -1;
@@ -206,13 +216,18 @@ export default function Applications() {
   }
 
   const hasActiveFilters =
-    search.trim() || statusFilter !== "all" || atsFilter !== "all" || coverLetterFilter !== "all";
+    search.trim() ||
+    statusFilter !== "all" ||
+    atsFilter !== "all" ||
+    coverLetterFilter !== "all" ||
+    resumeFilter !== "all";
 
   function clearFilters() {
     setSearch("");
     setStatusFilter("all");
     setAtsFilter("all");
     setCoverLetterFilter("all");
+    setResumeFilter("all");
   }
 
   return (
@@ -241,52 +256,69 @@ export default function Applications() {
           status, and the score it landed. Click a row to pick up right where you left off.
         </p>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              id="applications-search"
-              name="applications-search"
-              aria-label="Search applications by company or job title"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by company or job title…"
-              className="pl-9"
-            />
+        {applications.length > 0 && (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                id="applications-search"
+                name="applications-search"
+                aria-label="Search applications by company or job title"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by company or job title…"
+                className="pl-9"
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full sm:w-40">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="approved">Approved</SelectItem>
+                <SelectItem value="pending_approval">In review</SelectItem>
+                <SelectItem value="role_mismatch">Role mismatch</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={atsFilter} onValueChange={setAtsFilter}>
+              <SelectTrigger className="w-full sm:w-44">
+                <SelectValue placeholder="ATS score" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All scores</SelectItem>
+                <SelectItem value="strong">Strong (≥70)</SelectItem>
+                <SelectItem value="weak">Weak (&lt;70)</SelectItem>
+                <SelectItem value="unknown">Unscored</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={coverLetterFilter} onValueChange={setCoverLetterFilter}>
+              <SelectTrigger className="w-full sm:w-52">
+                <SelectValue placeholder="Cover letter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">With or without cover letter</SelectItem>
+                <SelectItem value="yes">With cover letter</SelectItem>
+                <SelectItem value="no">Without cover letter</SelectItem>
+              </SelectContent>
+            </Select>
+            {masterResumes.length > 1 && (
+              <Select value={resumeFilter} onValueChange={setResumeFilter}>
+                <SelectTrigger className="w-full sm:w-48">
+                  <SelectValue placeholder="Resume" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All resumes</SelectItem>
+                  {masterResumes.map((resume) => (
+                    <SelectItem key={resume._id} value={resume._id}>
+                      {resume.personalInfo?.fullName || resume.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-40">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="approved">Approved</SelectItem>
-              <SelectItem value="pending_approval">In review</SelectItem>
-              <SelectItem value="role_mismatch">Role mismatch</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={atsFilter} onValueChange={setAtsFilter}>
-            <SelectTrigger className="w-full sm:w-44">
-              <SelectValue placeholder="ATS score" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All scores</SelectItem>
-              <SelectItem value="strong">Strong (≥70)</SelectItem>
-              <SelectItem value="weak">Weak (&lt;70)</SelectItem>
-              <SelectItem value="unknown">Unscored</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={coverLetterFilter} onValueChange={setCoverLetterFilter}>
-            <SelectTrigger className="w-full sm:w-52">
-              <SelectValue placeholder="Cover letter" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">With or without cover letter</SelectItem>
-              <SelectItem value="yes">With cover letter</SelectItem>
-              <SelectItem value="no">Without cover letter</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        )}
       </div>
 
       {error && (

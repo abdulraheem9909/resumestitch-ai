@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ListChecks } from "lucide-react";
+import { ListChecks, X } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 function groupBulletsByRole(bullets) {
   const groups = [];
@@ -34,6 +35,8 @@ export default function ResumeDetail() {
   const [bullets, setBullets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [skillInput, setSkillInput] = useState("");
+  const [savingSkills, setSavingSkills] = useState(false);
 
   useEffect(() => {
     async function loadResume() {
@@ -60,6 +63,48 @@ export default function ResumeDetail() {
     }
     loadResume();
   }, [id]);
+
+  // Permanent edit — same PATCH /:id/profile endpoint the Resumes list page's
+  // edit dialog already uses, but applied live per chip instead of batched
+  // behind a Save button, matching the Approval page's skill-editing UX.
+  // That endpoint doesn't return verifiedSkills, so re-fetch the resume
+  // detail afterward to get a fresh solid/outline read on the updated list.
+  async function updateSkills(nextSkills) {
+    setSavingSkills(true);
+    setError("");
+    try {
+      const res = await fetch(`${RESUMES_API}/${id}/profile`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skills: nextSkills }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't update skills.");
+      setResume(data.masterResume);
+
+      const refreshed = await fetch(`${RESUMES_API}/${id}`);
+      const refreshedData = await refreshed.json();
+      if (refreshed.ok) setVerifiedSkills(refreshedData.verifiedSkills || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingSkills(false);
+    }
+  }
+
+  function addSkill() {
+    const value = skillInput.trim();
+    if (!value || (resume?.skills || []).includes(value)) {
+      setSkillInput("");
+      return;
+    }
+    updateSkills([...(resume?.skills || []), value]);
+    setSkillInput("");
+  }
+
+  function removeSkill(skill) {
+    updateSkills((resume?.skills || []).filter((existing) => existing !== skill));
+  }
 
   const contactLine = resume
     ? [resume.personalInfo?.location, resume.personalInfo?.phone, resume.personalInfo?.email, resume.personalInfo?.linkedin, resume.personalInfo?.portfolio]
@@ -172,24 +217,47 @@ export default function ResumeDetail() {
             </div>
           )}
 
-          {resume.skills?.length > 0 && (
-            <div className="rounded-lg border border-border bg-card p-5 shadow-card">
-              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Skills</p>
-              <div className="flex flex-wrap gap-1.5">
-                {resume.skills.map((skill) =>
-                  verifiedSkills.includes(skill) ? (
-                    <Badge key={skill} variant="default">
-                      {skill}
-                    </Badge>
-                  ) : (
-                    <Badge key={skill} variant="outline">
-                      {skill}
-                    </Badge>
-                  )
-                )}
-              </div>
+          <div className="rounded-lg border border-border bg-card p-5 shadow-card">
+            <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Skills</p>
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {(resume.skills || []).length === 0 ? (
+                <span className="text-sm text-muted-foreground">No skills listed.</span>
+              ) : (
+                resume.skills.map((skill) => (
+                  <Badge key={skill} variant={verifiedSkills.includes(skill) ? "default" : "outline"} className="gap-1 pr-1">
+                    {skill}
+                    <button
+                      type="button"
+                      onClick={() => removeSkill(skill)}
+                      disabled={savingSkills}
+                      className="rounded-full p-0.5 hover:bg-black/10 dark:hover:bg-white/10"
+                      aria-label={`Remove ${skill}`}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </Badge>
+                ))
+              )}
             </div>
-          )}
+            <div className="flex gap-2">
+              <Input
+                value={skillInput}
+                onChange={(event) => setSkillInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    addSkill();
+                  }
+                }}
+                placeholder="Add a skill…"
+                className="max-w-xs"
+                disabled={savingSkills}
+              />
+              <Button size="sm" variant="outline" onClick={addSkill} disabled={savingSkills || !skillInput.trim()}>
+                Add
+              </Button>
+            </div>
+          </div>
         </>
       )}
     </section>

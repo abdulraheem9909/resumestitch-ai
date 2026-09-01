@@ -154,3 +154,65 @@ test('does not mistake an EDUCATION entry\'s own date range for a new job header
   // The EDUCATION block must not produce a phantom extra "job" or corrupt the real one.
   assert.deepEqual(bulletsWith, bulletsWithout);
 });
+
+test('joins a wrapped bullet whose continuation starts with a capitalized proper noun and precedes the next job header', () => {
+  // Real-world repro: the continuation line ("OpenAI GPT-4, ...") starts
+  // uppercase (so the lowercase-continuation heuristic can't catch it) and
+  // the very next job's real header sits only two lines later — both signals
+  // a naive lookahead would misread as "a new header is starting here".
+  const rawText = [
+    'Software Engineer',
+    'Company X',
+    'Jan 2023 – Present',
+    '• Built a legal assistant using RAG technology (Next.js,',
+    'OpenAI GPT-4, LangChain, Pinecone), deployed on AWS.',
+    'Software Engineer',
+    'Company Y',
+    'Feb 2024 – Present',
+    '• Improved UI responsiveness by 30%.',
+  ].join('\n');
+
+  const bullets = segmentResume(rawText);
+
+  assert.equal(bullets.length, 2);
+  assert.equal(
+    bullets[0].text,
+    'Built a legal assistant using RAG technology (Next.js, OpenAI GPT-4, LangChain, Pinecone), deployed on AWS.'
+  );
+  assert.equal(bullets[0].company, 'Company X');
+  assert.equal(bullets[1].company, 'Company Y');
+  assert.equal(bullets[1].text, 'Improved UI responsiveness by 30%.');
+});
+
+test('joins a hyphenated compound word split across the line wrap without inserting a stray space', () => {
+  const rawText = [
+    'Software Engineer',
+    'Company A',
+    'Jan 2023 – Present',
+    '• Mentored 5 junior developers, fostering a culture of cross-',
+    'functional collaboration.',
+    '• Reduced bug reports by 50% post-',
+    'launch.',
+  ].join('\n');
+
+  const bullets = segmentResume(rawText);
+
+  assert.equal(bullets.length, 2);
+  assert.equal(bullets[0].text, 'Mentored 5 junior developers, fostering a culture of cross-functional collaboration.');
+  assert.equal(bullets[1].text, 'Reduced bug reports by 50% post-launch.');
+});
+
+test('a bullet ending mid-sentence with a trailing comma (no parenthesis) still joins its capitalized continuation', () => {
+  const rawText = [
+    'Software Engineer',
+    'Company A',
+    'Jan 2023 – Present',
+    '• Built tools using React, Node.js,',
+    'TypeScript, and GraphQL.',
+  ].join('\n');
+
+  const bullets = segmentResume(rawText);
+
+  assert.equal(bullets.length, 1);
+  assert.equal(bullets[0].text, 'Built tools using React, Node.js, TypeScript, and GraphQL.');
+});

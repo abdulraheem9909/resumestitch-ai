@@ -50,3 +50,45 @@ test('styleLinting still applies the hard cliché pass to a non-rejected bullet'
 
   assert.equal(result.tailoredBullets[0].finalText, 'We use modern tools to ship features.');
 });
+
+test('styleLinting leaves a human-edited bullet byte-for-byte unchanged even when it contains a hard cliché word', async () => {
+  const tailoredBullets = [
+    {
+      bulletId: 'b1',
+      finalText: 'Utilized a deterministic caching layer to cut latency.',
+      rejected: false,
+      editSource: 'human',
+    },
+  ];
+
+  const result = await styleLinting({
+    tailoredBullets,
+    tailoredSummary: { finalText: 'A short, clean summary.' },
+    coverLetterText: null,
+  });
+
+  assert.equal(
+    result.tailoredBullets[0].finalText,
+    'Utilized a deterministic caching layer to cut latency.',
+    'a human-edited bullet must survive a retry unchanged, even if it contains a word the linter would otherwise rewrite'
+  );
+});
+
+test('styleLinting leaves a human-edited summary byte-for-byte unchanged even when it contains an em dash that would trigger escalation', async () => {
+  const tailoredSummary = {
+    finalText: 'Backend engineer — deep experience with distributed systems.',
+    editSource: 'human',
+  };
+
+  const result = await styleLinting({
+    tailoredBullets: [],
+    tailoredSummary,
+    coverLetterText: null,
+  });
+
+  assert.equal(
+    result.tailoredSummary.finalText,
+    'Backend engineer — deep experience with distributed systems.',
+    'a human-edited summary must survive a retry unchanged, even if it contains an escalation trigger'
+  );
+});

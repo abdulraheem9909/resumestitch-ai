@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { RESUMES_API as API_BASE } from "../lib/api.js";
@@ -6,6 +6,7 @@ import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -14,7 +15,31 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+
+const NEW_EMPLOYER_KEY = "__new__";
+
+// <input type="month"> gives "YYYY-MM" — every date range already on this
+// resume (parsed from an upload, or another manually-added bullet) uses
+// "MM/YYYY", so convert to match rather than introduce a second format that
+// would never group with anything.
+function formatMonthYear(value) {
+  if (!value) return "";
+  const [year, month] = value.split("-");
+  if (!year || !month) return "";
+  return `${month}/${year}`;
+}
+
+function buildDateRange(startMonth, endMonth, isCurrent) {
+  const start = formatMonthYear(startMonth);
+  if (!start) return "";
+  if (isCurrent) return `${start} - Present`;
+  const end = formatMonthYear(endMonth);
+  return end ? `${start} - ${end}` : start;
+}
 
 export default function ResumeBullets() {
   const { id } = useParams();
@@ -29,8 +54,29 @@ export default function ResumeBullets() {
   const [savingId, setSavingId] = useState(null);
 
   const [newBulletText, setNewBulletText] = useState("");
+  const [newBulletCompany, setNewBulletCompany] = useState("");
+  const [newBulletRole, setNewBulletRole] = useState("");
+  const [newBulletStartMonth, setNewBulletStartMonth] = useState("");
+  const [newBulletEndMonth, setNewBulletEndMonth] = useState("");
+  const [newBulletCurrent, setNewBulletCurrent] = useState(false);
+  const [selectedEmployerKey, setSelectedEmployerKey] = useState(NEW_EMPLOYER_KEY);
   const [addingBullet, setAddingBullet] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
+
+  // Every distinct employer already on this resume, so adding another bullet
+  // to one of them means picking it rather than retyping company/role/date
+  // range by hand — a typo here would silently read as a different employer.
+  const employerOptions = useMemo(() => {
+    const seen = new Map();
+    for (const bullet of bullets) {
+      if (!bullet.company) continue;
+      const key = `${bullet.company}|${bullet.role || ""}|${bullet.dateRange || ""}`;
+      if (!seen.has(key)) {
+        seen.set(key, { key, role: bullet.role || "", company: bullet.company, dateRange: bullet.dateRange || "" });
+      }
+    }
+    return [...seen.values()];
+  }, [bullets]);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -104,8 +150,27 @@ export default function ResumeBullets() {
     }
   }
 
+  function resetAddForm() {
+    setNewBulletText("");
+    setNewBulletCompany("");
+    setNewBulletRole("");
+    setNewBulletStartMonth("");
+    setNewBulletEndMonth("");
+    setNewBulletCurrent(false);
+    setSelectedEmployerKey(NEW_EMPLOYER_KEY);
+  }
+
   async function addBullet() {
     if (!newBulletText.trim()) return;
+
+    const existingEmployer = employerOptions.find((option) => option.key === selectedEmployerKey);
+    const employerFields = existingEmployer
+      ? { company: existingEmployer.company, role: existingEmployer.role, dateRange: existingEmployer.dateRange }
+      : {
+          company: newBulletCompany,
+          role: newBulletRole,
+          dateRange: buildDateRange(newBulletStartMonth, newBulletEndMonth, newBulletCurrent),
+        };
 
     setAddingBullet(true);
     setError("");
@@ -113,13 +178,13 @@ export default function ResumeBullets() {
       const res = await fetch(`${API_BASE}/${id}/bullets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: newBulletText }),
+        body: JSON.stringify({ text: newBulletText, ...employerFields }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't add this bullet.");
 
       setBullets((prev) => [...prev, data.resumeBullet]);
-      setNewBulletText("");
+      resetAddForm();
       setIsAddOpen(false);
     } catch (err) {
       setError(err.message);
@@ -281,6 +346,85 @@ export default function ResumeBullets() {
             placeholder="Paste or write a new bullet…"
             autoFocus
           />
+
+          {employerOptions.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <Label>Job</Label>
+              <Select value={selectedEmployerKey} onValueChange={setSelectedEmployerKey}>
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NEW_EMPLOYER_KEY}>+ Add a new company</SelectItem>
+                  {employerOptions.map((option) => (
+                    <SelectItem key={option.key} value={option.key}>
+                      {`${[option.company, option.role].filter(Boolean).join(" — ")}${
+                        option.dateRange ? ` (${option.dateRange})` : ""
+                      }`}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          {selectedEmployerKey === NEW_EMPLOYER_KEY && (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 flex flex-col gap-1.5">
+                <Label htmlFor="new-bullet-company">Company (optional)</Label>
+                <Input
+                  id="new-bullet-company"
+                  value={newBulletCompany}
+                  onChange={(event) => setNewBulletCompany(event.target.value)}
+                  placeholder="e.g. Acme Inc."
+                />
+              </div>
+              <div className="col-span-2 flex flex-col gap-1.5">
+                <Label htmlFor="new-bullet-role">Role (optional)</Label>
+                <Input
+                  id="new-bullet-role"
+                  value={newBulletRole}
+                  onChange={(event) => setNewBulletRole(event.target.value)}
+                  placeholder="e.g. Software Engineer"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="new-bullet-start">Start (optional)</Label>
+                <Input
+                  id="new-bullet-start"
+                  type="month"
+                  value={newBulletStartMonth}
+                  onChange={(event) => setNewBulletStartMonth(event.target.value)}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="new-bullet-end">End (optional)</Label>
+                <Input
+                  id="new-bullet-end"
+                  type="month"
+                  value={newBulletEndMonth}
+                  onChange={(event) => setNewBulletEndMonth(event.target.value)}
+                  disabled={newBulletCurrent}
+                />
+              </div>
+              <div className="col-span-2 flex items-center gap-2">
+                <Checkbox
+                  id="new-bullet-current"
+                  checked={newBulletCurrent}
+                  onCheckedChange={(checked) => setNewBulletCurrent(checked === true)}
+                />
+                <Label htmlFor="new-bullet-current" className="text-xs font-normal text-muted-foreground">
+                  Currently working here
+                </Label>
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            {selectedEmployerKey === NEW_EMPLOYER_KEY
+              ? "Attaching a company keeps this bullet grouped with that employer's other bullets — and makes sure that employer never disappears from a tailored resume, the same guarantee every other bullet on this page already has."
+              : "This bullet will be grouped with that job's other bullets, using its existing role and date range — no need to retype them."}
+          </p>
           <DialogFooter>
             <Button onClick={addBullet} disabled={addingBullet || !newBulletText.trim()}>
               {addingBullet ? "Adding…" : "Add bullet"}

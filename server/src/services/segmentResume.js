@@ -58,6 +58,23 @@ function startsNewHeaderBlock(lines, fromIndex) {
   return false;
 }
 
+// A bullet ending in a trailing comma, colon, or semicolon, or with an
+// unmatched opening parenthesis, is unambiguously still mid-sentence — the
+// very next line must be its continuation no matter how it's capitalized or
+// how soon the next job's date range turns up. This is what the capitalized-
+// line + startsNewHeaderBlock lookahead alone can't tell apart: a
+// continuation line starting with a proper noun (e.g. "OpenAI GPT-4,
+// LangChain, Pinecone), deployed on AWS.") looks identical to a genuine new
+// header line to that heuristic, since both are capitalized and both can
+// have the next job's real header/date sitting a line or two later.
+function bulletTextLooksUnfinished(text) {
+  const trimmed = (text || '').trimEnd();
+  if (/[,:;]$/.test(trimmed)) return true;
+  const opens = (trimmed.match(/\(/g) || []).length;
+  const closes = (trimmed.match(/\)/g) || []).length;
+  return opens > closes;
+}
+
 export function trySplitHeaderLine(line) {
   for (const separator of HEADER_SEPARATORS) {
     const index = line.indexOf(separator);
@@ -202,15 +219,26 @@ export function segmentResume(rawText) {
     // company header lines are capitalized, so this also catches the one-line-away-
     // from-the-next-date-line case (e.g. a wrapped word like "collaboration" sitting
     // right before the next job's own header+date line, which the lookahead alone
-    // can't tell apart from a genuine single-line header like "Company C").
+    // can't tell apart from a genuine single-line header like "Company C"). Same for
+    // a bullet left mid-sentence (trailing comma/colon, or an unclosed parenthesis) —
+    // that's a stronger, capitalization-independent signal than the lookahead below.
     const looksLikeContinuation = /^[a-z]/.test(line);
+    const previousBulletUnfinished =
+      previousWasBullet && bullets.length > 0 && bulletTextLooksUnfinished(bullets[bullets.length - 1].text);
     const isContinuation =
       previousWasBullet &&
       bullets.length > 0 &&
       !isSectionHeading(line) &&
-      (looksLikeContinuation || !startsNewHeaderBlock(lines, i));
+      (looksLikeContinuation || previousBulletUnfinished || !startsNewHeaderBlock(lines, i));
     if (isContinuation) {
-      bullets[bullets.length - 1].text += ` ${line}`;
+      const currentBullet = bullets[bullets.length - 1];
+      // A hyphenated compound word (e.g. "cross-functional") can itself fall
+      // across the line wrap, landing as "cross-" / "functional" — the hyphen
+      // is real and must stay, but joining with the usual space would leave a
+      // stray "cross- functional". No space belongs between a trailing
+      // word-hyphen and its continuation.
+      const joiner = /\w-$/.test(currentBullet.text) ? '' : ' ';
+      currentBullet.text += `${joiner}${line}`;
       continue;
     }
     previousWasBullet = false;

@@ -97,9 +97,11 @@ async function lintOneItem(text, kind) {
 }
 
 /**
- * Node 8 (section 4): mostly rule-based, no LLM in the common case. Runs
- * before node 10, so nothing here is a human edit yet — both generatedText
- * and finalText are overwritten, same as node 5's own output would be.
+ * Node 8 (section 4): mostly rule-based, no LLM in the common case. This node
+ * can run again on a retry after a human hand-edit (via the bullet/summary
+ * PATCH routes), so — same guarantee nodes 5 and 6 already enforce — a
+ * bullet or summary with editSource === 'human' is left completely untouched
+ * here rather than relinted.
  */
 export async function styleLinting({ tailoredBullets, tailoredSummary, coverLetterText }) {
   const lintedBullets = await Promise.all(
@@ -109,13 +111,24 @@ export async function styleLinting({ tailoredBullets, tailoredSummary, coverLett
       // than spending a lint pass (or an escalation call) on content that will
       // never be shown as tailored output.
       if (bullet.rejected) return bullet;
+      // A hand-edited bullet must survive a retry byte-for-byte, same
+      // guarantee nodes 5 and 6 already enforce — never relint it.
+      if (bullet.editSource === 'human') return bullet;
       const text = await lintOneItem(bullet.finalText, 'resume bullet');
       return { ...bullet, generatedText: text, finalText: text };
     })
   );
 
-  const summaryText = await lintOneItem(tailoredSummary.finalText, 'resume summary');
-  const lintedSummary = { ...tailoredSummary, generatedText: summaryText, finalText: summaryText };
+  // A hand-edited summary must survive a retry byte-for-byte, same guarantee
+  // nodes 5 and 6 already enforce — never relint it.
+  const summaryText =
+    tailoredSummary.editSource === 'human'
+      ? tailoredSummary.finalText
+      : await lintOneItem(tailoredSummary.finalText, 'resume summary');
+  const lintedSummary =
+    tailoredSummary.editSource === 'human'
+      ? tailoredSummary
+      : { ...tailoredSummary, generatedText: summaryText, finalText: summaryText };
 
   const lintedCoverLetterText = coverLetterText ? await lintOneItem(coverLetterText, 'cover letter') : coverLetterText;
 

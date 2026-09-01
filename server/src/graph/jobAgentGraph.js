@@ -342,6 +342,8 @@ async function coverLetterGenerationNode(state) {
 // nodes, which only return their own fields) — so it must always be handed
 // and must always hand back every bullet, rejected included, or a rejected
 // bullet silently disappears from the application instead of staying tagged.
+// Rejected and human-edited bullets both come back verbatim; only the rest
+// get relinted (see styleLinting.js for the guard).
 async function styleLintingNode(state) {
   return styleLinting({
     tailoredBullets: state.tailoredBullets,
