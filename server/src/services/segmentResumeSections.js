@@ -5,6 +5,7 @@ import {
   BULLET_REGEX,
   looksLikeContactLine,
   looksLikeTaglineLine,
+  looksLikeLocationLine,
 } from './segmentResume.js';
 import { classifySectionHeading, isSectionHeading } from './resumeSectionHeadings.js';
 
@@ -71,7 +72,7 @@ export function segmentResumeSections(rawText) {
         // The first non-empty line of a real resume is the candidate's name —
         // never summary prose, even if it happens to look prose-like.
         return;
-      } else if (looksLikeContactLine(line) || looksLikeTaglineLine(line)) {
+      } else if (looksLikeContactLine(line) || looksLikeTaglineLine(line) || looksLikeLocationLine(line)) {
         return;
       } else if (BULLET_REGEX.test(line) || DATE_RANGE_REGEX.test(line)) {
         // Experience content starting with no heading at all — stop treating

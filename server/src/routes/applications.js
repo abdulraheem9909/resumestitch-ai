@@ -202,7 +202,7 @@ router.post('/', async (req, res) => {
       return res.status(404).json({ error: 'Resume not found.' });
     }
 
-    const bullets = await ResumeBullet.find({ masterResumeId });
+    const bullets = await ResumeBullet.find({ masterResumeId }).sort({ order: 1 });
     if (bullets.length === 0) {
       return res.status(400).json({ error: 'Selected resume has no bullets.' });
     }
@@ -799,16 +799,20 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
     const trimmedCompany = typeof company === 'string' && company.trim() ? company.trim() : undefined;
     const trimmedDateRange = typeof dateRange === 'string' && dateRange.trim() ? dateRange.trim() : undefined;
 
-    const masterBullets = await ResumeBullet.find({ masterResumeId: application.masterResumeId });
+    const masterBullets = await ResumeBullet.find({ masterResumeId: application.masterResumeId }).sort({ order: 1 });
 
     let newBullet;
     let resumeBulletsForGraph;
     let requiredBulletId;
 
     if (saveToMasterResume) {
+      // Appends after everything already on the master resume — see the
+      // `order` field's own comment on ResumeBullet.js.
+      const nextOrder = (masterBullets[masterBullets.length - 1]?.order ?? -1) + 1;
       newBullet = await ResumeBullet.create({
         masterResumeId: application.masterResumeId,
         text: bulletText,
+        order: nextOrder,
         skills,
         canonicalSkills,
         metrics,

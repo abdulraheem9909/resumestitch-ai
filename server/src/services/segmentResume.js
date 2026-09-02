@@ -8,8 +8,19 @@ const YEAR_ONLY = '\\d{4}';
 // Order matters: numeric (09/2024) and named-month (Jan 2024) forms must be tried
 // before bare-year, so a numeric month isn't left stranded outside the match.
 const DATE_TOKEN = `(?:${NUMERIC_MONTH_YEAR}|${NAMED_MONTH_YEAR}|${YEAR_ONLY})`;
+// Unlike DATE_TOKEN, deliberately excludes a bare 4-digit year — this is only
+// used for the no-separator fallback below, where a bare year would be far
+// too loose (any two 4-digit numbers in running text) to safely treat as a
+// date range without an explicit separator between them.
+const SPECIFIC_DATE_TOKEN = `(?:${NUMERIC_MONTH_YEAR}|${NAMED_MONTH_YEAR})`;
 export const DATE_RANGE_REGEX = new RegExp(
-  `${DATE_TOKEN}\\s*(?:-|–|—|to)\\s*(?:${DATE_TOKEN}|Present|Current)`,
+  `${DATE_TOKEN}\\s*(?:-|–|—|to)\\s*(?:${DATE_TOKEN}|Present|Current)` +
+    // Some PDFs' two-column layouts (job details left, date range right)
+    // extract the connecting dash onto its own disconnected line, leaving
+    // e.g. "Oct 2023 Present" with nothing but whitespace between the two
+    // dates. Recognize that shape too, but only for specific month-bearing
+    // tokens (never a bare year) to keep it safe.
+    `|${SPECIFIC_DATE_TOKEN}\\s+(?:${SPECIFIC_DATE_TOKEN}|Present|Current)`,
   'i'
 );
 
@@ -25,7 +36,7 @@ const HEADER_SEPARATORS = [' at ', ' @ ', ' • ', ' — ', ' – ', ' - ', ' | 
 // vs. company when only one plain header line and one date-sharing line exist,
 // since which of the two is the role vs. the company is not fixed across resumes.
 export const JOB_TITLE_KEYWORDS =
-  /\b(engineer|developer|designer|manager|architect|analyst|consultant|specialist|director|lead|officer|intern|associate|coordinator|administrator|scientist|researcher|freelancer)\b/i;
+  /\b(engineer|developer|designer|manager|architect|analyst|consultant|specialist|director|lead|officer|intern|associate|coordinator|administrator|scientist|researcher|freelancer|supervisor|assistant|technician|representative|operator|agent|clerk)\b/i;
 
 // Contact-info line detection — shared by segmentResumeSections() (to recognize
 // and skip name/contact/tagline lines when falling back to an implied summary)
@@ -44,6 +55,21 @@ export function looksLikeContactLine(line) {
 export function looksLikeTaglineLine(line) {
   const wordCount = line.trim().split(/\s+/).filter(Boolean).length;
   return wordCount > 0 && wordCount <= 6 && !/[.!?]$/.test(line) && JOB_TITLE_KEYWORDS.test(line);
+}
+
+// A bare "City, Region, Country" (or "City, Postal, Country") address line —
+// distinguishable from a real sentence of summary prose by having no verbs at
+// all, just short Capitalized/numeric segments joined by commas, no sentence-
+// ending punctuation. Unlike a contact line, it has no email/phone/URL of its
+// own to be recognized by looksLikeContactLine — this is what's left when a
+// resume states a location on its own line, with nothing else on it.
+const LOCATION_SEGMENT = /^[A-Z0-9][A-Za-z0-9.'-]*(?:\s+(?:of|and|the|[A-Z0-9][A-Za-z0-9.'-]*))*$/;
+export function looksLikeLocationLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed || /[.!?]$/.test(trimmed)) return false;
+  const segments = trimmed.split(',').map((segment) => segment.trim()).filter(Boolean);
+  if (segments.length < 2) return false;
+  return segments.every((segment) => segment.split(/\s+/).length <= 4 && LOCATION_SEGMENT.test(segment));
 }
 
 const MAX_HEADER_BUFFER = 2;
@@ -178,7 +204,19 @@ export function segmentResume(rawText) {
 
       if (leftover) {
         const split = trySplitHeaderLine(leftover);
-        if (split) {
+        // A successful split of the leftover isn't automatically the real
+        // header — e.g. "Manchester, UK" splits cleanly on its comma into
+        // "Manchester" / "UK", but that's a location sharing the date's line,
+        // not a role/company. If neither side reads as a job title, and the
+        // line(s) buffered just above already look like a complete, self-
+        // contained "Company — Role" header on their own, trust that instead.
+        const splitLooksLikeATitle = split && (JOB_TITLE_KEYWORDS.test(split.role) || JOB_TITLE_KEYWORDS.test(split.company));
+        const bufferedSplit = headerBuffer.length ? trySplitHeaderLine(headerBuffer[headerBuffer.length - 1]) : null;
+        if (split && !splitLooksLikeATitle && bufferedSplit) {
+          const resolved = pickRoleAndCompany(bufferedSplit.role, bufferedSplit.company);
+          currentRole = resolved.role;
+          currentCompany = resolved.company;
+        } else if (split) {
           currentRole = split.role;
           currentCompany = split.company;
         } else {

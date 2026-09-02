@@ -216,3 +216,52 @@ test('a bullet ending mid-sentence with a trailing comma (no parenthesis) still 
   assert.equal(bullets.length, 1);
   assert.equal(bullets[0].text, 'Built tools using React, Node.js, TypeScript, and GraphQL.');
 });
+
+test('recognizes a date range whose connecting separator was lost to a multi-column PDF layout', () => {
+  // Real-world repro: a two-column resume (job details left, date range
+  // right) had its dash extracted onto a disconnected line elsewhere, leaving
+  // the two dates sitting next to each other with only whitespace between them.
+  const rawText = [
+    'Senior Software Engineer (Flutter)',
+    'Algo Republic | Lahore, Pakistan',
+    'Oct 2023 Present',
+    '• Developed 9 high-performance applications.',
+  ].join('\n');
+
+  const bullets = segmentResume(rawText);
+
+  assert.equal(bullets.length, 1);
+  assert.equal(bullets[0].dateRange, 'Oct 2023 Present');
+});
+
+test('does not treat two unrelated bare years in running text as a date range', () => {
+  const rawText = [
+    'Software Engineer',
+    'Company A',
+    'Jan 2023 – Present',
+    '• Reduced latency comparing 2024 against 2023 benchmarks.',
+  ].join('\n');
+
+  const bullets = segmentResume(rawText);
+
+  assert.equal(bullets.length, 1);
+  assert.equal(bullets[0].text, 'Reduced latency comparing 2024 against 2023 benchmarks.');
+});
+
+// Real-world repro: "Company — Role" sits on its own line, then "Location —
+// Date range" shares the next line. The date line's own leftover text
+// ("Manchester, UK") splits cleanly on its comma, but into a location, not a
+// role/company — the real header was already fully formed on the line above.
+test('prefers a self-contained "Company — Role" header buffered above over splitting a location that shares the date line', () => {
+  const rawText = [
+    'Auxillium Services — Door Supervisor (Full-Time)',
+    'Manchester, UK — 09/2024 – Present',
+    '• Conduct access control and ID checks.',
+  ].join('\n');
+
+  const bullets = segmentResume(rawText);
+
+  assert.equal(bullets.length, 1);
+  assert.equal(bullets[0].role, 'Door Supervisor (Full-Time)');
+  assert.equal(bullets[0].company, 'Auxillium Services');
+});

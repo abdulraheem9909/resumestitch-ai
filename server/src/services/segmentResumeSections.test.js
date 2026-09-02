@@ -165,3 +165,41 @@ test('drops content under an unrecognized heading rather than mis-bucketing it',
   assert.ok(!result.summary.includes('AWS Certified'));
   assert.ok(!result.skills.includes('AWS Certified Solutions Architect'));
 });
+
+// Real-world repro: a resume's headings ("Work Experience", "Core Skills",
+// "Education") were in Title Case rather than ALL CAPS. isSectionHeading()
+// required shouting on top of the words matching, so none of them were ever
+// recognized as headings at all — every section's content silently fell
+// through to whatever the previous (mis-detected) section was.
+test('recognizes a known heading written in Title Case, not only ALL CAPS', () => {
+  const rawText = [
+    'Summary',
+    'A short summary.',
+    'Core Skills',
+    'Flutter, Dart',
+    'Education',
+    'Some University',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.summary, 'A short summary.');
+  assert.deepEqual(result.skills, ['Flutter', 'Dart']);
+});
+
+// Real-world repro: a bare "City, Postal, Country" address line with no
+// heading, phone, email, or URL of its own sat directly above the real
+// summary paragraph and got swallowed into it as the implied-summary
+// fallback's leading sentence.
+test('excludes a bare location line from the implied summary when there is no explicit heading', () => {
+  const rawText = [
+    'Abdul Rehman',
+    'maan852@live.com',
+    'Dubai, 00000, United Arab Emirates',
+    'Experienced developer with 6+ years building mobile and web applications.',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.summary, 'Experienced developer with 6+ years building mobile and web applications.');
+});

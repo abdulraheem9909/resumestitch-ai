@@ -2,8 +2,10 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import multer from "multer";
 import { extractResumeText } from "../services/extractResumeText.js";
-import { segmentResume } from "../services/segmentResume.js";
+import { segmentResume, DATE_RANGE_REGEX } from "../services/segmentResume.js";
+import { segmentResumeWithAI } from "../services/segmentResumeWithAI.js";
 import { segmentResumeSections } from "../services/segmentResumeSections.js";
+import { segmentResumeSectionsWithAI } from "../services/segmentResumeSectionsWithAI.js";
 import { extractContactInfo } from "../services/extractContactInfo.js";
 import { tagBullet } from "../services/tagBullet.js";
 import { canonicalizeSkill } from "../services/canonicalizeSkill.js";
@@ -133,8 +135,85 @@ router.post("/", upload.single("file"), async (req, res) => {
 
   try {
     // Step 4 — segmentation
-    const segments = segmentResume(bulletedText);
+    let segments = segmentResume(bulletedText);
     const { summary, education, projects, skills } = segmentResumeSections(bulletedText);
+
+    // Fallback: the same kind of layout scrambling that can zero out bullets
+    // (see below) can also leave the summary/education/skills extraction
+    // looking broken — education or skills coming back completely empty, or
+    // summary suspiciously long (a sign it swallowed other sections'
+    // content, since a genuine summary paragraph is never this long). Only
+    // replaces the specific field(s) that actually look broken; a field that
+    // already extracted correctly is never second-guessed or overwritten.
+    let finalSummary = summary;
+    let finalEducation = education;
+    let finalSkills = skills;
+    const summaryLooksBroken = summary.length > 600;
+    // A scrambled layout can still produce a non-empty education array —
+    // e.g. one garbage entry with no institution at all, which is virtually
+    // never true of a genuine degree — so "empty" alone isn't a strong
+    // enough signal on its own to catch every broken parse.
+    const educationLooksBroken = education.length === 0 || education.some((entry) => !entry.institution);
+    // Same reasoning as education: a scrambled layout can produce a non-empty
+    // but wrong skills array too — e.g. every skill on its own line with no
+    // commas between them joins into one giant string, bullet glyphs and all,
+    // instead of splitting into separate items. A single implausibly long
+    // "skill," or one that still contains a literal bullet character, is
+    // virtually never genuine.
+    const skillsLooksBroken = skills.length === 0 || skills.some((skill) => /[•●]/.test(skill) || skill.length > 60);
+    if (summaryLooksBroken || educationLooksBroken || skillsLooksBroken) {
+      try {
+        const aiSections = await segmentResumeSectionsWithAI(bulletedText);
+        if (summaryLooksBroken) finalSummary = aiSections.summary || finalSummary;
+        if (educationLooksBroken) finalEducation = aiSections.education.length > 0 ? aiSections.education : finalEducation;
+        if (skillsLooksBroken) finalSkills = aiSections.skills.length > 0 ? aiSections.skills : finalSkills;
+      } catch (err) {
+        console.error("AI section-extraction fallback failed (upload still proceeds with deterministic result):", err);
+      }
+    }
+
+    // Fallback: the deterministic parser above depends on recognizing a
+    // bullet character and a date-range separator in the extracted text.
+    // Some PDFs (bullet glyphs that don't survive extraction, multi-column
+    // layouts that scatter date-range text) leave nothing for those rules to
+    // key off of and come back with zero usable bullets — a resume with none
+    // can't even be used to create an application. When that happens, ask an
+    // AI to find the same job/bullet boundaries instead. Never invents
+    // content: bullet text is still lifted verbatim from what was already
+    // extracted, and this only ever runs when the free deterministic pass
+    // has already come back empty.
+    if (segments.length === 0) {
+      try {
+        segments = await segmentResumeWithAI(bulletedText);
+      } catch (err) {
+        console.error('AI segmentation fallback failed (upload still proceeds with zero bullets):', err);
+      }
+    }
+
+    // Fallback: a resume can have *some* jobs the deterministic parser
+    // handles fine (bulleted, with a recognizable date) sitting alongside
+    // one written as a plain paragraph with no bullet marker at all (common
+    // for a brief or less-relevant role, e.g. under an "Other Experience"
+    // heading) — that job silently produces zero bullets while the rest of
+    // the resume parses fine, so the all-or-nothing check above never fires.
+    // Counting date-range-shaped lines in the raw text as a rough proxy for
+    // "how many jobs should exist" catches this. Purely additive: only jobs
+    // the deterministic pass never found at all (by role+company) get added
+    // from the AI's result — anything already parsed correctly is untouched.
+    const dateLineCount = bulletedText.split('\n').filter((line) => DATE_RANGE_REGEX.test(line)).length;
+    const distinctJobCount = new Set(segments.map((segment) => `${segment.role}|${segment.company}|${segment.dateRange}`)).size;
+    if (segments.length > 0 && distinctJobCount < dateLineCount) {
+      try {
+        const aiSegments = await segmentResumeWithAI(bulletedText);
+        const existingJobKeys = new Set(segments.map((segment) => `${segment.role}|${segment.company}`.toLowerCase()));
+        const missingJobSegments = aiSegments.filter(
+          (segment) => !existingJobKeys.has(`${segment.role}|${segment.company}`.toLowerCase())
+        );
+        segments = [...segments, ...missingJobSegments];
+      } catch (err) {
+        console.error('AI segmentation fallback (recovering a job with no bullet markers) failed:', err);
+      }
+    }
 
     // Step 5 — LLM tagging, one call per bullet
     const taggedBullets = await Promise.all(
@@ -166,7 +245,7 @@ router.post("/", upload.single("file"), async (req, res) => {
     const candidateSkills = [
       ...taggedBullets.flatMap((bullet) => bullet.skills),
       ...taggedProjects.flatMap((project) => project.skills),
-      ...skills,
+      ...finalSkills,
     ];
     const known = new Set(
       Object.entries(getSkillAliases()).flatMap(([alias, canonicalId]) => [alias.toLowerCase(), canonicalId.toLowerCase()])
@@ -189,18 +268,19 @@ router.post("/", upload.single("file"), async (req, res) => {
     const masterResume = await MasterResume.create({
       label,
       personalInfo,
-      summary,
-      education,
+      summary: finalSummary,
+      education: finalEducation,
       projects: taggedProjects,
-      skills,
+      skills: finalSkills,
     });
     const resumeBullets = await ResumeBullet.insertMany(
-      taggedBullets.map((bullet) => ({
+      taggedBullets.map((bullet, index) => ({
         masterResumeId: masterResume._id,
         text: bullet.text,
         role: bullet.role,
         company: bullet.company,
         dateRange: bullet.dateRange,
+        order: index,
         skills: bullet.skills,
         canonicalSkills: bullet.canonicalSkills,
         metrics: bullet.metrics,
@@ -226,7 +306,7 @@ router.get("/:id", async (req, res) => {
     if (!resume) {
       return res.status(404).json({ error: "Resume not found." });
     }
-    const bullets = await ResumeBullet.find({ masterResumeId: id });
+    const bullets = await ResumeBullet.find({ masterResumeId: id }).sort({ order: 1 });
     const sourceTexts = [
       ...bullets.map((bullet) => bullet.text),
       resume.summary,
@@ -329,7 +409,7 @@ router.get("/:id/bullets", async (req, res) => {
   }
 
   try {
-    const resumeBullets = await ResumeBullet.find({ masterResumeId: id });
+    const resumeBullets = await ResumeBullet.find({ masterResumeId: id }).sort({ order: 1 });
     return res.json({ resumeBullets });
   } catch (err) {
     return res.status(500).json({ error: "Failed to list bullets." });
@@ -356,6 +436,11 @@ router.post("/:id/bullets", async (req, res) => {
     const { skills, metrics } = await tagBullet(text);
     const canonicalSkills = skills.map(canonicalizeSkill);
 
+    // A manually added bullet always appends after everything already on
+    // this resume, never at the front — see the `order` field's own comment.
+    const [lastBullet] = await ResumeBullet.find({ masterResumeId: id }).sort({ order: -1 }).limit(1);
+    const nextOrder = (lastBullet?.order ?? -1) + 1;
+
     // Same optional employer-context fields already supported when a bullet
     // is added via suggest-missing-skills (applications.js) — a bullet added
     // here with no company set just won't count toward node 5's per-employer
@@ -363,6 +448,7 @@ router.post("/:id/bullets", async (req, res) => {
     const resumeBullet = await ResumeBullet.create({
       masterResumeId: id,
       text,
+      order: nextOrder,
       skills,
       canonicalSkills,
       metrics,
