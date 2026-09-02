@@ -177,6 +177,11 @@ export default function Applications() {
     });
   }, [applications, search, statusFilter, atsFilter, coverLetterFilter, resumeFilter]);
 
+  // The spreadsheet export only ever includes approved applications (see
+  // GET /export/tracker.xlsx) — with none, it would silently download a
+  // spreadsheet with just a header row and no data.
+  const hasApprovedApplications = applications.some((application) => application.status === "approved");
+
   const sortedApplications = useMemo(() => {
     const factor = sort.direction === "asc" ? 1 : -1;
     return [...filteredApplications].sort((a, b) => {
@@ -241,11 +246,17 @@ export default function Applications() {
             Every application
           </h1>
           <div className="flex flex-wrap gap-2">
-            <a href={`${APPLICATIONS_API}/export/tracker.xlsx`}>
-              <Button size="sm" variant="outline">
+            {hasApprovedApplications ? (
+              <a href={`${APPLICATIONS_API}/export/tracker.xlsx`}>
+                <Button size="sm" variant="outline">
+                  <Download className="size-4" /> Export as spreadsheet
+                </Button>
+              </a>
+            ) : (
+              <Button size="sm" variant="outline" disabled title="No approved applications to export yet">
                 <Download className="size-4" /> Export as spreadsheet
               </Button>
-            </a>
+            )}
             <Button size="sm" onClick={() => navigate("/apply")}>
               <Plus className="size-4" /> Start application
             </Button>

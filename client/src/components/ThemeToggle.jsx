@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 function getInitialTheme() {
   const stored = localStorage.getItem("theme");
   if (stored) return stored;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  // Always start in light mode regardless of the OS's own dark-mode setting —
+  // dark mode is opt-in via the toggle, not inherited from the system.
+  return "light";
 }
 
 export default function ThemeToggle() {

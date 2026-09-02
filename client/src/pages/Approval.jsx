@@ -644,7 +644,7 @@ export default function Approval() {
                       <div className="mb-1 flex flex-wrap items-center gap-2">
                         <p className="text-xs font-medium text-muted-foreground">Tailored</p>
                         <Badge variant="secondary">{bullet.editSource}</Badge>
-                        <Badge variant="outline">rephrase {bullet.rephraseIntensity}</Badge>
+                        <Badge variant="outline">rephrase {Math.round((bullet.rephraseIntensity ?? 0) * 100)}%</Badge>
                         {bullet.rejected && (
                           <Badge variant="destructive">Out of context — excluded from export</Badge>
                         )}
