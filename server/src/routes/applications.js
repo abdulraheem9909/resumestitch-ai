@@ -321,7 +321,11 @@ router.get('/:id', async (req, res) => {
       .map((bullet) => bullet.finalText);
     const resume = await MasterResume.findById(application.masterResumeId).select('skills projects');
     const effectiveSkills = application.tailoredSkills ?? resume?.skills ?? [];
-    const sourceTexts = [...activeTexts, ...(resume?.projects || []).map((project) => project.description)];
+    const sourceTexts = [
+      ...activeTexts,
+      application.tailoredSummary?.finalText,
+      ...(resume?.projects || []).map((project) => project.description),
+    ];
     const verifiedSkills = computeVerifiedSkills(effectiveSkills, sourceTexts);
 
     return res.json({
@@ -520,7 +524,11 @@ router.patch('/:id/bullets/:bulletId', async (req, res) => {
       .map((b) => b.finalText);
     const resume = await MasterResume.findById(application.masterResumeId).select('skills projects');
     const effectiveSkills = application.tailoredSkills ?? resume?.skills ?? [];
-    const sourceTexts = [...activeTexts, ...(resume?.projects || []).map((project) => project.description)];
+    const sourceTexts = [
+      ...activeTexts,
+      application.tailoredSummary?.finalText,
+      ...(resume?.projects || []).map((project) => project.description),
+    ];
     const verifiedSkills = computeVerifiedSkills(effectiveSkills, sourceTexts);
 
     return res.json({ application, verifiedSkills });
@@ -591,7 +599,11 @@ router.patch('/:id/skills', async (req, res) => {
       .filter((bullet) => !bullet.rejected)
       .map((bullet) => bullet.finalText);
     const resume = await MasterResume.findById(application.masterResumeId).select('projects');
-    const sourceTexts = [...activeTexts, ...(resume?.projects || []).map((project) => project.description)];
+    const sourceTexts = [
+      ...activeTexts,
+      application.tailoredSummary?.finalText,
+      ...(resume?.projects || []).map((project) => project.description),
+    ];
     const verifiedSkills = computeVerifiedSkills(skills, sourceTexts);
 
     return res.json({ application, verifiedSkills });

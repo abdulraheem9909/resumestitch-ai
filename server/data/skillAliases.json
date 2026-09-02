@@ -92,5 +92,53 @@
   "websocket": "websocket",
   "websockets": "websocket",
   "web socket": "websocket",
-  "web sockets": "websocket"
+  "web sockets": "websocket",
+
+  "mentorship": "mentorship",
+  "mentor": "mentorship",
+  "mentored": "mentorship",
+  "mentoring": "mentorship",
+
+  "code review": "code-review",
+  "code reviews": "code-review",
+
+  "web scraping": "web-scraping",
+
+  "unit testing": "unit-testing",
+  "unit tests": "unit-testing",
+
+  "agile": "agile",
+  "agile methodology": "agile",
+  "agile methodologies": "agile",
+  "agile development": "agile",
+
+  "system architecture": "system-architecture",
+  "architecture design": "system-architecture",
+
+  "frontend": "frontend",
+  "front-end": "frontend",
+  "front end": "frontend",
+  "frontend development": "frontend",
+  "front-end development": "frontend",
+  "front end development": "frontend",
+
+  "backend": "backend",
+  "back-end": "backend",
+  "back end": "backend",
+  "backend development": "backend",
+  "back-end development": "backend",
+  "back end development": "backend",
+
+  "full-stack engineer": "full-stack-engineer",
+  "full stack engineer": "full-stack-engineer",
+
+  "responsive web interfaces": "responsive-web-interfaces",
+  "responsive web design": "responsive-web-interfaces",
+
+  "single-page apps": "spa",
+  "single page apps": "spa",
+  "single-page applications": "spa",
+  "single page applications": "spa",
+  "spa": "spa",
+  "spas": "spa"
 }

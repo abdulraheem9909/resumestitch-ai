@@ -22,3 +22,19 @@ test('computeVerifiedSkills handles empty inputs without throwing', () => {
   assert.deepEqual(computeVerifiedSkills(undefined, undefined), []);
   assert.deepEqual(computeVerifiedSkills(['React'], []), []);
 });
+
+test('computeVerifiedSkills matches a skill tagged with a trailing parenthetical annotation', () => {
+  const result = computeVerifiedSkills(
+    ['Retrieval-Augmented Generation ( RAG)'],
+    ['An assistant that uses RAG to answer questions.']
+  );
+  assert.deepEqual(result, ['Retrieval-Augmented Generation ( RAG)']);
+});
+
+test('computeVerifiedSkills recognizes a methodology/soft skill through its real-world phrasing, not just its own name', () => {
+  const result = computeVerifiedSkills(
+    ['Mentorship', 'Code Review', 'Docker'],
+    ['Mentored 5 junior developers and conducted code reviews to ensure quality.']
+  );
+  assert.deepEqual(result, ['Mentorship', 'Code Review']);
+});

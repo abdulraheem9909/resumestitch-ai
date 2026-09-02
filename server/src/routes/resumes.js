@@ -199,7 +199,11 @@ router.get("/:id", async (req, res) => {
       return res.status(404).json({ error: "Resume not found." });
     }
     const bullets = await ResumeBullet.find({ masterResumeId: id });
-    const sourceTexts = [...bullets.map((bullet) => bullet.text), ...(resume.projects || []).map((project) => project.description)];
+    const sourceTexts = [
+      ...bullets.map((bullet) => bullet.text),
+      resume.summary,
+      ...(resume.projects || []).map((project) => project.description),
+    ];
     const verifiedSkills = computeVerifiedSkills(resume.skills, sourceTexts);
     return res.json({ masterResume: resume, verifiedSkills });
   } catch (err) {
