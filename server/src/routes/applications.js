@@ -326,7 +326,7 @@ router.get('/:id', async (req, res) => {
       application.tailoredSummary?.finalText,
       ...(resume?.projects || []).map((project) => project.description),
     ];
-    const verifiedSkills = computeVerifiedSkills(effectiveSkills, sourceTexts);
+    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(effectiveSkills, sourceTexts);
 
     return res.json({
       application,
@@ -335,6 +335,7 @@ router.get('/:id', async (req, res) => {
       verificationResult: state.verificationResult || null,
       roleFitReason: application.status === 'role_mismatch' ? state.roleFit?.reason : undefined,
       verifiedSkills,
+      skillMatchTypes,
     });
   } catch (err) {
     console.error(err);
@@ -529,9 +530,9 @@ router.patch('/:id/bullets/:bulletId', async (req, res) => {
       application.tailoredSummary?.finalText,
       ...(resume?.projects || []).map((project) => project.description),
     ];
-    const verifiedSkills = computeVerifiedSkills(effectiveSkills, sourceTexts);
+    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(effectiveSkills, sourceTexts);
 
-    return res.json({ application, verifiedSkills });
+    return res.json({ application, verifiedSkills, skillMatchTypes });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to update tailored bullet.' });
@@ -604,9 +605,9 @@ router.patch('/:id/skills', async (req, res) => {
       application.tailoredSummary?.finalText,
       ...(resume?.projects || []).map((project) => project.description),
     ];
-    const verifiedSkills = computeVerifiedSkills(skills, sourceTexts);
+    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(skills, sourceTexts);
 
-    return res.json({ application, verifiedSkills });
+    return res.json({ application, verifiedSkills, skillMatchTypes });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to update skills.' });

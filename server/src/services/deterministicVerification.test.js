@@ -107,3 +107,57 @@ test('verifySummary still flags a skill absent from matchedSkills and every sele
   assert.equal(result.passed, false);
   assert.deepEqual(result.fabricatedSkills, ['mongodb']);
 });
+
+// Regression: the skill-alias dictionary was extended (see skillAliasesStore.js)
+// to recognize job-title/soft-skill phrasing for the display badge — e.g.
+// "Full Stack Engineer", "Mentored", "conducted code reviews". Those ids can
+// never appear in an "allowed" set built from tagBullet.js/extractJdKeywords.js's
+// vocabulary, since that vocabulary deliberately never tags them as skills in
+// the first place — so recognizing them as a *claim* here made them
+// permanently unprovable, producing a false fabrication accusation for
+// something completely benign. A real live application's tailored summary
+// ("...as a Full Stack Engineer...") reproduced this exactly.
+test('verifySummary never flags a job-title/soft-skill phrase as a fabricated claim, even though the badge recognizes it', () => {
+  const result = verifySummary({
+    generatedText: 'With extensive experience as a Full Stack Engineer, I mentored junior developers and conducted code reviews.',
+    matchedSkills: ['react'],
+    selectedBullets: [{ text: 'Built applications with React.', canonicalSkills: ['react'] }],
+    yearsOfExperience: 5,
+  });
+
+  assert.equal(result.passed, true);
+  assert.deepEqual(result.fabricatedSkills, []);
+});
+
+test('verifyBullet never flags a job-title/soft-skill phrase as a fabricated claim', () => {
+  const sourceBullet = { text: 'Worked on the frontend and backend of the platform.', canonicalSkills: [] };
+  const result = verifyBullet({
+    generatedText: 'Contributed to both the frontend and backend of the platform, plus general system architecture.',
+    sourceBullet,
+  });
+
+  assert.equal(result.passed, true);
+  assert.deepEqual(result.fabricatedSkills, []);
+});
+
+// The tripwire: excluding soft-skill/job-title ids from the fabrication check
+// must never widen to cover a real technical skill by accident. A genuinely
+// fabricated hard skill must still be caught exactly as before.
+test('verifyBullet still catches a genuinely fabricated hard skill, unaffected by the soft-skill exclusion', () => {
+  const sourceBullet = { text: 'Built a backend service with Node.js.', canonicalSkills: ['node.js'] };
+  const result = verifyBullet({
+    generatedText: 'Built a backend service with Node.js and MongoDB.',
+    sourceBullet,
+  });
+
+  assert.equal(result.passed, false);
+  assert.deepEqual(result.fabricatedSkills, ['mongodb']);
+});
+
+test('trustHumanEdit still reports a genuine hard-skill claim, only soft-skill/job-title ids are excluded', () => {
+  const result = trustHumanEdit('As a Full Stack Engineer, I used React and mentored junior developers.');
+
+  assert.ok(result.claimedSkills.includes('react'));
+  assert.ok(!result.claimedSkills.includes('full-stack-engineer'));
+  assert.ok(!result.claimedSkills.includes('mentorship'));
+});

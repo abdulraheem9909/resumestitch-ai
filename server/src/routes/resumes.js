@@ -8,6 +8,8 @@ import { extractContactInfo } from "../services/extractContactInfo.js";
 import { tagBullet } from "../services/tagBullet.js";
 import { canonicalizeSkill } from "../services/canonicalizeSkill.js";
 import { computeVerifiedSkills } from "../services/verifiedSkills.js";
+import { getSkillAliases, addSkillAliasEntries } from "../services/skillAliasesStore.js";
+import { proposeSkillAliasGroups } from "../services/generateSkillAliases.js";
 import MasterResume from "../models/MasterResume.js";
 import ResumeBullet from "../models/ResumeBullet.js";
 import Application from "../models/Application.js";
@@ -153,9 +155,35 @@ router.post("/", upload.single("file"), async (req, res) => {
     const taggedProjects = await Promise.all(
       projects.map(async (project) => {
         const { skills: projectSkills } = await tagBullet(project.description);
-        return { ...project, canonicalSkills: projectSkills.map(canonicalizeSkill) };
+        return { ...project, skills: projectSkills, canonicalSkills: projectSkills.map(canonicalizeSkill) };
       })
     );
+
+    // Step 5b — grow the skill-alias dictionary (server/data/skillAliases.json)
+    // with anything this resume introduced that it doesn't already cover.
+    // Never fails the upload — this is an enhancement to future gap-analysis/
+    // verification accuracy, not a requirement of saving this resume.
+    const candidateSkills = [
+      ...taggedBullets.flatMap((bullet) => bullet.skills),
+      ...taggedProjects.flatMap((project) => project.skills),
+      ...skills,
+    ];
+    const known = new Set(
+      Object.entries(getSkillAliases()).flatMap(([alias, canonicalId]) => [alias.toLowerCase(), canonicalId.toLowerCase()])
+    );
+    const newTerms = [...new Set(candidateSkills.map((skill) => (skill || "").trim().toLowerCase()).filter(Boolean))].filter(
+      (term) => !known.has(term)
+    );
+
+    let newSkillAliasesAdded = [];
+    if (newTerms.length > 0) {
+      try {
+        const { groups } = await proposeSkillAliasGroups(newTerms);
+        newSkillAliasesAdded = addSkillAliasEntries(groups);
+      } catch (err) {
+        console.error("Skill-alias generation failed (upload still succeeds):", err);
+      }
+    }
 
     // Step 6 — save
     const masterResume = await MasterResume.create({
@@ -179,7 +207,7 @@ router.post("/", upload.single("file"), async (req, res) => {
       }))
     );
 
-    return res.status(201).json({ masterResume, resumeBullets });
+    return res.status(201).json({ masterResume, resumeBullets, newSkillAliasesAdded });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: "Failed to process resume upload." });
@@ -204,8 +232,8 @@ router.get("/:id", async (req, res) => {
       resume.summary,
       ...(resume.projects || []).map((project) => project.description),
     ];
-    const verifiedSkills = computeVerifiedSkills(resume.skills, sourceTexts);
-    return res.json({ masterResume: resume, verifiedSkills });
+    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(resume.skills, sourceTexts);
+    return res.json({ masterResume: resume, verifiedSkills, skillMatchTypes });
   } catch (err) {
     return res.status(500).json({ error: "Failed to load resume." });
   }

@@ -21,6 +21,19 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+// A skill can be "verified" two different ways: its own exact wording is in
+// the bullet/summary/project text (safe even against a strict, literal-
+// keyword-only ATS), or only a different alias of the same skill is (e.g. a
+// "Node.js" badge backed by bullet text that only ever says "Node") — still
+// genuinely true, but worth flagging since a literal keyword scanner
+// elsewhere might not make the same connection.
+function skillBadgeClassName(matchType) {
+  if (matchType === "partial") {
+    return "border-transparent bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-400";
+  }
+  return "";
+}
+
 // Same role|company|dateRange grouping the .docx export already uses
 // (server/src/services/exportResumeDocx.js) — keyed off each tailored bullet's
 // source, so the on-screen preview matches the shape of the exported file.
@@ -52,6 +65,7 @@ export default function Approval() {
   const [verificationResult, setVerificationResult] = useState(null);
   const [roleFitReason, setRoleFitReason] = useState("");
   const [verifiedSkills, setVerifiedSkills] = useState([]);
+  const [skillMatchTypes, setSkillMatchTypes] = useState({});
   const [skillInput, setSkillInput] = useState("");
   const [savingSkills, setSavingSkills] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -114,6 +128,7 @@ export default function Approval() {
       setVerificationResult(data.verificationResult || null);
       setRoleFitReason(data.roleFitReason || "");
       setVerifiedSkills(data.verifiedSkills || []);
+      setSkillMatchTypes(data.skillMatchTypes || {});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -206,6 +221,7 @@ export default function Approval() {
       if (!res.ok) throw new Error(data.error || "Couldn't update this bullet.");
       setApplication(data.application);
       setVerifiedSkills(data.verifiedSkills || []);
+      setSkillMatchTypes(data.skillMatchTypes || {});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -228,6 +244,7 @@ export default function Approval() {
       if (!res.ok) throw new Error(data.error || "Couldn't save this bullet.");
       setApplication(data.application);
       setVerifiedSkills(data.verifiedSkills || []);
+      setSkillMatchTypes(data.skillMatchTypes || {});
       setEditingBulletId(null);
       setEditingBulletText("");
     } catch (err) {
@@ -391,6 +408,7 @@ export default function Approval() {
       if (!res.ok) throw new Error(data.error || "Couldn't update skills.");
       setApplication(data.application);
       setVerifiedSkills(data.verifiedSkills || []);
+      setSkillMatchTypes(data.skillMatchTypes || {});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -749,7 +767,12 @@ export default function Approval() {
                       <Badge
                         key={skill}
                         variant={isVerified ? "default" : "outline"}
-                        className="gap-1 pr-1"
+                        className={`gap-1 pr-1 ${skillBadgeClassName(skillMatchTypes[skill])}`}
+                        title={
+                          skillMatchTypes[skill] === "partial"
+                            ? "Genuinely backed by your experience, but only through different wording — this exact term isn't in your bullets."
+                            : undefined
+                        }
                       >
                         {skill}
                         <button

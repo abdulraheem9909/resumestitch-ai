@@ -8,6 +8,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
+// A skill can be "verified" two different ways: its own exact wording is in
+// the bullet/summary/project text (safe even against a strict, literal-
+// keyword-only ATS), or only a different alias of the same skill is (e.g. a
+// "Node.js" badge backed by bullet text that only ever says "Node") — still
+// genuinely true, but worth flagging since a literal keyword scanner
+// elsewhere might not make the same connection.
+function skillBadgeClassName(matchType) {
+  if (matchType === "partial") {
+    return "border-transparent bg-yellow-100 text-yellow-800 dark:bg-yellow-500/15 dark:text-yellow-400";
+  }
+  return "";
+}
+
 function groupBulletsByRole(bullets) {
   const groups = [];
   const groupsByKey = new Map();
@@ -32,6 +45,7 @@ export default function ResumeDetail() {
 
   const [resume, setResume] = useState(null);
   const [verifiedSkills, setVerifiedSkills] = useState([]);
+  const [skillMatchTypes, setSkillMatchTypes] = useState({});
   const [bullets, setBullets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -54,6 +68,7 @@ export default function ResumeDetail() {
 
         setResume(resumeData.masterResume);
         setVerifiedSkills(resumeData.verifiedSkills || []);
+        setSkillMatchTypes(resumeData.skillMatchTypes || {});
         setBullets(bulletsData.resumeBullets);
       } catch (err) {
         setError(err.message);
@@ -84,7 +99,10 @@ export default function ResumeDetail() {
 
       const refreshed = await fetch(`${RESUMES_API}/${id}`);
       const refreshedData = await refreshed.json();
-      if (refreshed.ok) setVerifiedSkills(refreshedData.verifiedSkills || []);
+      if (refreshed.ok) {
+        setVerifiedSkills(refreshedData.verifiedSkills || []);
+        setSkillMatchTypes(refreshedData.skillMatchTypes || {});
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -224,7 +242,16 @@ export default function ResumeDetail() {
                 <span className="text-sm text-muted-foreground">No skills listed.</span>
               ) : (
                 resume.skills.map((skill) => (
-                  <Badge key={skill} variant={verifiedSkills.includes(skill) ? "default" : "outline"} className="gap-1 pr-1">
+                  <Badge
+                    key={skill}
+                    variant={verifiedSkills.includes(skill) ? "default" : "outline"}
+                    className={`gap-1 pr-1 ${skillBadgeClassName(skillMatchTypes[skill])}`}
+                    title={
+                      skillMatchTypes[skill] === "partial"
+                        ? "Genuinely backed by your experience, but only through different wording — this exact term isn't in your bullets."
+                        : undefined
+                    }
+                  >
                     {skill}
                     <button
                       type="button"

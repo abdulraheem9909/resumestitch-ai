@@ -2,143 +2,118 @@
   "node.js": "node.js",
   "node": "node.js",
   "nodejs": "node.js",
-
   "postgresql": "postgresql",
   "postgres": "postgresql",
   "psql": "postgresql",
-
   "react": "react",
   "react.js": "react",
   "reactjs": "react",
-
   "langchain": "langchain",
   "langchain.js": "langchain",
   "lang chain": "langchain",
-
   "langgraph": "langgraph",
   "langgraph.js": "langgraph",
-
   "mongodb": "mongodb",
   "mongo": "mongodb",
   "mongo db": "mongodb",
-
   "express": "express",
   "express.js": "express",
   "expressjs": "express",
-
   "javascript": "javascript",
   "js": "javascript",
-
   "typescript": "typescript",
   "ts": "typescript",
-
   "next.js": "next.js",
   "nextjs": "next.js",
   "next": "next.js",
-
   "nestjs": "nestjs",
   "nest.js": "nestjs",
   "nest": "nestjs",
-
   "graphql": "graphql",
   "graph ql": "graphql",
-
   "aws": "aws",
   "amazon web services": "aws",
-  "amazon ec2": "aws",
-  "aws ec2": "aws",
-  "ec2": "aws",
+
+  "ec2": "ec2",
+  "amazon ec2": "ec2",
+  "aws ec2": "ec2",
 
   "mern stack": "mern-stack",
   "mern": "mern-stack",
-
   "firebase": "firebase",
-
   "openai gpt-4": "gpt-4",
   "gpt-4": "gpt-4",
   "gpt4": "gpt-4",
-
   "pinecone": "pinecone",
   "pinecone vector db": "pinecone",
-
   "rag": "rag",
   "retrieval-augmented generation": "rag",
   "retrieval augmented generation": "rag",
-
   "html": "html",
   "html5": "html",
-
   "css": "css",
   "css3": "css",
-
   "git": "git",
-
   "sql": "sql",
-
   "puppeteer": "puppeteer",
-
   "rest api": "rest-api",
   "rest apis": "rest-api",
   "restful api": "rest-api",
   "restful apis": "rest-api",
-
   "docker": "docker",
-
   "linux": "linux",
-
   "api": "api",
   "apis": "api",
-
   "websocket": "websocket",
   "websockets": "websocket",
   "web socket": "websocket",
   "web sockets": "websocket",
-
   "mentorship": "mentorship",
   "mentor": "mentorship",
   "mentored": "mentorship",
   "mentoring": "mentorship",
-
   "code review": "code-review",
   "code reviews": "code-review",
-
   "web scraping": "web-scraping",
-
   "unit testing": "unit-testing",
   "unit tests": "unit-testing",
-
   "agile": "agile",
   "agile methodology": "agile",
   "agile methodologies": "agile",
   "agile development": "agile",
-
   "system architecture": "system-architecture",
   "architecture design": "system-architecture",
-
   "frontend": "frontend",
   "front-end": "frontend",
   "front end": "frontend",
   "frontend development": "frontend",
   "front-end development": "frontend",
   "front end development": "frontend",
-
   "backend": "backend",
   "back-end": "backend",
   "back end": "backend",
   "backend development": "backend",
   "back-end development": "backend",
   "back end development": "backend",
-
   "full-stack engineer": "full-stack-engineer",
   "full stack engineer": "full-stack-engineer",
-
   "responsive web interfaces": "responsive-web-interfaces",
   "responsive web design": "responsive-web-interfaces",
-
   "single-page apps": "spa",
   "single page apps": "spa",
   "single-page applications": "spa",
   "single page applications": "spa",
   "spa": "spa",
-  "spas": "spa"
+  "spas": "spa",
+  "flutter": "flutter",
+  "riverpod": "riverpod",
+  "fastlane": "fastlane",
+  "mockito": "mockito",
+  "dart": "dart",
+  "react testing library": "react-testing-library",
+  "rtl": "react-testing-library",
+  "@testing-library/react": "react-testing-library",
+  "jest": "jest",
+  "jest.js": "jest",
+  "jest testing framework": "jest"
 }

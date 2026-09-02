@@ -1,11 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const skillAliases = JSON.parse(readFileSync(path.join(__dirname, '../../data/skillAliases.json'), 'utf-8'));
+import { getSkillAliases } from './skillAliasesStore.js';
 
 export function canonicalizeSkill(rawSkill) {
+  const skillAliases = getSkillAliases();
   const normalized = (rawSkill || '').trim().toLowerCase();
   if (skillAliases[normalized]) return skillAliases[normalized];
 
