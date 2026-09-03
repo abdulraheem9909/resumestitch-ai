@@ -610,7 +610,7 @@ export default function Approval() {
 
       {!loading && application && application.status !== "role_mismatch" && (
         <Tabs defaultValue="report">
-          <TabsList className="mb-5 w-full">
+          <TabsList className="mb-5 h-11 w-full">
             <TabsTrigger value="report">Report</TabsTrigger>
             <TabsTrigger value="job-details">Job Details</TabsTrigger>
           </TabsList>
@@ -646,9 +646,6 @@ export default function Approval() {
             <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
               <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">
                 Your resume — read-only here, edit it on your Master Resume page
-              </p>
-              <p className="font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                {masterResume.personalInfo?.title || ""}
               </p>
               <h2 className="font-display text-xl font-semibold text-foreground">
                 {masterResume.personalInfo?.fullName}
@@ -1156,7 +1153,6 @@ export default function Approval() {
             </div>
           )}
 
-          {/* Approve / send back */}
           {application.status === "approved" ? (
             <div className="flex flex-col gap-3">
               <Alert>

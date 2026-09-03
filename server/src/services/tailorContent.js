@@ -4,7 +4,7 @@ import { z } from 'zod';
 import GenerationCache from '../models/GenerationCache.js';
 import { rephraseIntensity } from './rephraseIntensity.js';
 
-export const TAILOR_PROMPT_VERSION = 'tailor-v10';
+export const TAILOR_PROMPT_VERSION = 'tailor-v11';
 const TAILOR_MODEL = 'gpt-4o';
 
 // Single source of truth for the tailoredSummary rules — reused verbatim by both
@@ -14,12 +14,12 @@ const TAILOR_MODEL = 'gpt-4o';
 // several rounds of edits (e.g. "must" vs "should" read specific) — this is the
 // only copy now, so there is nothing left to drift.
 const SUMMARY_RULES =
-  '2-4 sentences (roughly 40-80 words), built ONLY from the bullets NOT rejected above, the given ' +
-  'matched-skills list, and the given years-of-experience figure. Never introduce a skill, tool, ' +
-  'employer, or figure absent from those three inputs. State the years-of-experience figure naturally ' +
+  '2-4 sentences (roughly 40-80 words), built ONLY from the given title, the bullets NOT rejected above, ' +
+  'the given matched-skills list, and the given years-of-experience figure. Never introduce a skill, tool, ' +
+  'employer, or figure absent from those four inputs. State the years-of-experience figure naturally ' +
   "— round down to a whole number and phrase it like '5+ years', never a raw decimal like '5.7 years'. " +
-  'Structure: open with the role implied by the ' +
-  'kept bullets plus the years-of-experience figure; name only 2-3 of the matched skills that matter ' +
+  'Structure: open with the given title, used verbatim — do not rephrase, invent, or infer a different ' +
+  'role name — plus the years-of-experience figure; name only 2-3 of the matched skills that matter ' +
   'most for this specific job description, not the full list. This summary is a fast, 6-second pitch ' +
   "that earns a look at the bullets below it — it is NOT a second place to relist accomplishments the " +
   'reader is about to see again. Do not state any achievement metric, percentage, or figure anywhere ' +
@@ -82,7 +82,7 @@ function formatCandidateBullets(resumeBullets) {
     .join('\n\n');
 }
 
-function computeInputHash({ jdText, resumeBullets, matchedSkills, yearsOfExperience, retryNotes }) {
+function computeInputHash({ jdText, resumeBullets, matchedSkills, yearsOfExperience, title, retryNotes }) {
   const payload = JSON.stringify({
     jdText,
     resumeBullets: resumeBullets.map((bullet) => ({
@@ -93,6 +93,7 @@ function computeInputHash({ jdText, resumeBullets, matchedSkills, yearsOfExperie
     })),
     matchedSkills: [...matchedSkills].sort(),
     yearsOfExperience,
+    title: title || '',
     retryNotes,
   });
   return createHash('sha256').update(payload).digest('hex');
@@ -154,11 +155,12 @@ export async function tailorContent({
   resumeBullets,
   matchedSkills,
   yearsOfExperience,
+  title,
   applicationId,
   resumeVersion,
   retryNotes = '',
 }) {
-  const inputHash = computeInputHash({ jdText, resumeBullets, matchedSkills, yearsOfExperience, retryNotes });
+  const inputHash = computeInputHash({ jdText, resumeBullets, matchedSkills, yearsOfExperience, title, retryNotes });
 
   const cached = await GenerationCache.findOne({
     applicationId,
@@ -204,6 +206,7 @@ export async function tailorContent({
       role: 'user',
       content:
         `<job_description>\n${jdText}\n</job_description>\n\n` +
+        `<title>\n${title}\n</title>\n\n` +
         `<candidate_bullets>\n${formatCandidateBullets(resumeBullets)}\n</candidate_bullets>\n\n` +
         `<matched_skills>\n${matchedSkills.join(', ')}\n</matched_skills>\n\n` +
         `<years_of_experience>\n${yearsOfExperience}\n</years_of_experience>` +

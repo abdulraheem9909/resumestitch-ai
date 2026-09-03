@@ -318,11 +318,22 @@ async function tailorContentNode(state) {
   const matched = matchedSkills(state.jdCanonicalSkills, state.resumeCanonicalSkills);
   const yearsOfExperience = calculateYearsOfExperience(state.resumeBullets);
 
+  // Deterministic, not an LLM output — see suggestResumeTitle.js. Computed
+  // fresh every pass (like yearsOfExperience) but a human edit still wins,
+  // same preservation pattern as tailoredSummary below. Computed before the
+  // tailorContent() call (rather than after, as originally written) so the
+  // summary can open with this exact title instead of the model guessing
+  // its own role phrase from the bullets — see key-decisions-log.md.
+  const suggestedTitle = suggestResumeTitle(state.jdTitle, state.resumeTitle);
+  const freshTitle = { generatedText: suggestedTitle, humanEditedText: null, finalText: suggestedTitle, editSource: 'ai' };
+  const tailoredTitle = mergeHumanEditedTitle(freshTitle, state.tailoredTitle);
+
   const generated = await tailorContent({
     jdText: state.jdText,
     resumeBullets: state.resumeBullets,
     matchedSkills: matched,
     yearsOfExperience,
+    title: tailoredTitle.finalText,
     applicationId: state.applicationId,
     resumeVersion: state.masterResumeId,
     retryNotes: state.retryNotes,
@@ -338,13 +349,6 @@ async function tailorContentNode(state) {
 
   const tailoredSummary =
     state.tailoredSummary?.editSource === 'human' ? state.tailoredSummary : generated.tailoredSummary;
-
-  // Deterministic, not an LLM output — see suggestResumeTitle.js. Computed
-  // fresh every pass (like yearsOfExperience) but a human edit still wins,
-  // same preservation pattern as tailoredSummary above.
-  const suggestedTitle = suggestResumeTitle(state.jdTitle, state.resumeTitle);
-  const freshTitle = { generatedText: suggestedTitle, humanEditedText: null, finalText: suggestedTitle, editSource: 'ai' };
-  const tailoredTitle = mergeHumanEditedTitle(freshTitle, state.tailoredTitle);
 
   return { matchedSkills: matched, yearsOfExperience, tailoredBullets, tailoredSummary, tailoredTitle, generationId };
 }
