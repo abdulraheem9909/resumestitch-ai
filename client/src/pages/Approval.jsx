@@ -1166,12 +1166,24 @@ export default function Approval() {
                     <Download className="size-4" /> Download resume (.docx)
                   </Button>
                 </a>
+                <a href={`${API_BASE}/${applicationId}/export/resume.pdf`}>
+                  <Button size="sm" variant="outline">
+                    <Download className="size-4" /> Download resume (.pdf)
+                  </Button>
+                </a>
                 {application.coverLetterRequested && (
-                  <a href={`${API_BASE}/${applicationId}/export/cover-letter.docx`}>
-                    <Button size="sm" variant="outline">
-                      <Download className="size-4" /> Download cover letter (.docx)
-                    </Button>
-                  </a>
+                  <>
+                    <a href={`${API_BASE}/${applicationId}/export/cover-letter.docx`}>
+                      <Button size="sm" variant="outline">
+                        <Download className="size-4" /> Download cover letter (.docx)
+                      </Button>
+                    </a>
+                    <a href={`${API_BASE}/${applicationId}/export/cover-letter.pdf`}>
+                      <Button size="sm" variant="outline">
+                        <Download className="size-4" /> Download cover letter (.pdf)
+                      </Button>
+                    </a>
+                  </>
                 )}
               </div>
             </div>

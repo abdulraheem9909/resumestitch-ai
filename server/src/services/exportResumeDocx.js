@@ -58,7 +58,10 @@ export function buildResumeDocxBuffer({
   children.push(new Paragraph({ text: 'SUMMARY', heading: HeadingLevel.HEADING_2 }));
   children.push(new Paragraph({ text: tailoredSummary.finalText }));
 
-  children.push(new Paragraph({ text: 'EXPERIENCE', heading: HeadingLevel.HEADING_2 }));
+  // "Work History" over "Experience" — a standard, ATS-recognized heading
+  // synonym (alongside "Work Experience"/"Professional Experience"/
+  // "Employment History"), confirmed against real ATS-scanner feedback.
+  children.push(new Paragraph({ text: 'WORK HISTORY', heading: HeadingLevel.HEADING_2 }));
   for (const group of groups) {
     // A bullet added with no role/company attached (e.g. an unassigned
     // suggest-missing-skills addition) still gets a real heading rather than
@@ -77,15 +80,16 @@ export function buildResumeDocxBuffer({
   if (education.length > 0) {
     children.push(new Paragraph({ text: 'EDUCATION', heading: HeadingLevel.HEADING_2 }));
     for (const entry of education) {
-      const heading = [entry.degree, entry.institution].filter(Boolean).join(' — ');
-      if (heading) {
-        children.push(new Paragraph({ text: heading, heading: HeadingLevel.HEADING_3 }));
+      if (entry.degree) {
+        children.push(new Paragraph({ text: entry.degree, heading: HeadingLevel.HEADING_3 }));
       }
-      if (entry.dateRange) {
-        children.push(new Paragraph({ children: [new TextRun({ text: entry.dateRange, italics: true })] }));
-      }
-      if (entry.location) {
-        children.push(new Paragraph({ text: entry.location }));
+      // Institution, dateRange, and location together on one subline —
+      // matches the single-subline shape Experience already uses, instead
+      // of three visually disconnected pieces.
+      const institutionAndDate = [entry.institution, entry.dateRange].filter(Boolean).join(' — ');
+      const detailLine = [institutionAndDate, entry.location].filter(Boolean).join(' · ');
+      if (detailLine) {
+        children.push(new Paragraph({ children: [new TextRun({ text: detailLine, italics: true })] }));
       }
     }
   }
@@ -104,9 +108,35 @@ export function buildResumeDocxBuffer({
 
   if (skills.length > 0) {
     children.push(new Paragraph({ text: 'SKILLS', heading: HeadingLevel.HEADING_2 }));
+    // Single flowing paragraph, same as Summary — Word's own natural
+    // line-wrapping breaks it based on actual page width. A fixed-count
+    // "N per row" split was tried and reverted: skill names vary too much
+    // in length to wrap evenly at a fixed count, and it leaves an orphaned
+    // short row whenever the total isn't a clean multiple of the row size.
     children.push(new Paragraph({ text: skills.join(', ') }));
   }
 
-  const doc = new Document({ sections: [{ children }] });
+  const doc = new Document({
+    styles: {
+      default: {
+        document: {
+          run: { font: 'Calibri', size: 22 },
+        },
+        // heading1 isn't used anywhere in this document today, but it's kept
+        // bold/consistent with heading2/heading3 rather than left at docx's
+        // own unbolded built-in default, in case it's ever reached for.
+        heading1: {
+          run: { bold: true, color: '2E74B5', size: 32 },
+        },
+        heading2: {
+          run: { bold: true, color: '2E74B5', size: 26 },
+        },
+        heading3: {
+          run: { bold: true, color: '1F4D78', size: 24 },
+        },
+      },
+    },
+    sections: [{ children }],
+  });
   return Packer.toBuffer(doc);
 }

@@ -16,6 +16,7 @@ import { atsScoreAndRecruiter } from '../services/atsScoreAndRecruiter.js';
 import { buildResumeDocxBuffer } from '../services/exportResumeDocx.js';
 import { buildCoverLetterDocxBuffer } from '../services/exportCoverLetterDocx.js';
 import { buildTrackerXlsxBuffer } from '../services/exportTrackerXlsx.js';
+import { convertDocxBufferToPdf } from '../services/convertDocxToPdf.js';
 import { getJobAgentGraph, getCheckpointer } from '../graph/graphInstance.js';
 import GenerationCache from '../models/GenerationCache.js';
 
@@ -43,8 +44,33 @@ function buildResumeBulletsForGraph(bullets) {
   }));
 }
 
-function sanitizeFilename(name) {
-  return (name || 'application').replace(/[^a-z0-9 _-]/gi, '').trim() || 'application';
+// Strips everything but letters, numbers, hyphens, and underscores — some
+// ATS upload handlers have trouble with spaces and other special characters
+// in an uploaded filename.
+function sanitizeFilenameSegment(value) {
+  return (value || '').replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+// A single personalInfo.fullName field has no first/last distinction of its
+// own, so the last whitespace-separated word is treated as the last name and
+// everything before it is joined together as the first name — the common
+// convention for splitting a single full-name string in two.
+function splitFullName(fullName) {
+  const words = (fullName || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length <= 1) {
+    return { firstName: words[0] || '', lastName: '' };
+  }
+  return { firstName: words.slice(0, -1).join(''), lastName: words[words.length - 1] };
+}
+
+// FirstName_LastName_CompanyName_<suffix>.<extension> — built at request time
+// from personalInfo.fullName/companyName, since resumeFilename stays
+// intentionally unpopulated per the on-demand export design
+// (key-decisions-log.md).
+function buildExportFilename({ fullName, companyName, suffix, extension = 'docx' }) {
+  const { firstName, lastName } = splitFullName(fullName);
+  const segments = [firstName, lastName, companyName, suffix].map(sanitizeFilenameSegment).filter(Boolean);
+  return `${segments.join('_') || 'application'}.${extension}`;
 }
 
 // A short, human-recognizable stand-in for a bullet in a flag message — never
@@ -422,14 +448,83 @@ router.get('/:id/export/resume.docx', async (req, res) => {
       skills: application.tailoredSkills ?? resume?.skills ?? [],
     });
 
+    const filename = buildExportFilename({
+      fullName: resume?.personalInfo?.fullName,
+      companyName: application.companyName,
+      suffix: 'Resume',
+    });
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'Content-Disposition': `attachment; filename="${sanitizeFilename(application.companyName)} - Resume.docx"`,
+      'Content-Disposition': `attachment; filename="${filename}"`,
     });
     return res.send(buffer);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to generate resume.' });
+  }
+});
+
+// Same gating and content as GET /:id/export/resume.docx — builds the exact
+// same .docx buffer, then converts it to PDF via LibreOffice headless (the
+// same tool this project's own tooling already uses for rendering/
+// verification). The intermediate .docx and the converted .pdf are both
+// written to, and removed from, a temp directory inside
+// convertDocxBufferToPdf — nothing is left on disk once the request
+// completes, matching the "never stored server-side" rule.
+router.get('/:id/export/resume.pdf', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+
+  try {
+    const application = await Application.findById(id);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+    if (application.status !== 'approved') {
+      return res.status(400).json({ error: 'This application has not been approved yet.' });
+    }
+
+    const resume = await MasterResume.findById(application.masterResumeId);
+    const graph = getJobAgentGraph();
+    const snapshot = await graph.getState({ configurable: { thread_id: id } });
+    const originalBullets = snapshot.values?.resumeBullets || [];
+    const originalBulletsById = new Map(originalBullets.map((bullet) => [bullet.bulletId, bullet]));
+
+    const docxBuffer = await buildResumeDocxBuffer({
+      personalInfo: resume?.personalInfo || {},
+      tailoredSummary: application.tailoredSummary,
+      tailoredTitle: application.tailoredTitle,
+      tailoredBullets: application.tailoredBullets.filter((bullet) => !bullet.rejected),
+      originalBulletsById,
+      education: resume?.education || [],
+      projects: resume?.projects || [],
+      skills: application.tailoredSkills ?? resume?.skills ?? [],
+    });
+
+    let pdfBuffer;
+    try {
+      pdfBuffer = await convertDocxBufferToPdf(docxBuffer);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Failed to convert resume to PDF.' });
+    }
+
+    const filename = buildExportFilename({
+      fullName: resume?.personalInfo?.fullName,
+      companyName: application.companyName,
+      suffix: 'Resume',
+      extension: 'pdf',
+    });
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to generate resume PDF.' });
   }
 });
 
@@ -458,14 +553,72 @@ router.get('/:id/export/cover-letter.docx', async (req, res) => {
       coverLetterText: application.coverLetterText,
     });
 
+    const filename = buildExportFilename({
+      fullName: resume?.personalInfo?.fullName,
+      companyName: application.companyName,
+      suffix: 'CoverLetter',
+    });
     res.set({
       'Content-Type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'Content-Disposition': `attachment; filename="${sanitizeFilename(application.companyName)} - Cover Letter.docx"`,
+      'Content-Disposition': `attachment; filename="${filename}"`,
     });
     return res.send(buffer);
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to generate cover letter.' });
+  }
+});
+
+// Same gating/content as GET /:id/export/cover-letter.docx, converted to PDF
+// via LibreOffice headless — see the comment on GET /:id/export/resume.pdf
+// for the shared conversion/cleanup behavior.
+router.get('/:id/export/cover-letter.pdf', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+
+  try {
+    const application = await Application.findById(id);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+    if (application.status !== 'approved') {
+      return res.status(400).json({ error: 'This application has not been approved yet.' });
+    }
+    if (!application.coverLetterRequested) {
+      return res.status(400).json({ error: 'No cover letter was requested for this application.' });
+    }
+
+    const resume = await MasterResume.findById(application.masterResumeId);
+    const docxBuffer = await buildCoverLetterDocxBuffer({
+      personalInfo: resume?.personalInfo || {},
+      companyName: application.companyName,
+      coverLetterText: application.coverLetterText,
+    });
+
+    let pdfBuffer;
+    try {
+      pdfBuffer = await convertDocxBufferToPdf(docxBuffer);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: 'Failed to convert cover letter to PDF.' });
+    }
+
+    const filename = buildExportFilename({
+      fullName: resume?.personalInfo?.fullName,
+      companyName: application.companyName,
+      suffix: 'CoverLetter',
+      extension: 'pdf',
+    });
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to generate cover letter PDF.' });
   }
 });
 
