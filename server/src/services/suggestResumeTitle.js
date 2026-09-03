@@ -47,3 +47,13 @@ export function suggestResumeTitle(jdTitle, fallbackTitle) {
 
   return stripped;
 }
+
+// Only meaningful against a hand-edited title — the AI suggestion above can
+// never contain one of these words in the first place, since it's built by
+// stripping them out. This does not verify anything (no fabrication check);
+// it only flags one specific, already-known pattern: reintroducing a
+// seniority/scope word this resume was already determined not to back up.
+export function findUnsupportedSeniorityTerms(text) {
+  const matches = (text || '').match(STRIP_PATTERN) || [];
+  return [...new Set(matches.map((match) => match.toLowerCase()))];
+}

@@ -11,6 +11,7 @@ import { tagBullet } from '../services/tagBullet.js';
 import { verifyBullet, verifySummary, trustHumanEdit } from '../services/deterministicVerification.js';
 import { gapAnalysis } from '../services/gapAnalysis.js';
 import { computeVerifiedSkills } from '../services/verifiedSkills.js';
+import { findUnsupportedSeniorityTerms } from '../services/suggestResumeTitle.js';
 import { atsScoreAndRecruiter } from '../services/atsScoreAndRecruiter.js';
 import { buildResumeDocxBuffer } from '../services/exportResumeDocx.js';
 import { buildCoverLetterDocxBuffer } from '../services/exportCoverLetterDocx.js';
@@ -51,6 +52,14 @@ function sanitizeFilename(name) {
 function truncateForFlag(text, maxLength = 50) {
   if (!text) return '';
   return text.length > maxLength ? `${text.slice(0, maxLength).trimEnd()}…` : text;
+}
+
+// Display-only, never persisted — same "compute live, don't store" pattern
+// as verifiedSkills/skillMatchTypes. Only meaningful for a hand-edited title,
+// since the AI suggestion can never contain one of these words by construction.
+function computeTitleSeniorityWarning(tailoredTitle) {
+  if (tailoredTitle?.editSource !== 'human') return [];
+  return findUnsupportedSeniorityTerms(tailoredTitle.finalText);
 }
 
 // Resumes the one interrupt() in node 10 with a Command, then reads back the
@@ -330,6 +339,7 @@ router.get('/:id', async (req, res) => {
       ...(resume?.projects || []).map((project) => project.description),
     ];
     const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(effectiveSkills, sourceTexts);
+    const titleSeniorityWarning = computeTitleSeniorityWarning(application.tailoredTitle);
 
     return res.json({
       application,
@@ -339,6 +349,7 @@ router.get('/:id', async (req, res) => {
       roleFitReason: application.status === 'role_mismatch' ? state.roleFit?.reason : undefined,
       verifiedSkills,
       skillMatchTypes,
+      titleSeniorityWarning,
     });
   } catch (err) {
     console.error(err);
@@ -603,7 +614,9 @@ router.patch('/:id/title', async (req, res) => {
     application.tailoredTitle.editSource = 'human';
     await application.save();
 
-    return res.json({ application });
+    const titleSeniorityWarning = computeTitleSeniorityWarning(application.tailoredTitle);
+
+    return res.json({ application, titleSeniorityWarning });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to update tailored title.' });

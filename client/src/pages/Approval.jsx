@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Download, Pencil, Trash2, X } from "lucide-react";
+import { Download, Info, Pencil, Trash2, X } from "lucide-react";
 import { APPLICATIONS_API as API_BASE, RESUMES_API } from "../lib/api.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Spinner } from "../components/Spinner.jsx";
@@ -83,6 +83,12 @@ export default function Approval() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingTitleText, setEditingTitleText] = useState("");
   const [savingTitle, setSavingTitle] = useState(false);
+  const [titleSeniorityWarning, setTitleSeniorityWarning] = useState([]);
+
+  // True the moment any edit/include-exclude action saves successfully,
+  // false once a re-check (or a retry, which already re-checks on its own)
+  // brings the displayed score/feedback back in sync with what's on screen.
+  const [dirtySinceCheck, setDirtySinceCheck] = useState(false);
 
   const [rechecking, setRechecking] = useState(false);
   const [showOriginalFeedback, setShowOriginalFeedback] = useState(false);
@@ -134,6 +140,8 @@ export default function Approval() {
       setRoleFitReason(data.roleFitReason || "");
       setVerifiedSkills(data.verifiedSkills || []);
       setSkillMatchTypes(data.skillMatchTypes || {});
+      setTitleSeniorityWarning(data.titleSeniorityWarning || []);
+      setDirtySinceCheck(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -227,6 +235,7 @@ export default function Approval() {
       setApplication(data.application);
       setVerifiedSkills(data.verifiedSkills || []);
       setSkillMatchTypes(data.skillMatchTypes || {});
+      setDirtySinceCheck(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -252,6 +261,7 @@ export default function Approval() {
       setSkillMatchTypes(data.skillMatchTypes || {});
       setEditingBulletId(null);
       setEditingBulletText("");
+      setDirtySinceCheck(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -280,6 +290,7 @@ export default function Approval() {
       setApplication(data.application);
       setEditingSummary(false);
       setEditingSummaryText("");
+      setDirtySinceCheck(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -306,8 +317,10 @@ export default function Approval() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't save the title.");
       setApplication(data.application);
+      setTitleSeniorityWarning(data.titleSeniorityWarning || []);
       setEditingTitle(false);
       setEditingTitleText("");
+      setDirtySinceCheck(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -329,6 +342,7 @@ export default function Approval() {
         humanRecheckRecruiterFeedback: data.humanRecheckRecruiterFeedback,
         humanRecheckKeywordGaps: data.humanRecheckKeywordGaps,
       }));
+      setDirtySinceCheck(false);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -442,6 +456,7 @@ export default function Approval() {
       setApplication(data.application);
       setVerifiedSkills(data.verifiedSkills || []);
       setSkillMatchTypes(data.skillMatchTypes || {});
+      setDirtySinceCheck(true);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -496,6 +511,27 @@ export default function Approval() {
 
   return (
     <section className="mx-auto w-full max-w-5xl">
+      {application && dirtySinceCheck && application.status !== "approved" && (
+        <div className="fixed inset-x-0 bottom-6 z-50 flex justify-center px-4 sm:justify-end sm:pr-6">
+          <div className="flex w-full max-w-sm items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-4 shadow-lg dark:border-blue-800 dark:bg-blue-950">
+            <Info className="mt-0.5 size-5 shrink-0 text-blue-600 dark:text-blue-400" />
+            <div className="flex-1">
+              <p className="text-sm text-blue-900 dark:text-blue-200">
+                You've made changes since your last check — the score and feedback below are stale.
+              </p>
+              <Button size="sm" className="mt-2" onClick={runRecheck} disabled={busy}>
+                {rechecking ? (
+                  <>
+                    <Spinner className="size-4" /> Re-checking…
+                  </>
+                ) : (
+                  "Re-check edited text"
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="sticky top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
         <Breadcrumbs
           backTo="/applications"
@@ -660,6 +696,12 @@ export default function Approval() {
                   ) : (
                     <>
                       <p className="text-sm text-foreground">{application.tailoredTitle?.finalText}</p>
+                      {titleSeniorityWarning.length > 0 && (
+                        <p className="mt-1 text-xs text-yellow-700 dark:text-yellow-400">
+                          Contains {titleSeniorityWarning.map((term) => `"${term}"`).join(", ")} — your resume
+                          doesn't show that level of seniority.
+                        </p>
+                      )}
                       {application.status !== "approved" && (
                         <Button size="sm" variant="ghost" className="mt-2 w-fit" onClick={startEditingTitle}>
                           <Pencil className="size-4" />

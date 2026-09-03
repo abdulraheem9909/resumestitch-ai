@@ -12,7 +12,7 @@ import { calculateYearsOfExperience } from '../services/calculateYearsOfExperien
 import { tailorContent } from '../services/tailorContent.js';
 import { suggestResumeTitle } from '../services/suggestResumeTitle.js';
 import { rephraseIntensity } from '../services/rephraseIntensity.js';
-import { verifyBullet, verifySummary, trustHumanEdit } from '../services/deterministicVerification.js';
+import { verifyBullet, verifySummary, trustHumanEdit, extractClaimedSkills } from '../services/deterministicVerification.js';
 import { generateCoverLetter } from '../services/generateCoverLetter.js';
 import { styleLinting } from '../services/styleLinting.js';
 import { atsScoreAndRecruiter, shouldRetryAutomatically, buildAutoRetryNotes } from '../services/atsScoreAndRecruiter.js';
@@ -268,6 +268,39 @@ export function ensureEveryEmployerRepresented(bullets, resumeBullets, jdCanonic
   return result;
 }
 
+// Rephrasing is only constrained to never ADD a skill/tool/employer/metric
+// absent from the source bullet — nothing stops it from DROPPING one that
+// was already there. That's harmless most of the time, but not when the
+// dropped word is a skill this JD actually asked for and the resume actually
+// has: literal keyword matching (this app's own gap analysis, and some real
+// ATS software) can't credit "MERN stack" for "Express.js" the way a human
+// reader would. For every kept, non-human-edited bullet, if its source text
+// literally claims a skill that's also in `matchedSkills` but the tailored
+// text no longer does, revert that bullet to its verbatim source text —
+// same safe fallback the two guarantees above already use, rather than
+// trying to surgically patch one word back into an arbitrary sentence.
+// Scoped to matchedSkills only: a dropped word irrelevant to this JD isn't
+// worth losing an otherwise-good rephrase over.
+export function preserveMatchedSkillWording(bullets, resumeBulletsById, matchedSkills) {
+  const matchedSet = new Set(matchedSkills || []);
+  if (matchedSet.size === 0) return bullets;
+
+  return bullets.map((bullet) => {
+    if (bullet.rejected || bullet.editSource === 'human') return bullet;
+    const sourceBullet = resumeBulletsById.get(bullet.sourceBulletId);
+    if (!sourceBullet) return bullet;
+
+    const sourceSkills = extractClaimedSkills(sourceBullet.text);
+    const tailoredSkills = extractClaimedSkills(bullet.finalText);
+    const droppedMatchedSkill = [...sourceSkills].some(
+      (skill) => matchedSet.has(skill) && !tailoredSkills.has(skill)
+    );
+    if (!droppedMatchedSkill) return bullet;
+
+    return verbatimTailoredBullet(sourceBullet);
+  });
+}
+
 // Preserves a hand-edited title across a retry, the same shape as the
 // tailoredSummary preservation check inline in tailorContentNode — pulled out
 // as its own function purely so it's directly unit-testable, mirroring
@@ -301,6 +334,7 @@ async function tailorContentNode(state) {
   let tailoredBullets = mergeHumanEditedBullets(generated.tailoredBullets, state.tailoredBullets);
   tailoredBullets = ensureRequiredBulletIncluded(tailoredBullets, state.requiredBulletId, resumeBulletsById);
   tailoredBullets = ensureEveryEmployerRepresented(tailoredBullets, state.resumeBullets, state.jdCanonicalSkills);
+  tailoredBullets = preserveMatchedSkillWording(tailoredBullets, resumeBulletsById, matched);
 
   const tailoredSummary =
     state.tailoredSummary?.editSource === 'human' ? state.tailoredSummary : generated.tailoredSummary;

@@ -6,6 +6,7 @@ import {
   ensureRequiredBulletIncluded,
   ensureEveryEmployerRepresented,
   mergeHumanEditedTitle,
+  preserveMatchedSkillWording,
 } from './jobAgentGraph.js';
 import { normalizeSkills } from '../services/normalizeSkills.js';
 
@@ -286,4 +287,81 @@ test('mergeHumanEditedTitle uses the fresh suggestion on the first pass (no prev
   const freshTitle = { generatedText: 'Full-Stack Engineer', humanEditedText: null, finalText: 'Full-Stack Engineer', editSource: 'ai' };
 
   assert.deepEqual(mergeHumanEditedTitle(freshTitle, undefined), freshTitle);
+});
+
+test('preserveMatchedSkillWording reverts a kept bullet whose rephrase dropped a matched skill literally present in the source', () => {
+  const resumeBulletsById = new Map([
+    [
+      'src-1',
+      { bulletId: 'src-1', text: 'Architected a system on MERN stack (MongoDB, Express.js, React, Node.js) deployed on AWS EC2.' },
+    ],
+  ]);
+  const bullets = [
+    {
+      bulletId: 'b1',
+      sourceBulletId: 'src-1',
+      finalText: 'Architected a system on the MERN stack, deployed on AWS EC2.',
+      rejected: false,
+      editSource: 'ai',
+    },
+  ];
+
+  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express']);
+
+  assert.equal(result[0].finalText, resumeBulletsById.get('src-1').text);
+  assert.equal(result[0].rephraseIntensity, 0);
+});
+
+test('preserveMatchedSkillWording leaves a kept bullet untouched when the tailored text still contains the matched skill', () => {
+  const resumeBulletsById = new Map([
+    ['src-1', { bulletId: 'src-1', text: 'Built APIs with Express.js and Node.js.' }],
+  ]);
+  const bullets = [
+    { bulletId: 'b1', sourceBulletId: 'src-1', finalText: 'Built secure APIs using Express.js and Node.js.', rejected: false, editSource: 'ai' },
+  ];
+
+  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express']);
+
+  assert.deepEqual(result, bullets);
+});
+
+test('preserveMatchedSkillWording leaves a kept bullet untouched when the dropped skill is not in matchedSkills', () => {
+  const resumeBulletsById = new Map([
+    ['src-1', { bulletId: 'src-1', text: 'Built APIs with Express.js and Redis for caching.' }],
+  ]);
+  const bullets = [
+    { bulletId: 'b1', sourceBulletId: 'src-1', finalText: 'Built APIs with Express.js for improved performance.', rejected: false, editSource: 'ai' },
+  ];
+
+  // "redis" was dropped, but it's not a JD-matched skill this time — "express"
+  // (the only matched skill) is still present in the tailored text.
+  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express']);
+
+  assert.deepEqual(result, bullets);
+});
+
+test('preserveMatchedSkillWording never touches a hand-edited bullet, even if it also drops a matched skill', () => {
+  const resumeBulletsById = new Map([
+    ['src-1', { bulletId: 'src-1', text: 'Built APIs with Express.js and Node.js.' }],
+  ]);
+  const bullets = [
+    { bulletId: 'b1', sourceBulletId: 'src-1', finalText: 'Built APIs with Node.js.', rejected: false, editSource: 'human' },
+  ];
+
+  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express']);
+
+  assert.deepEqual(result, bullets);
+});
+
+test('preserveMatchedSkillWording no-ops on an already-rejected bullet', () => {
+  const resumeBulletsById = new Map([
+    ['src-1', { bulletId: 'src-1', text: 'Built APIs with Express.js and Node.js.' }],
+  ]);
+  const bullets = [
+    { bulletId: 'b1', sourceBulletId: 'src-1', finalText: 'Built APIs with Node.js.', rejected: true, editSource: 'ai' },
+  ];
+
+  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express']);
+
+  assert.deepEqual(result, bullets);
 });

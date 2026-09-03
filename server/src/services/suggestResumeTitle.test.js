@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { suggestResumeTitle } from './suggestResumeTitle.js';
+import { suggestResumeTitle, findUnsupportedSeniorityTerms } from './suggestResumeTitle.js';
 
 test('suggestResumeTitle strips a single seniority qualifier', () => {
   assert.equal(suggestResumeTitle('Senior Software Engineer', 'Software Engineer'), 'Software Engineer');
@@ -25,4 +25,22 @@ test('suggestResumeTitle falls back to the resume title when jdTitle is empty', 
 
 test('suggestResumeTitle strips qualifiers case-insensitively and collapses leftover whitespace', () => {
   assert.equal(suggestResumeTitle('SENIOR   Full Stack Engineer', 'Software Engineer'), 'Full Stack Engineer');
+});
+
+test('findUnsupportedSeniorityTerms matches a single term', () => {
+  assert.deepEqual(findUnsupportedSeniorityTerms('Chief Software Engineer'), ['chief']);
+});
+
+test('findUnsupportedSeniorityTerms matches multiple distinct terms', () => {
+  assert.deepEqual(findUnsupportedSeniorityTerms('Senior Staff Engineer'), ['senior', 'staff']);
+});
+
+test('findUnsupportedSeniorityTerms matches case-insensitively and de-duplicates', () => {
+  assert.deepEqual(findUnsupportedSeniorityTerms('SENIOR Engineer, Senior Backend'), ['senior']);
+});
+
+test('findUnsupportedSeniorityTerms returns an empty array on a clean title', () => {
+  assert.deepEqual(findUnsupportedSeniorityTerms('Full-Stack Engineer'), []);
+  assert.deepEqual(findUnsupportedSeniorityTerms(''), []);
+  assert.deepEqual(findUnsupportedSeniorityTerms(undefined), []);
 });
