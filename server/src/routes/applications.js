@@ -73,7 +73,7 @@ async function resumeGraph(applicationId, resumePayload) {
 async function computeHumanRecheck(application) {
   const graph = getJobAgentGraph();
   const snapshot = await graph.getState({ configurable: { thread_id: application._id.toString() } });
-  const { resumeBullets = [], matchedSkills = [], yearsOfExperience } = snapshot.values || {};
+  const { resumeBullets = [], matchedSkills = [], yearsOfExperience, resumeTitle } = snapshot.values || {};
   const bulletsById = new Map(resumeBullets.map((bullet) => [bullet.bulletId, bullet]));
 
   const bulletResults = application.tailoredBullets.map((tailoredBullet) => {
@@ -133,6 +133,7 @@ async function computeHumanRecheck(application) {
     jdText: application.jdSnapshot,
     tailoredBullets: application.tailoredBullets.filter((bullet) => !bullet.rejected),
     tailoredSummary: application.tailoredSummary,
+    resumeTitle: application.tailoredTitle?.finalText || resumeTitle,
     coverLetterText: application.coverLetterText,
     keywordGaps: humanRecheckKeywordGaps,
     verificationResult: { bullets: bulletResults, summary: summaryResult, overallPassed },
@@ -247,6 +248,7 @@ router.post('/', async (req, res) => {
           masterResumeId,
           companyName: companyName.trim(),
           jdText,
+          jdTitle: jobTitle.trim(),
           resumeSummary: resume.summary,
           resumeTitle: resume.personalInfo?.title,
           resumeCanonicalSkills,
@@ -270,6 +272,7 @@ router.post('/', async (req, res) => {
         application.status = 'pending_approval';
         application.tailoredBullets = state.tailoredBullets;
         application.tailoredSummary = state.tailoredSummary;
+        application.tailoredTitle = state.tailoredTitle;
         application.coverLetterText = state.coverLetterText;
         application.atsScore = state.atsScore;
         application.atsFlags = state.atsFlags;
@@ -400,6 +403,7 @@ router.get('/:id/export/resume.docx', async (req, res) => {
     const buffer = await buildResumeDocxBuffer({
       personalInfo: resume?.personalInfo || {},
       tailoredSummary: application.tailoredSummary,
+      tailoredTitle: application.tailoredTitle,
       tailoredBullets: application.tailoredBullets.filter((bullet) => !bullet.rejected),
       originalBulletsById,
       education: resume?.education || [],
@@ -572,6 +576,40 @@ router.patch('/:id/summary', async (req, res) => {
   }
 });
 
+// Hand-edit the tailored title — direct Mongo write, no graph interaction.
+// Same shape as the summary edit route above.
+router.patch('/:id/title', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+
+  const { text } = req.body;
+  if (typeof text !== 'string' || !text.trim()) {
+    return res.status(400).json({ error: 'text is required.' });
+  }
+
+  try {
+    const application = await Application.findById(id);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+    if (!application.tailoredTitle) {
+      return res.status(400).json({ error: 'This application has no tailored title to edit.' });
+    }
+
+    application.tailoredTitle.humanEditedText = text;
+    application.tailoredTitle.finalText = text;
+    application.tailoredTitle.editSource = 'human';
+    await application.save();
+
+    return res.json({ application });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to update tailored title.' });
+  }
+});
+
 // Per-application override of the resume's skills list — display only, never
 // touches gap analysis or ATS scoring (see server/src/services/verifiedSkills.js).
 // Direct Mongo write, no graph interaction, same shape as the summary/bullet
@@ -690,9 +728,20 @@ router.post('/:id/resume', async (req, res) => {
 
     const resumePayload =
       action === 'approve'
-        ? { action: 'approve', tailoredBullets: application.tailoredBullets, tailoredSummary: application.tailoredSummary }
+        ? {
+            action: 'approve',
+            tailoredBullets: application.tailoredBullets,
+            tailoredSummary: application.tailoredSummary,
+            tailoredTitle: application.tailoredTitle,
+          }
         : action === 'retry'
-          ? { action: 'retry', notes, tailoredBullets: application.tailoredBullets, tailoredSummary: application.tailoredSummary }
+          ? {
+              action: 'retry',
+              notes,
+              tailoredBullets: application.tailoredBullets,
+              tailoredSummary: application.tailoredSummary,
+              tailoredTitle: application.tailoredTitle,
+            }
           : { action: 'override' };
 
     const snapshot = await resumeGraph(id, resumePayload);
@@ -703,6 +752,7 @@ router.post('/:id/resume', async (req, res) => {
       application.approvedAt = new Date();
       application.tailoredBullets = state.tailoredBullets;
       application.tailoredSummary = state.tailoredSummary;
+      application.tailoredTitle = state.tailoredTitle;
       application.coverLetterText = state.coverLetterText;
       application.atsScore = state.atsScore;
       application.atsFlags = state.atsFlags;
@@ -713,6 +763,7 @@ router.post('/:id/resume', async (req, res) => {
       application.retryNotes.push({ notes });
       application.tailoredBullets = state.tailoredBullets;
       application.tailoredSummary = state.tailoredSummary;
+      application.tailoredTitle = state.tailoredTitle;
       application.keywordGaps = state.keywordGaps;
       application.coverLetterText = state.coverLetterText;
       application.atsScore = state.atsScore;
@@ -732,6 +783,7 @@ router.post('/:id/resume', async (req, res) => {
       application.retryNotes.push({ notes: 'Role-fit gate manually overridden by user — proceeded to tailoring.' });
       application.tailoredBullets = state.tailoredBullets;
       application.tailoredSummary = state.tailoredSummary;
+      application.tailoredTitle = state.tailoredTitle;
       application.keywordGaps = state.keywordGaps;
       application.coverLetterText = state.coverLetterText;
       application.atsScore = state.atsScore;
@@ -868,6 +920,7 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
       notes,
       tailoredBullets: application.tailoredBullets,
       tailoredSummary: application.tailoredSummary,
+      tailoredTitle: application.tailoredTitle,
       resumeBullets: resumeBulletsForGraph,
       requiredBulletId,
     });
@@ -877,6 +930,7 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
     application.retryNotes.push({ notes });
     application.tailoredBullets = state.tailoredBullets;
     application.tailoredSummary = state.tailoredSummary;
+    application.tailoredTitle = state.tailoredTitle;
     application.keywordGaps = state.keywordGaps;
     application.coverLetterText = state.coverLetterText;
     application.atsScore = state.atsScore;

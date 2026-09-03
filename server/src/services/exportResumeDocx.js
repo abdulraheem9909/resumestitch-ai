@@ -28,6 +28,7 @@ function groupBulletsByRole(tailoredBullets, originalBulletsById) {
 export function buildResumeDocxBuffer({
   personalInfo = {},
   tailoredSummary,
+  tailoredTitle,
   tailoredBullets,
   originalBulletsById,
   education = [],
@@ -46,8 +47,9 @@ export function buildResumeDocxBuffer({
     }),
   ];
 
-  if (personalInfo.title) {
-    children.push(new Paragraph({ text: personalInfo.title }));
+  const effectiveTitle = tailoredTitle?.finalText || personalInfo.title;
+  if (effectiveTitle) {
+    children.push(new Paragraph({ text: effectiveTitle }));
   }
   if (contactLine) {
     children.push(new Paragraph({ text: contactLine }));

@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -78,6 +79,10 @@ export default function Approval() {
   const [editingSummary, setEditingSummary] = useState(false);
   const [editingSummaryText, setEditingSummaryText] = useState("");
   const [savingSummary, setSavingSummary] = useState(false);
+
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingTitleText, setEditingTitleText] = useState("");
+  const [savingTitle, setSavingTitle] = useState(false);
 
   const [rechecking, setRechecking] = useState(false);
   const [showOriginalFeedback, setShowOriginalFeedback] = useState(false);
@@ -282,6 +287,34 @@ export default function Approval() {
     }
   }
 
+  function startEditingTitle() {
+    setEditingTitle(true);
+    setEditingTitleText(application.tailoredTitle.finalText);
+  }
+
+  async function saveTitle() {
+    if (!editingTitleText.trim()) return;
+
+    setSavingTitle(true);
+    setError("");
+    try {
+      const res = await fetch(`${API_BASE}/${applicationId}/title`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: editingTitleText }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't save the title.");
+      setApplication(data.application);
+      setEditingTitle(false);
+      setEditingTitleText("");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingTitle(false);
+    }
+  }
+
   async function runRecheck() {
     setRechecking(true);
     setError("");
@@ -433,6 +466,7 @@ export default function Approval() {
   const busy =
     savingBulletId !== null ||
     savingSummary ||
+    savingTitle ||
     rechecking ||
     addingSkill ||
     savingSkills ||
@@ -443,6 +477,12 @@ export default function Approval() {
   const applicationLabel = application?.companyName
     ? [application.companyName, application.jobTitle].filter(Boolean).join(" — ")
     : "Review application";
+
+  // referenceUrl is free-text the user typed in at application-creation time
+  // (see key-decisions-log.md — it's never fetched server-side, display only)
+  // — only render it as a clickable link when it's genuinely http(s), so a
+  // stray javascript:/data: scheme can never execute on click.
+  const safeReferenceUrl = /^https?:\/\//i.test(application?.referenceUrl || "") ? application.referenceUrl : null;
 
   // Once a re-check has run, its result is "current" and the original AI pass
   // becomes historical — shown only on request, never side-by-side with equal
@@ -533,7 +573,38 @@ export default function Approval() {
       )}
 
       {!loading && application && application.status !== "role_mismatch" && (
-        <>
+        <Tabs defaultValue="report">
+          <TabsList className="mb-5 w-full">
+            <TabsTrigger value="report">Report</TabsTrigger>
+            <TabsTrigger value="job-details">Job Details</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="job-details">
+            <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Job Details</p>
+              <h2 className="font-display text-lg font-semibold text-foreground">{application.companyName}</h2>
+              <p className="mb-4 text-sm text-muted-foreground">{application.jobTitle}</p>
+              <p className="mb-1 text-xs font-medium text-muted-foreground">Reference link</p>
+              {safeReferenceUrl ? (
+                <a
+                  href={safeReferenceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mb-4 block text-sm text-primary underline underline-offset-2 break-all"
+                >
+                  {safeReferenceUrl}
+                </a>
+              ) : application.referenceUrl ? (
+                <p className="mb-4 text-sm break-all text-foreground">{application.referenceUrl}</p>
+              ) : (
+                <p className="mb-4 text-sm text-muted-foreground">No reference link saved.</p>
+              )}
+              <p className="mb-1 text-xs font-medium text-muted-foreground">Job description</p>
+              <p className="whitespace-pre-wrap text-sm text-foreground">{application.jdSnapshot}</p>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="report">
           {/* Candidate info — read-only, from the master resume */}
           {masterResume && (
             <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
@@ -547,6 +618,58 @@ export default function Approval() {
                 {masterResume.personalInfo?.fullName}
               </h2>
               {contactLine && <p className="mt-1 text-sm text-muted-foreground">{contactLine}</p>}
+            </div>
+          )}
+
+          {/* Tailored title */}
+          {application.tailoredTitle && (
+            <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+              <h3 className="mb-3 font-display text-lg font-semibold text-foreground">Title</h3>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="mb-1 text-xs font-medium text-muted-foreground">Original</p>
+                  <p className="text-sm text-foreground">{masterResume?.personalInfo?.title || "No title set"}</p>
+                </div>
+                <div>
+                  <div className="mb-1 flex items-center gap-2">
+                    <p className="text-xs font-medium text-muted-foreground">Tailored</p>
+                    {application.tailoredTitle?.editSource && (
+                      <Badge variant="secondary">{application.tailoredTitle.editSource}</Badge>
+                    )}
+                  </div>
+                  {editingTitle ? (
+                    <>
+                      <Input
+                        value={editingTitleText}
+                        onChange={(event) => setEditingTitleText(event.target.value)}
+                      />
+                      <div className="mt-2 flex gap-2">
+                        <Button size="sm" onClick={saveTitle} disabled={savingTitle}>
+                          {savingTitle ? "Saving…" : "Save"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => setEditingTitle(false)}
+                          disabled={savingTitle}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm text-foreground">{application.tailoredTitle?.finalText}</p>
+                      {application.status !== "approved" && (
+                        <Button size="sm" variant="ghost" className="mt-2 w-fit" onClick={startEditingTitle}>
+                          <Pencil className="size-4" />
+                          Edit
+                        </Button>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -1048,7 +1171,8 @@ export default function Approval() {
               )}
             </div>
           )}
-        </>
+          </TabsContent>
+        </Tabs>
       )}
     </section>
   );

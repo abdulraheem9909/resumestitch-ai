@@ -5,6 +5,7 @@ import {
   mergeHumanEditedBullets,
   ensureRequiredBulletIncluded,
   ensureEveryEmployerRepresented,
+  mergeHumanEditedTitle,
 } from './jobAgentGraph.js';
 import { normalizeSkills } from '../services/normalizeSkills.js';
 
@@ -265,4 +266,24 @@ test('ensureEveryEmployerRepresented leaves an employer unrepresented if every o
   assert.equal(result.length, 2, 'no bullet force-added for Geekybugs — its only bullet was manually excluded');
   const bySource = new Map(result.map((b) => [b.sourceBulletId, b]));
   assert.equal(bySource.get('g1').rejected, true);
+});
+
+test('mergeHumanEditedTitle preserves a hand-edited title across a retry instead of the fresh suggestion', () => {
+  const freshTitle = { generatedText: 'Full-Stack Engineer', humanEditedText: null, finalText: 'Full-Stack Engineer', editSource: 'ai' };
+  const previousTitle = { generatedText: 'Backend Engineer', humanEditedText: 'Platform Engineer', finalText: 'Platform Engineer', editSource: 'human' };
+
+  assert.deepEqual(mergeHumanEditedTitle(freshTitle, previousTitle), previousTitle);
+});
+
+test('mergeHumanEditedTitle uses the fresh suggestion when the previous title was never hand-edited', () => {
+  const freshTitle = { generatedText: 'Full-Stack Engineer', humanEditedText: null, finalText: 'Full-Stack Engineer', editSource: 'ai' };
+  const previousTitle = { generatedText: 'Backend Engineer', humanEditedText: null, finalText: 'Backend Engineer', editSource: 'ai' };
+
+  assert.deepEqual(mergeHumanEditedTitle(freshTitle, previousTitle), freshTitle);
+});
+
+test('mergeHumanEditedTitle uses the fresh suggestion on the first pass (no previous title)', () => {
+  const freshTitle = { generatedText: 'Full-Stack Engineer', humanEditedText: null, finalText: 'Full-Stack Engineer', editSource: 'ai' };
+
+  assert.deepEqual(mergeHumanEditedTitle(freshTitle, undefined), freshTitle);
 });

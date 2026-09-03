@@ -21,13 +21,14 @@ const model = new ChatOpenAI({ model: ATS_MODEL, temperature: 0 }).withStructure
   strict: true,
 });
 
-function computeInputHash({ jdText, tailoredBullets, tailoredSummary, coverLetterText, keywordGaps, verificationResult }) {
+function computeInputHash({ jdText, tailoredBullets, tailoredSummary, resumeTitle, coverLetterText, keywordGaps, verificationResult }) {
   const payload = JSON.stringify({
     jdText,
     tailoredBullets: [...tailoredBullets]
       .map((bullet) => ({ bulletId: bullet.bulletId, finalText: bullet.finalText, rephraseIntensity: bullet.rephraseIntensity }))
       .sort((a, b) => a.bulletId.localeCompare(b.bulletId)),
     tailoredSummary: tailoredSummary.finalText,
+    resumeTitle: resumeTitle || '',
     coverLetterText: coverLetterText || '',
     keywordGaps: [...(keywordGaps || [])].sort(),
     verificationOverallPassed: verificationResult?.overallPassed ?? null,
@@ -62,13 +63,14 @@ export async function atsScoreAndRecruiter({
   jdText,
   tailoredBullets,
   tailoredSummary,
+  resumeTitle,
   coverLetterText,
   keywordGaps,
   verificationResult,
   applicationId,
   resumeVersion,
 }) {
-  const inputHash = computeInputHash({ jdText, tailoredBullets, tailoredSummary, coverLetterText, keywordGaps, verificationResult });
+  const inputHash = computeInputHash({ jdText, tailoredBullets, tailoredSummary, resumeTitle, coverLetterText, keywordGaps, verificationResult });
 
   const cached = await GenerationCache.findOne({
     applicationId,
@@ -93,7 +95,9 @@ export async function atsScoreAndRecruiter({
     {
       role: 'system',
       content:
-        'Score this tailored application against the job description and flag specific problems. Use ' +
+        'Score this tailored application against the job description and flag specific problems. Weigh ' +
+        'whether <resume_title> reasonably matches the role in the job description as one factor in the score ' +
+        'and recruiterFeedback, alongside the bullets/summary — but never as its own separate flag. Use ' +
         'missingRequirement when an important JD requirement is not addressed anywhere in the tailored ' +
         'bullets/summary/cover letter and appears in the given keyword-gap list. Use unsupportedClaim when a ' +
         'claim in the tailored text is not credibly backed by the given source material — this is a second, ' +
@@ -110,6 +114,7 @@ export async function atsScoreAndRecruiter({
       role: 'user',
       content:
         `<job_description>\n${jdText}\n</job_description>\n\n` +
+        `<resume_title>\n${resumeTitle || '(none set)'}\n</resume_title>\n\n` +
         `<tailored_bullets>\n${tailoredBullets
           .map((bullet) => `[bulletId: ${bullet.bulletId}, rephraseIntensity: ${bullet.rephraseIntensity}]\n${bullet.finalText}`)
           .join('\n\n')}\n</tailored_bullets>\n\n` +

@@ -10,6 +10,7 @@ import { roleFitGate } from '../services/roleFitGate.js';
 import { matchedSkills } from '../services/matchedSkills.js';
 import { calculateYearsOfExperience } from '../services/calculateYearsOfExperience.js';
 import { tailorContent } from '../services/tailorContent.js';
+import { suggestResumeTitle } from '../services/suggestResumeTitle.js';
 import { rephraseIntensity } from '../services/rephraseIntensity.js';
 import { verifyBullet, verifySummary, trustHumanEdit } from '../services/deterministicVerification.js';
 import { generateCoverLetter } from '../services/generateCoverLetter.js';
@@ -48,6 +49,13 @@ const tailoredSummarySchema = z.object({
   editSource: z.enum(['ai', 'human']),
 });
 
+const tailoredTitleSchema = z.object({
+  generatedText: z.string(),
+  humanEditedText: z.string().nullable(),
+  finalText: z.string(),
+  editSource: z.enum(['ai', 'human']),
+});
+
 const verificationEntrySchema = z.object({
   passed: z.boolean(),
   fabricatedSkills: z.array(z.string()),
@@ -60,6 +68,9 @@ const JobAgentState = new StateSchema({
   masterResumeId: z.string().optional(),
   companyName: z.string().optional(),
   jdText: z.string(),
+  // The JD posting's own title (application.jobTitle) — distinct from
+  // resumeTitle below, which is the master resume's own tagline.
+  jdTitle: z.string().optional(),
   resumeSummary: z.string().optional(),
   resumeTitle: z.string().optional(),
   resumeCanonicalSkills: z.array(z.string()).default(() => []),
@@ -94,6 +105,7 @@ const JobAgentState = new StateSchema({
   yearsOfExperience: z.number().optional(),
   tailoredBullets: z.array(tailoredBulletSchema).optional(),
   tailoredSummary: tailoredSummarySchema.optional(),
+  tailoredTitle: tailoredTitleSchema.optional(),
   generationId: z.string().optional(),
   verificationResult: z
     .object({
@@ -256,6 +268,14 @@ export function ensureEveryEmployerRepresented(bullets, resumeBullets, jdCanonic
   return result;
 }
 
+// Preserves a hand-edited title across a retry, the same shape as the
+// tailoredSummary preservation check inline in tailorContentNode — pulled out
+// as its own function purely so it's directly unit-testable, mirroring
+// mergeHumanEditedBullets above.
+export function mergeHumanEditedTitle(freshTitle, previousTitle) {
+  return previousTitle?.editSource === 'human' ? previousTitle : freshTitle;
+}
+
 // Node 5 (section 4)
 async function tailorContentNode(state) {
   if (!state.resumeBullets?.length) {
@@ -285,7 +305,14 @@ async function tailorContentNode(state) {
   const tailoredSummary =
     state.tailoredSummary?.editSource === 'human' ? state.tailoredSummary : generated.tailoredSummary;
 
-  return { matchedSkills: matched, yearsOfExperience, tailoredBullets, tailoredSummary, generationId };
+  // Deterministic, not an LLM output — see suggestResumeTitle.js. Computed
+  // fresh every pass (like yearsOfExperience) but a human edit still wins,
+  // same preservation pattern as tailoredSummary above.
+  const suggestedTitle = suggestResumeTitle(state.jdTitle, state.resumeTitle);
+  const freshTitle = { generatedText: suggestedTitle, humanEditedText: null, finalText: suggestedTitle, editSource: 'ai' };
+  const tailoredTitle = mergeHumanEditedTitle(freshTitle, state.tailoredTitle);
+
+  return { matchedSkills: matched, yearsOfExperience, tailoredBullets, tailoredSummary, tailoredTitle, generationId };
 }
 
 // Node 6 (section 4)
@@ -359,6 +386,7 @@ async function atsScoreAndRecruiterNode(state) {
     jdText: state.jdText,
     tailoredBullets: activeTailoredBullets,
     tailoredSummary: state.tailoredSummary,
+    resumeTitle: state.tailoredTitle?.finalText || state.resumeTitle,
     coverLetterText: state.coverLetterText,
     keywordGaps: state.keywordGaps,
     verificationResult: state.verificationResult,
@@ -397,6 +425,7 @@ function humanApprovalNode(state) {
           kind: 'review',
           tailoredBullets: state.tailoredBullets,
           tailoredSummary: state.tailoredSummary,
+          tailoredTitle: state.tailoredTitle,
           verificationResult: state.verificationResult,
           keywordGaps: state.keywordGaps,
         }
@@ -416,6 +445,7 @@ function humanApprovalNode(state) {
     return {
       tailoredBullets: resumeValue.tailoredBullets ?? state.tailoredBullets,
       tailoredSummary: resumeValue.tailoredSummary ?? state.tailoredSummary,
+      tailoredTitle: resumeValue.tailoredTitle ?? state.tailoredTitle,
       humanDecision: 'end',
     };
   }
@@ -430,6 +460,7 @@ function humanApprovalNode(state) {
   return {
     tailoredBullets: resumeValue.tailoredBullets ?? state.tailoredBullets,
     tailoredSummary: resumeValue.tailoredSummary ?? state.tailoredSummary,
+    tailoredTitle: resumeValue.tailoredTitle ?? state.tailoredTitle,
     resumeBullets: resumeValue.resumeBullets ?? state.resumeBullets,
     retryNotes: resumeValue.notes ?? '',
     requiredBulletId: resumeValue.requiredBulletId ?? null,

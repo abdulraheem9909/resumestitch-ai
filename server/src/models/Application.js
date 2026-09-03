@@ -30,6 +30,20 @@ const tailoredSummarySchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Same shape as tailoredSummarySchema. generatedText is never an LLM output —
+// it's the JD's own jobTitle with a fixed seniority/scope word list stripped
+// (suggestResumeTitle.js), so there's no fabrication surface and node 6 never
+// needs to verify it. See key-decisions-log.md.
+const tailoredTitleSchema = new mongoose.Schema(
+  {
+    generatedText: String,
+    humanEditedText: { type: String, default: null },
+    finalText: String,
+    editSource: { type: String, enum: ['ai', 'human'] },
+  },
+  { _id: false }
+);
+
 const applicationSchema = new mongoose.Schema(
   {
     masterResumeId: { type: String, required: true },
@@ -48,6 +62,7 @@ const applicationSchema = new mongoose.Schema(
     coverLetterRequested: { type: Boolean, default: false },
     tailoredBullets: [tailoredBulletSchema],
     tailoredSummary: tailoredSummarySchema,
+    tailoredTitle: tailoredTitleSchema,
     coverLetterText: String,
     atsScore: Number,
     atsFlags: [String],
