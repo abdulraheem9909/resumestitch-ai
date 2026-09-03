@@ -1,4 +1,26 @@
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx';
+
+// A custom numbering definition, not the `bullet: { level: 0 }` shorthand:
+// that shorthand has no way to size the glyph independently of body text,
+// which is exactly why it renders "●" (BLACK CIRCLE) at full 11pt — heavier
+// than a typical resume bullet. This uses the lighter "•" (BULLET) at a
+// smaller size, with a tighter hanging indent than the shorthand's default.
+const BULLET_NUMBERING_REFERENCE = 'resume-bullets';
+const bulletNumberingConfig = {
+  reference: BULLET_NUMBERING_REFERENCE,
+  levels: [
+    {
+      level: 0,
+      format: 'bullet',
+      text: '•',
+      alignment: AlignmentType.LEFT,
+      style: {
+        paragraph: { indent: { left: 360, hanging: 180 } },
+        run: { size: 18 },
+      },
+    },
+  ],
+};
 
 function groupBulletsByRole(tailoredBullets, originalBulletsById) {
   const groups = [];
@@ -73,7 +95,9 @@ export function buildResumeDocxBuffer({
       children.push(new Paragraph({ children: [new TextRun({ text: group.dateRange, italics: true })] }));
     }
     for (const bullet of group.bullets) {
-      children.push(new Paragraph({ text: bullet.finalText, bullet: { level: 0 } }));
+      children.push(
+        new Paragraph({ text: bullet.finalText, numbering: { reference: BULLET_NUMBERING_REFERENCE, level: 0 } })
+      );
     }
   }
 
@@ -117,22 +141,33 @@ export function buildResumeDocxBuffer({
   }
 
   const doc = new Document({
+    numbering: { config: [bulletNumberingConfig] },
     styles: {
       default: {
         document: {
           run: { font: 'Calibri', size: 22 },
+          // Word's own "Normal" default (~10pt spacing-after on every single
+          // paragraph) is what was actually pushing this document onto a
+          // near-empty extra page — not any one section on its own, but
+          // dozens of bullets/lines each carrying that gap. Headings get
+          // their own spacing back below so sections/entries still read as
+          // visually separated.
+          paragraph: { spacing: { after: 40 } },
         },
         // heading1 isn't used anywhere in this document today, but it's kept
         // bold/consistent with heading2/heading3 rather than left at docx's
         // own unbolded built-in default, in case it's ever reached for.
         heading1: {
           run: { bold: true, color: '2E74B5', size: 32 },
+          paragraph: { spacing: { before: 200, after: 80 } },
         },
         heading2: {
           run: { bold: true, color: '2E74B5', size: 26 },
+          paragraph: { spacing: { before: 200, after: 80 } },
         },
         heading3: {
           run: { bold: true, color: '1F4D78', size: 24 },
+          paragraph: { spacing: { before: 120, after: 40 } },
         },
       },
     },

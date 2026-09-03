@@ -84,6 +84,29 @@ test('buildResumeDocxBuffer declares an explicit default font and bolds every he
   }
 });
 
+test('buildResumeDocxBuffer\'s bullets actually render with a small "•" glyph, not the heavy "●" default', async () => {
+  // The docx package always emits an unused, built-in "●" numbering
+  // definition regardless of what's configured — checking numbering.xml
+  // for the mere absence of "●" would be a false negative. What matters is
+  // which definition the bullet paragraphs actually reference.
+  const buffer = await buildResumeDocxBuffer(buildFixture());
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file('word/document.xml').async('string');
+  const numberingXml = await zip.file('word/numbering.xml').async('string');
+
+  const numId = documentXml.match(/<w:numPr><w:ilvl w:val="0"\/><w:numId w:val="(\d+)"\/><\/w:numPr>/)?.[1];
+  assert.ok(numId, 'a tailored bullet paragraph should reference a numbering id');
+
+  const abstractNumId = numberingXml.match(new RegExp(`<w:num w:numId="${numId}"><w:abstractNumId w:val="(\\d+)"`))?.[1];
+  const abstractNumBlock = numberingXml.match(
+    new RegExp(`<w:abstractNum w:abstractNumId="${abstractNumId}"[^>]*>.*?</w:abstractNum>`, 's')
+  )?.[0];
+
+  assert.ok(abstractNumBlock?.includes('w:val="•"'), 'the numbering definition actually used by bullets should be the light "•" character');
+  assert.ok(!abstractNumBlock?.includes('w:val="●"'), 'the numbering definition actually used by bullets should not be the heavy "●" character');
+  assert.ok(/<w:sz w:val="18"\/>/.test(abstractNumBlock || ''), 'the bullet glyph should be rendered smaller than body text');
+});
+
 test('buildResumeDocxBuffer renders skills as one flowing paragraph, matching Summary, not fixed-count rows', async () => {
   // A fixed "N skills per row" split was tried and reverted: skill names
   // vary too much in length to wrap evenly at a fixed count, and it leaves
