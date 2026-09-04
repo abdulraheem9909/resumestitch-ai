@@ -13,9 +13,13 @@ import { ExperienceSection, groupTailoredBulletsByEmployer } from "../components
 import { EducationCard } from "../components/approval/EducationCard.jsx";
 import { ProjectsCard } from "../components/approval/ProjectsCard.jsx";
 import { SkillsCard } from "../components/approval/SkillsCard.jsx";
-import { AtsScoreCard } from "../components/approval/AtsScoreCard.jsx";
+import { CoverageCheckCard } from "../components/approval/CoverageCheckCard.jsx";
+import { AtsScoreSummary } from "../components/approval/AtsScoreSummary.jsx";
+import { AtsFeedbackCard } from "../components/approval/AtsFeedbackCard.jsx";
 import { CoverLetterCard } from "../components/approval/CoverLetterCard.jsx";
 import { SuggestSkillsCard } from "../components/approval/SuggestSkillsCard.jsx";
+import { SearchabilityCheckCard } from "../components/approval/SearchabilityCheckCard.jsx";
+import { SkillFrequencyCard } from "../components/approval/SkillFrequencyCard.jsx";
 import { ApprovalActions } from "../components/approval/ApprovalActions.jsx";
 
 export default function Approval() {
@@ -471,13 +475,14 @@ export default function Approval() {
   };
 
   return (
-    <section className="mx-auto w-full max-w-5xl">
+    <section className="mx-auto w-full max-w-[100rem]">
       {application && dirtySinceCheck && application.status !== "approved" && (
         <StaleScoreToast rechecking={rechecking} busy={busy} onRecheck={runRecheck} />
       )}
 
       <ApprovalHeader
         application={application}
+        applicationId={applicationId}
         discardDialogOpen={discardDialogOpen}
         setDiscardDialogOpen={setDiscardDialogOpen}
         discardError={discardError}
@@ -515,119 +520,153 @@ export default function Approval() {
           </TabsContent>
 
           <TabsContent value="report">
-            {/* Candidate info — read-only, from the master resume */}
-            {masterResume && <CandidateInfoCard masterResume={masterResume} />}
+          <div className="flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,1fr)_460px] lg:items-start">
+            <div className="flex flex-col">
+              {/* Candidate info — read-only, from the master resume */}
+              {masterResume && <CandidateInfoCard masterResume={masterResume} />}
 
-            {/* Tailored title */}
-            {application.tailoredTitle && (
-              <TailoredTitleCard
+              {/* Tailored title */}
+              {application.tailoredTitle && (
+                <TailoredTitleCard
+                  application={application}
+                  masterResume={masterResume}
+                  titleSeniorityWarning={titleSeniorityWarning}
+                  editingTitle={editingTitle}
+                  editingTitleText={editingTitleText}
+                  setEditingTitleText={setEditingTitleText}
+                  savingTitle={savingTitle}
+                  onStartEdit={startEditingTitle}
+                  onSave={saveTitle}
+                  onCancel={() => setEditingTitle(false)}
+                />
+              )}
+
+              {/* Tailored summary */}
+              <TailoredSummaryCard
                 application={application}
-                masterResume={masterResume}
-                titleSeniorityWarning={titleSeniorityWarning}
-                editingTitle={editingTitle}
-                editingTitleText={editingTitleText}
-                setEditingTitleText={setEditingTitleText}
-                savingTitle={savingTitle}
-                onStartEdit={startEditingTitle}
-                onSave={saveTitle}
-                onCancel={() => setEditingTitle(false)}
+                originalSummary={originalSummary}
+                editingSummary={editingSummary}
+                editingSummaryText={editingSummaryText}
+                setEditingSummaryText={setEditingSummaryText}
+                savingSummary={savingSummary}
+                summaryTextareaRef={summaryTextareaRef}
+                onStartEdit={startEditingSummary}
+                onSave={saveSummary}
+                onCancel={() => setEditingSummary(false)}
               />
-            )}
 
-            {/* Tailored summary */}
-            <TailoredSummaryCard
-              application={application}
-              originalSummary={originalSummary}
-              editingSummary={editingSummary}
-              editingSummaryText={editingSummaryText}
-              setEditingSummaryText={setEditingSummaryText}
-              savingSummary={savingSummary}
-              summaryTextareaRef={summaryTextareaRef}
-              onStartEdit={startEditingSummary}
-              onSave={saveSummary}
-              onCancel={() => setEditingSummary(false)}
-            />
-
-            {/* Tailored bullets, grouped by employer — same shape as the exported resume */}
-            <ExperienceSection
-              bulletGroups={bulletGroups}
-              originalsById={originalsById}
-              verificationByBulletId={verificationByBulletId}
-              applicationStatus={application.status}
-              editingState={editingBulletState}
-              bulletActions={bulletActions}
-            />
-
-            {/* Education / Projects / Skills — read-only, from the master resume */}
-            {masterResume?.education?.length > 0 && <EducationCard education={masterResume.education} />}
-
-            {masterResume?.projects?.length > 0 && <ProjectsCard projects={masterResume.projects} />}
-
-            {masterResume && (
-              <SkillsCard
-                effectiveSkills={effectiveSkills}
-                verifiedSkills={verifiedSkills}
-                skillMatchTypes={skillMatchTypes}
-                skillInput={skillInput}
-                setSkillInput={setSkillInput}
-                busy={busy}
-                onAddSkill={addSkill}
-                onRemoveSkill={removeSkill}
+              {/* Tailored bullets, grouped by employer — same shape as the exported resume */}
+              <ExperienceSection
+                bulletGroups={bulletGroups}
+                originalsById={originalsById}
+                verificationByBulletId={verificationByBulletId}
+                applicationStatus={application.status}
+                editingState={editingBulletState}
+                bulletActions={bulletActions}
               />
-            )}
 
-            {/* ATS score & recruiter feedback — always shows whichever is current: the
-                original AI pass, or the re-check once one has run. Never both at once. */}
-            {currentAtsScore != null && (
-              <AtsScoreCard
-                application={application}
-                currentAtsScore={currentAtsScore}
-                currentRecruiterFeedback={currentRecruiterFeedback}
-                currentAtsFlags={currentAtsFlags}
-                hasRecheck={hasRecheck}
-                rechecking={rechecking}
-                busy={busy}
-                showOriginalFeedback={showOriginalFeedback}
-                setShowOriginalFeedback={setShowOriginalFeedback}
-                onRecheck={runRecheck}
+              {/* Education / Projects / Skills — read-only, from the master resume */}
+              {masterResume?.education?.length > 0 && <EducationCard education={masterResume.education} />}
+
+              {masterResume?.projects?.length > 0 && <ProjectsCard projects={masterResume.projects} />}
+
+              {/* Cover letter (node 7, conditional) */}
+              {application.coverLetterRequested && (
+                <CoverLetterCard coverLetterText={application.coverLetterText} />
+              )}
+            </div>
+
+            <div className="flex flex-col">
+              {/* Always-visible, at-a-glance context */}
+              {currentAtsScore != null && (
+                <AtsScoreSummary currentAtsScore={currentAtsScore} currentAtsFlags={currentAtsFlags} />
+              )}
+
+              {/* Recruiter feedback, re-check action, and the historical
+                  before/after reveal — always shows whichever is current: the
+                  original AI pass, or the re-check once one has run. */}
+              {currentAtsScore != null && (
+                <AtsFeedbackCard
+                  application={application}
+                  currentRecruiterFeedback={currentRecruiterFeedback}
+                  hasRecheck={hasRecheck}
+                  rechecking={rechecking}
+                  busy={busy}
+                  showOriginalFeedback={showOriginalFeedback}
+                  setShowOriginalFeedback={setShowOriginalFeedback}
+                  onRecheck={runRecheck}
+                />
+              )}
+
+              {/* Bullets-kept and employer representation — same data as
+                  before, now a real visual treatment instead of plain badges. */}
+              <CoverageCheckCard application={application} bulletGroups={bulletGroups} />
+
+              {masterResume && (
+                <SkillsCard
+                  effectiveSkills={effectiveSkills}
+                  verifiedSkills={verifiedSkills}
+                  skillMatchTypes={skillMatchTypes}
+                  skillInput={skillInput}
+                  setSkillInput={setSkillInput}
+                  busy={busy}
+                  applicationStatus={application.status}
+                  onAddSkill={addSkill}
+                  onRemoveSkill={removeSkill}
+                />
+              )}
+
+              {/* Open-by-default diagnostics, still collapsible */}
+
+              {/* Read-only, non-blocking diagnostic against the current export build —
+                  open by default, fetched on mount (GET /:id/searchability-check) */}
+              <SearchabilityCheckCard applicationId={applicationId} />
+
+              {/* Read-only, non-blocking diagnostic — open by default,
+                  fetched on mount (GET /:id/skill-frequency). Hosts the JD
+                  skill-match bar above its own detail table (matched =
+                  jdCanonicalSkills minus the current keyword-gap list, both
+                  already on the application document from node 3/gap
+                  analysis — purely a display computation). */}
+              <SkillFrequencyCard
+                applicationId={applicationId}
+                jdCanonicalSkills={application.jdCanonicalSkills}
+                keywordGaps={effectiveKeywordGaps}
               />
-            )}
 
-            {/* Cover letter (node 7, conditional) */}
-            {application.coverLetterRequested && (
-              <CoverLetterCard coverLetterText={application.coverLetterText} />
-            )}
+              {/* Suggest missing skills — sits right above the decision
+                  (send back / approve) it's meant to inform. */}
+              {effectiveKeywordGaps.length > 0 && application.status !== "approved" && (
+                <SuggestSkillsCard
+                  effectiveKeywordGaps={effectiveKeywordGaps}
+                  employerOptions={employerOptions}
+                  activeSuggestSkill={activeSuggestSkill}
+                  setActiveSuggestSkill={setActiveSuggestSkill}
+                  suggestBulletText={suggestBulletText}
+                  setSuggestBulletText={setSuggestBulletText}
+                  suggestBulletTarget={suggestBulletTarget}
+                  setSuggestBulletTarget={setSuggestBulletTarget}
+                  saveToMasterResume={saveToMasterResume}
+                  setSaveToMasterResume={setSaveToMasterResume}
+                  suggestTextareaRef={suggestTextareaRef}
+                  addingSkill={addingSkill}
+                  onAccept={acceptSuggestedSkill}
+                />
+              )}
 
-            {/* Suggest missing skills */}
-            {effectiveKeywordGaps.length > 0 && application.status !== "approved" && (
-              <SuggestSkillsCard
-                effectiveKeywordGaps={effectiveKeywordGaps}
-                employerOptions={employerOptions}
-                activeSuggestSkill={activeSuggestSkill}
-                setActiveSuggestSkill={setActiveSuggestSkill}
-                suggestBulletText={suggestBulletText}
-                setSuggestBulletText={setSuggestBulletText}
-                suggestBulletTarget={suggestBulletTarget}
-                setSuggestBulletTarget={setSuggestBulletTarget}
-                saveToMasterResume={saveToMasterResume}
-                setSaveToMasterResume={setSaveToMasterResume}
-                suggestTextareaRef={suggestTextareaRef}
-                addingSkill={addingSkill}
-                onAccept={acceptSuggestedSkill}
-              />
-            )}
-
-            <ApprovalActions
-              application={application}
-              applicationId={applicationId}
-              retryNotes={retryNotes}
-              setRetryNotes={setRetryNotes}
-              sendingRetry={sendingRetry}
-              approving={approving}
-              busy={busy}
-              onSendBack={sendBackWithNotes}
-              onApprove={approve}
-            />
+              {application.status !== "approved" && (
+                <ApprovalActions
+                  retryNotes={retryNotes}
+                  setRetryNotes={setRetryNotes}
+                  sendingRetry={sendingRetry}
+                  approving={approving}
+                  busy={busy}
+                  onSendBack={sendBackWithNotes}
+                  onApprove={approve}
+                />
+              )}
+            </div>
+          </div>
           </TabsContent>
         </Tabs>
       )}

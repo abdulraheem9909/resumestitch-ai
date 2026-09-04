@@ -2,6 +2,8 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import { createHash, randomUUID } from 'node:crypto';
 import { Command } from '@langchain/langgraph';
+import mammoth from 'mammoth';
+import JSZip from 'jszip';
 import Application from '../models/Application.js';
 import MasterResume from '../models/MasterResume.js';
 import ResumeBullet from '../models/ResumeBullet.js';
@@ -11,6 +13,7 @@ import { tagBullet } from '../services/tagBullet.js';
 import { verifyBullet, verifySummary, trustHumanEdit } from '../services/deterministicVerification.js';
 import { gapAnalysis } from '../services/gapAnalysis.js';
 import { computeVerifiedSkills } from '../services/verifiedSkills.js';
+import { computeSkillFrequency } from '../services/skillFrequency.js';
 import { findUnsupportedSeniorityTerms } from '../services/suggestResumeTitle.js';
 import { atsScoreAndRecruiter } from '../services/atsScoreAndRecruiter.js';
 import { buildResumeDocxBuffer } from '../services/exportResumeDocx.js';
@@ -619,6 +622,117 @@ router.get('/:id/export/cover-letter.pdf', async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to generate cover letter PDF.' });
+  }
+});
+
+// Read-only diagnostic, not gated on status === 'approved' and never writes
+// to the application document — purely informational, same non-blocking
+// spirit as re-check (see key-decisions-log.md). Builds the exact same docx
+// buffer GET /:id/export/resume.docx builds, then runs the same structural
+// assertions exportResumeDocx.test.js already checks against it (contact
+// info actually present in the extracted body text, not stuck in a header/
+// footer part; no header/footer parts at all) plus a check that every
+// section heading the current resume data should produce (SUMMARY and WORK
+// HISTORY always; EDUCATION/PROJECTS/SKILLS only when that section has data)
+// is actually present — for display as a checklist, not a test pass/fail.
+router.get('/:id/searchability-check', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+
+  try {
+    const application = await Application.findById(id);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+
+    const resume = await MasterResume.findById(application.masterResumeId);
+    const graph = getJobAgentGraph();
+    const snapshot = await graph.getState({ configurable: { thread_id: id } });
+    const originalBullets = snapshot.values?.resumeBullets || [];
+    const originalBulletsById = new Map(originalBullets.map((bullet) => [bullet.bulletId, bullet]));
+
+    const personalInfo = resume?.personalInfo || {};
+    const education = resume?.education || [];
+    const projects = resume?.projects || [];
+    const skills = application.tailoredSkills ?? resume?.skills ?? [];
+
+    const buffer = await buildResumeDocxBuffer({
+      personalInfo,
+      tailoredSummary: application.tailoredSummary,
+      tailoredTitle: application.tailoredTitle,
+      tailoredBullets: (application.tailoredBullets || []).filter((bullet) => !bullet.rejected),
+      originalBulletsById,
+      education,
+      projects,
+      skills,
+    });
+
+    const { value: text } = await mammoth.extractRawText({ buffer });
+    const zip = await JSZip.loadAsync(buffer);
+    const hasHeaderOrFooterPart = Object.keys(zip.files).some((name) => /^word\/(header|footer)\d*\.xml$/i.test(name));
+
+    const contactFields = [personalInfo.phone, personalInfo.email].filter(Boolean);
+    const contactInfoPresent = contactFields.length > 0 && contactFields.every((value) => text.includes(value));
+
+    const expectedHeadings = [
+      'SUMMARY',
+      'WORK HISTORY',
+      ...(education.length > 0 ? ['EDUCATION'] : []),
+      ...(projects.length > 0 ? ['PROJECTS'] : []),
+      ...(skills.length > 0 ? ['SKILLS'] : []),
+    ];
+    const standardHeadingsPresent = expectedHeadings.every((heading) => text.includes(heading));
+
+    return res.json({
+      checks: [
+        { id: 'contactInfoPresent', label: 'Contact info appears in the exported text', passed: contactInfoPresent },
+        { id: 'noHeaderFooterElements', label: 'No header/footer elements used', passed: !hasHeaderOrFooterPart },
+        { id: 'standardHeadingsPresent', label: 'Standard section headings present', passed: standardHeadingsPresent },
+      ],
+    });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to run the searchability check.' });
+  }
+});
+
+// Read-only diagnostic, not gated on status === 'approved' and never writes
+// to the application document — same non-blocking spirit as re-check and
+// the searchability check above. Counts, per JD-requested canonical skill,
+// how many times it (or any of its known aliases) appears in the JD text
+// versus the current tailored resume — informational only, never feeds
+// keywordGaps/atsScore/atsFlags or the retry conditional. Uses the current
+// tailored, non-rejected bullet text (bullet.finalText) rather than the
+// pre-tailoring graph-state bullets, so the counts match what's actually on
+// screen/exported right now, including any human edits or excludes.
+router.get('/:id/skill-frequency', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+
+  try {
+    const application = await Application.findById(id);
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+
+    const resumeBulletsForCounting = (application.tailoredBullets || [])
+      .filter((bullet) => !bullet.rejected)
+      .map((bullet) => ({ text: bullet.finalText }));
+
+    const skillFrequency = computeSkillFrequency(
+      application.jdSnapshot,
+      resumeBulletsForCounting,
+      application.jdCanonicalSkills
+    );
+
+    return res.json({ skillFrequency });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to compute skill frequency.' });
   }
 });
 

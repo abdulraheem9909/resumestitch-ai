@@ -10,9 +10,11 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DownloadMenu } from "./DownloadMenu.jsx";
 
 export function ApprovalHeader({
   application,
+  applicationId,
   discardDialogOpen,
   setDiscardDialogOpen,
   discardError,
@@ -23,10 +25,16 @@ export function ApprovalHeader({
   const applicationLabel = application?.companyName
     ? [application.companyName, application.jobTitle].filter(Boolean).join(" — ")
     : "Review application";
+  const isApproved = application?.status === "approved";
 
   return (
     <>
-      <div className="sticky top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
+      {/* Sticky only from lg: up — on a short mobile viewport this header's
+          own height (title wraps to 2 lines, plus the description and
+          Discard button) can eat 30-40% of the visible screen permanently;
+          letting it scroll away like normal content on narrow screens keeps
+          the actual review content visible. */}
+      <div className="bg-background pb-6 pt-7 md:pt-10 px-1 md:px-2 lg:sticky lg:top-0 lg:z-10 lg:pb-10">
         <Breadcrumbs
           backTo="/applications"
           trail={[
@@ -45,15 +53,27 @@ export function ApprovalHeader({
             </p>
           </div>
           {application && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-destructive hover:text-destructive"
-              onClick={() => setDiscardDialogOpen(true)}
-              disabled={busy}
-            >
-              <Trash2 className="size-4" /> Discard
-            </Button>
+            <div className="flex flex-col items-end gap-2">
+              {isApproved && (
+                <p className="text-xs text-muted-foreground">
+                  Approved{application.approvedAt ? ` on ${new Date(application.approvedAt).toLocaleString()}` : ""}.
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-2">
+                {isApproved && (
+                  <DownloadMenu applicationId={applicationId} coverLetterRequested={application.coverLetterRequested} />
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setDiscardDialogOpen(true)}
+                  disabled={busy}
+                >
+                  <Trash2 className="size-4" /> Discard
+                </Button>
+              </div>
+            </div>
           )}
         </div>
       </div>

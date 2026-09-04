@@ -1,4 +1,5 @@
 import { BulletCard } from "./BulletCard.jsx";
+import { InfoTooltip } from "./InfoTooltip.jsx";
 
 // Same role|company|dateRange grouping the .docx export already uses
 // (server/src/services/exportResumeDocx.js) — keyed off each tailored bullet's
@@ -30,7 +31,10 @@ export function ExperienceSection({
 }) {
   return (
     <>
-      <h3 className="mb-3 font-display text-lg font-semibold text-foreground">Experience</h3>
+      <div className="mb-3 flex items-center gap-1.5">
+        <h3 className="font-display text-lg font-semibold text-foreground">Experience</h3>
+        <InfoTooltip text="The rephrase percent shows how much a bullet's wording changed from your original text. It isn't a quality score. A 0% bullet is just as valid as a 60% one." />
+      </div>
       <div className="mb-6 flex flex-col gap-5">
         {bulletGroups.map((group, groupIndex) => (
           <div key={groupIndex}>

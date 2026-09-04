@@ -1,13 +1,11 @@
-import { Download } from "lucide-react";
-import { APPLICATIONS_API as API_BASE } from "@/lib/api.js";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "../Spinner.jsx";
 
+// Only ever rendered for a not-yet-approved application — the approved
+// state (download links) lives in DownloadsCard instead, at the top of the
+// sidebar. Caller (Approval.jsx) gates on application.status accordingly.
 export function ApprovalActions({
-  application,
-  applicationId,
   retryNotes,
   setRetryNotes,
   sendingRetry,
@@ -16,44 +14,6 @@ export function ApprovalActions({
   onSendBack,
   onApprove,
 }) {
-  if (application.status === "approved") {
-    return (
-      <div className="flex flex-col gap-3">
-        <Alert>
-          <AlertDescription>
-            Approved{application.approvedAt ? ` on ${new Date(application.approvedAt).toLocaleString()}` : ""}.
-          </AlertDescription>
-        </Alert>
-        <div className="flex flex-wrap gap-2">
-          <a href={`${API_BASE}/${applicationId}/export/resume.docx`}>
-            <Button size="sm" variant="outline">
-              <Download className="size-4" /> Download resume (.docx)
-            </Button>
-          </a>
-          <a href={`${API_BASE}/${applicationId}/export/resume.pdf`}>
-            <Button size="sm" variant="outline">
-              <Download className="size-4" /> Download resume (.pdf)
-            </Button>
-          </a>
-          {application.coverLetterRequested && (
-            <>
-              <a href={`${API_BASE}/${applicationId}/export/cover-letter.docx`}>
-                <Button size="sm" variant="outline">
-                  <Download className="size-4" /> Download cover letter (.docx)
-                </Button>
-              </a>
-              <a href={`${API_BASE}/${applicationId}/export/cover-letter.pdf`}>
-                <Button size="sm" variant="outline">
-                  <Download className="size-4" /> Download cover letter (.pdf)
-                </Button>
-              </a>
-            </>
-          )}
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="rounded-lg border border-border bg-card p-5 shadow-card">
       <p className="mb-2 text-xs font-medium text-muted-foreground">Send back with notes</p>
