@@ -47,6 +47,12 @@ const tailoredTitleSchema = new mongoose.Schema(
 const applicationSchema = new mongoose.Schema(
   {
     masterResumeId: { type: String, required: true },
+    // The master resume's own updatedAt (or uploadedAt, for one predating
+    // MasterResume's timestamps) at the moment this application was
+    // created — compared against the resume's current updatedAt to show
+    // the "master resume changed since this application was created"
+    // banner. Absent on any application created before this field existed.
+    masterResumeSnapshotAt: { type: Date },
     companyName: { type: String, required: true },
     jobTitle: { type: String, required: true },
     referenceUrl: String,

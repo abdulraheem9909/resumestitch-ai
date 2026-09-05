@@ -89,6 +89,11 @@ const masterResumeSchema = new mongoose.Schema({
     type: [String],
     default: [],
   },
+}, {
+  // Gives every save (rename, profile edit) a real `updatedAt` — used to
+  // detect drift against an application's own `masterResumeSnapshotAt` for
+  // the "master resume changed" banner. See key-decisions-log.md.
+  timestamps: true,
 });
 
 export default mongoose.model('MasterResume', masterResumeSchema);

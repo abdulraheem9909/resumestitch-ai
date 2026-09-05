@@ -63,6 +63,37 @@ const verificationEntrySchema = z.object({
   claimedSkills: z.array(z.string()),
 });
 
+// Display-only, frozen-at-creation snapshots of the master resume's
+// non-tailored sections — never touched by scoring/gap-analysis/tailoring
+// (which is why these mirror MasterResume.js's own entry shapes exactly,
+// rather than reusing resumeBulletSchema-style fields). Deliberately
+// `.optional()` with no default array below, so a checkpoint from before
+// this existed reads back as `undefined` rather than `[]` — every read site
+// depends on telling "never captured" apart from "captured, genuinely
+// empty" to fall back to a live MongoDB read for pre-existing applications.
+const projectEntrySchema = z.object({
+  name: z.string().default(() => ''),
+  description: z.string().default(() => ''),
+  canonicalSkills: z.array(z.string()).default(() => []),
+});
+const educationEntrySchema = z.object({
+  degree: z.string().default(() => ''),
+  institution: z.string().default(() => ''),
+  location: z.string().default(() => ''),
+  dateRange: z.string().default(() => ''),
+});
+const certificationEntrySchema = z.object({
+  name: z.string().default(() => ''),
+  issuer: z.string().default(() => ''),
+  date: z.string().default(() => ''),
+});
+const volunteerEntrySchema = z.object({
+  role: z.string().default(() => ''),
+  organization: z.string().default(() => ''),
+  dateRange: z.string().default(() => ''),
+  description: z.string().default(() => ''),
+});
+
 const JobAgentState = new StateSchema({
   applicationId: z.string(),
   masterResumeId: z.string().optional(),
@@ -82,6 +113,16 @@ const JobAgentState = new StateSchema({
   // Folded into resumeCanonicalSkills by gapAnalysisNode, but a project entry
   // itself is never added to the resumeBullets tailoring pool.
   projectCanonicalSkills: z.array(z.string()).default(() => []),
+  // Full project/education/certification/volunteer-work entries, frozen at
+  // creation the same way resumeBullets is — unlike projectCanonicalSkills
+  // above (which only ever fed scoring), these exist purely so the Approval
+  // page and every export of THIS application keep showing the resume
+  // exactly as it was when this application was created, even after the
+  // master resume is later edited. See key-decisions-log.md.
+  resumeProjects: z.array(projectEntrySchema).optional(),
+  resumeEducation: z.array(educationEntrySchema).optional(),
+  resumeCertifications: z.array(certificationEntrySchema).optional(),
+  resumeVolunteerWork: z.array(volunteerEntrySchema).optional(),
   // Transient: set only when a retry is adding a bullet meant to plug a specific
   // JD skill gap, so tailorContent can guarantee its inclusion. Reset to null on
   // every retry unless explicitly re-supplied (section 4a).

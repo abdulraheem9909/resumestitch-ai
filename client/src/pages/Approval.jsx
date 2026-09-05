@@ -32,6 +32,11 @@ export default function Approval() {
   const [masterResume, setMasterResume] = useState(null);
   const [originalBullets, setOriginalBullets] = useState([]);
   const [originalSummary, setOriginalSummary] = useState("");
+  const [originalProjects, setOriginalProjects] = useState([]);
+  const [originalEducation, setOriginalEducation] = useState([]);
+  const [originalCertifications, setOriginalCertifications] = useState([]);
+  const [originalVolunteerWork, setOriginalVolunteerWork] = useState([]);
+  const [masterResumeChanged, setMasterResumeChanged] = useState(false);
   const [verificationResult, setVerificationResult] = useState(null);
   const [roleFitReason, setRoleFitReason] = useState("");
   const [verifiedSkills, setVerifiedSkills] = useState([]);
@@ -105,6 +110,11 @@ export default function Approval() {
       setApplication(data.application);
       setOriginalBullets(data.originalBullets || []);
       setOriginalSummary(data.originalSummary || "");
+      setOriginalProjects(data.originalProjects || []);
+      setOriginalEducation(data.originalEducation || []);
+      setOriginalCertifications(data.originalCertifications || []);
+      setOriginalVolunteerWork(data.originalVolunteerWork || []);
+      setMasterResumeChanged(Boolean(data.masterResumeChanged));
       setVerificationResult(data.verificationResult || null);
       setRoleFitReason(data.roleFitReason || "");
       setVerifiedSkills(data.verifiedSkills || []);
@@ -501,6 +511,17 @@ export default function Approval() {
 
       {loading && <p className="py-4 text-sm text-muted-foreground">Loading this application…</p>}
 
+      {!loading && application && masterResumeChanged && (
+        <Alert className="mb-5">
+          <AlertDescription>
+            Your master resume has changed since this application was created. The bullets,
+            summary, title, education, certifications, projects, and volunteer work shown here
+            reflect the resume as it was back then. Retry won't update them — start a new
+            application to use the latest resume.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {!loading && application?.status === "role_mismatch" && (
         <Alert variant="destructive">
           <AlertDescription>
@@ -567,17 +588,20 @@ export default function Approval() {
                 bulletActions={bulletActions}
               />
 
-              {/* Education / Certifications / Projects / Volunteer Work / Skills — read-only, from the master resume */}
-              {masterResume?.education?.length > 0 && <EducationCard education={masterResume.education} />}
+              {/* Education / Certifications / Projects / Volunteer Work — read-only,
+                  frozen at this application's creation (see jobAgentGraph.js) rather
+                  than the live master resume, so this always matches what was
+                  actually scored/exported for this application. */}
+              {originalEducation.length > 0 && <EducationCard education={originalEducation} />}
 
-              {masterResume?.certifications?.length > 0 && (
-                <CertificationsCard certifications={masterResume.certifications} />
+              {originalCertifications.length > 0 && (
+                <CertificationsCard certifications={originalCertifications} />
               )}
 
-              {masterResume?.projects?.length > 0 && <ProjectsCard projects={masterResume.projects} />}
+              {originalProjects.length > 0 && <ProjectsCard projects={originalProjects} />}
 
-              {masterResume?.volunteerWork?.length > 0 && (
-                <VolunteerWorkCard volunteerWork={masterResume.volunteerWork} />
+              {originalVolunteerWork.length > 0 && (
+                <VolunteerWorkCard volunteerWork={originalVolunteerWork} />
               )}
 
               {/* Cover letter (node 7, conditional) */}

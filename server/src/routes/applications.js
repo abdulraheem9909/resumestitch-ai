@@ -261,6 +261,9 @@ router.post('/', async (req, res) => {
         jdTextHash,
         coverLetterRequested: Boolean(coverLetterRequested),
         status: 'in_progress',
+        // A resume that predates `timestamps: true` has no updatedAt of its
+        // own yet on this first read — uploadedAt is the honest fallback.
+        masterResumeSnapshotAt: resume.updatedAt || resume.uploadedAt,
       });
     } catch (err) {
       if (err.code === 11000) {
@@ -292,6 +295,11 @@ router.post('/', async (req, res) => {
           resumeCanonicalSkills,
           resumeBullets: resumeBulletsForGraph,
           projectCanonicalSkills,
+          // Frozen, display-only snapshots — see jobAgentGraph.js.
+          resumeProjects: resume.projects || [],
+          resumeEducation: resume.education || [],
+          resumeCertifications: resume.certifications || [],
+          resumeVolunteerWork: resume.volunteerWork || [],
           coverLetterRequested: Boolean(coverLetterRequested),
         },
         { configurable: { thread_id: applicationId }, recursionLimit: GRAPH_RECURSION_LIMIT }
@@ -353,27 +361,53 @@ router.get('/:id', async (req, res) => {
     const snapshot = await graph.getState({ configurable: { thread_id: id } });
     const state = snapshot.values || {};
 
+    const resume = await MasterResume.findById(application.masterResumeId).select(
+      'skills projects education certifications volunteerWork updatedAt'
+    );
+
+    // Frozen-at-creation snapshot, falling back to a live read only for an
+    // application from before these fields existed (state.x is undefined
+    // there, never merely empty) — see jobAgentGraph.js.
+    const originalProjects = state.resumeProjects ?? resume?.projects ?? [];
+    const originalEducation = state.resumeEducation ?? resume?.education ?? [];
+    const originalCertifications = state.resumeCertifications ?? resume?.certifications ?? [];
+    const originalVolunteerWork = state.resumeVolunteerWork ?? resume?.volunteerWork ?? [];
+
     // Verified-skills is display-only (see verifiedSkills.js) — scoped to what
     // this specific application will actually export: non-rejected tailored
-    // bullets' current text, plus the master resume's Projects section, which
+    // bullets' current text, plus the (frozen) Projects section, which
     // the export always includes verbatim regardless of JD (see exportResumeDocx.js).
     const activeTexts = (application.tailoredBullets || [])
       .filter((bullet) => !bullet.rejected)
       .map((bullet) => bullet.finalText);
-    const resume = await MasterResume.findById(application.masterResumeId).select('skills projects');
     const effectiveSkills = application.tailoredSkills ?? resume?.skills ?? [];
     const sourceTexts = [
       ...activeTexts,
       application.tailoredSummary?.finalText,
-      ...(resume?.projects || []).map((project) => project.description),
+      ...originalProjects.map((project) => project.description),
     ];
     const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(effectiveSkills, sourceTexts);
     const titleSeniorityWarning = computeTitleSeniorityWarning(application.tailoredTitle);
+
+    // Deliberately false whenever masterResumeSnapshotAt itself is missing
+    // (every application created before this field existed) — otherwise
+    // every pre-existing application would show "changed" as noise, not
+    // signal, the first time this ships.
+    const masterResumeChanged = Boolean(
+      application.masterResumeSnapshotAt &&
+        resume?.updatedAt &&
+        resume.updatedAt > application.masterResumeSnapshotAt
+    );
 
     return res.json({
       application,
       originalBullets: state.resumeBullets || [],
       originalSummary: state.resumeSummary || '',
+      originalProjects,
+      originalEducation,
+      originalCertifications,
+      originalVolunteerWork,
+      masterResumeChanged,
       verificationResult: state.verificationResult || null,
       roleFitReason: application.status === 'role_mismatch' ? state.roleFit?.reason : undefined,
       verifiedSkills,
@@ -446,10 +480,12 @@ router.get('/:id/export/resume.docx', async (req, res) => {
       tailoredTitle: application.tailoredTitle,
       tailoredBullets: application.tailoredBullets.filter((bullet) => !bullet.rejected),
       originalBulletsById,
-      education: resume?.education || [],
-      projects: resume?.projects || [],
-      certifications: resume?.certifications || [],
-      volunteerWork: resume?.volunteerWork || [],
+      // Frozen-at-creation snapshot, falling back to a live read only for an
+      // application from before these fields existed — see jobAgentGraph.js.
+      education: snapshot.values?.resumeEducation ?? resume?.education ?? [],
+      projects: snapshot.values?.resumeProjects ?? resume?.projects ?? [],
+      certifications: snapshot.values?.resumeCertifications ?? resume?.certifications ?? [],
+      volunteerWork: snapshot.values?.resumeVolunteerWork ?? resume?.volunteerWork ?? [],
       skills: application.tailoredSkills ?? resume?.skills ?? [],
     });
 
@@ -503,10 +539,12 @@ router.get('/:id/export/resume.pdf', async (req, res) => {
       tailoredTitle: application.tailoredTitle,
       tailoredBullets: application.tailoredBullets.filter((bullet) => !bullet.rejected),
       originalBulletsById,
-      education: resume?.education || [],
-      projects: resume?.projects || [],
-      certifications: resume?.certifications || [],
-      volunteerWork: resume?.volunteerWork || [],
+      // Frozen-at-creation snapshot, falling back to a live read only for an
+      // application from before these fields existed — see jobAgentGraph.js.
+      education: snapshot.values?.resumeEducation ?? resume?.education ?? [],
+      projects: snapshot.values?.resumeProjects ?? resume?.projects ?? [],
+      certifications: snapshot.values?.resumeCertifications ?? resume?.certifications ?? [],
+      volunteerWork: snapshot.values?.resumeVolunteerWork ?? resume?.volunteerWork ?? [],
       skills: application.tailoredSkills ?? resume?.skills ?? [],
     });
 
@@ -658,10 +696,14 @@ router.get('/:id/searchability-check', async (req, res) => {
     const originalBulletsById = new Map(originalBullets.map((bullet) => [bullet.bulletId, bullet]));
 
     const personalInfo = resume?.personalInfo || {};
-    const education = resume?.education || [];
-    const projects = resume?.projects || [];
-    const certifications = resume?.certifications || [];
-    const volunteerWork = resume?.volunteerWork || [];
+    // Frozen-at-creation snapshot, falling back to a live read only for an
+    // application from before these fields existed — see jobAgentGraph.js.
+    // Kept in sync with the actual export routes so this check can never
+    // silently drift from what a real export would contain.
+    const education = snapshot.values?.resumeEducation ?? resume?.education ?? [];
+    const projects = snapshot.values?.resumeProjects ?? resume?.projects ?? [];
+    const certifications = snapshot.values?.resumeCertifications ?? resume?.certifications ?? [];
+    const volunteerWork = snapshot.values?.resumeVolunteerWork ?? resume?.volunteerWork ?? [];
     const skills = application.tailoredSkills ?? resume?.skills ?? [];
 
     const buffer = await buildResumeDocxBuffer({
