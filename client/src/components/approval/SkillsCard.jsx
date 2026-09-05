@@ -45,7 +45,9 @@ export function SkillsCard({
 
   return (
     <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
-      <h3 className="mb-1 font-display text-lg font-semibold text-foreground">Skills</h3>
+      <h3 className="mb-1 font-display text-lg font-semibold text-foreground">
+        Skills <span className="font-normal text-muted-foreground">({totalSkills})</span>
+      </h3>
       <p className="mb-3 text-xs text-muted-foreground">
         Editing here only changes this application's exported resume — your master resume's
         list is untouched.
