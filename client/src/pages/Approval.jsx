@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { Info } from "lucide-react";
 import { APPLICATIONS_API as API_BASE, RESUMES_API } from "../lib/api.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -512,8 +513,9 @@ export default function Approval() {
       {loading && <p className="py-4 text-sm text-muted-foreground">Loading this application…</p>}
 
       {!loading && application && masterResumeChanged && (
-        <Alert className="mb-5">
-          <AlertDescription>
+        <Alert className="mb-5 border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950">
+          <Info className="size-4 text-blue-600 dark:text-blue-400" />
+          <AlertDescription className="text-blue-900 dark:text-blue-200">
             Your master resume has changed since this application was created. The bullets,
             summary, title, education, certifications, projects, and volunteer work shown here
             reflect the resume as it was back then. Retry won't update them — start a new
@@ -652,10 +654,6 @@ export default function Approval() {
 
               {/* Open-by-default diagnostics, still collapsible */}
 
-              {/* Read-only, non-blocking diagnostic against the current export build —
-                  open by default, fetched on mount (GET /:id/searchability-check) */}
-              <SearchabilityCheckCard applicationId={applicationId} />
-
               {/* Read-only, non-blocking diagnostic — open by default,
                   fetched on mount (GET /:id/skill-frequency). Hosts the JD
                   skill-match bar above its own detail table (matched =
@@ -687,6 +685,10 @@ export default function Approval() {
                   onAccept={acceptSuggestedSkill}
                 />
               )}
+
+              {/* Read-only, non-blocking diagnostic against the current export build —
+                  open by default, fetched on mount (GET /:id/searchability-check) */}
+              <SearchabilityCheckCard applicationId={applicationId} />
 
               {application.status !== "approved" && (
                 <ApprovalActions
