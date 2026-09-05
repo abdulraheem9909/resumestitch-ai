@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Pencil, Plus, Trash2 } from "lucide-react";
+import { formatMonthYear, buildDateRange, parseDateRange, toMonthInputValue } from "../lib/dateRange.js";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -9,31 +11,119 @@ function emptyEntry(fields) {
   return Object.fromEntries(fields.map((field) => [field.key, ""]));
 }
 
+function isFieldFilled(field, values) {
+  return Boolean((values[field.key] || "").trim());
+}
+
+// One field's value stays a single string on the entry (e.g. `dateRange`),
+// same shape as every other field — this component owns the transient
+// start/end/current pieces only long enough to combine them into that
+// string, mirroring Add Bullet's own date-range widget exactly so every
+// date field in the app behaves and looks identical.
+function MonthRangeField({ field, value, onChange, idPrefix }) {
+  const parsed = parseDateRange(value);
+  const [startMonth, setStartMonth] = useState(parsed.startMonth);
+  const [endMonth, setEndMonth] = useState(parsed.endMonth);
+  const [current, setCurrent] = useState(parsed.current);
+
+  // Re-sync if the entry being edited changes out from under this field
+  // (e.g. Cancel then Edit a different entry re-mounts this component fresh
+  // in practice, but guard anyway since idPrefix alone isn't a React key).
+  useEffect(() => {
+    const next = parseDateRange(value);
+    setStartMonth(next.startMonth);
+    setEndMonth(next.endMonth);
+    setCurrent(next.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [idPrefix]);
+
+  function update(nextStart, nextEnd, nextCurrent) {
+    setStartMonth(nextStart);
+    setEndMonth(nextEnd);
+    setCurrent(nextCurrent);
+    onChange(field.key, buildDateRange(nextStart, nextEnd, nextCurrent));
+  }
+
+  return (
+    <div className="col-span-2 grid grid-cols-2 gap-3">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${idPrefix}-start`}>{field.label} — start</Label>
+        <Input
+          id={`${idPrefix}-start`}
+          type="month"
+          value={startMonth}
+          onChange={(event) => update(event.target.value, endMonth, current)}
+        />
+      </div>
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={`${idPrefix}-end`}>{field.label} — end</Label>
+        <Input
+          id={`${idPrefix}-end`}
+          type="month"
+          value={endMonth}
+          onChange={(event) => update(startMonth, event.target.value, current)}
+          disabled={current}
+        />
+      </div>
+      <div className="col-span-2 flex items-center gap-2">
+        <Checkbox
+          id={`${idPrefix}-current`}
+          checked={current}
+          onCheckedChange={(checked) => update(startMonth, endMonth, checked === true)}
+        />
+        <Label htmlFor={`${idPrefix}-current`} className="text-xs font-normal text-muted-foreground">
+          {field.currentLabel || "Current"}
+        </Label>
+      </div>
+    </div>
+  );
+}
+
 function EntryFields({ fields, values, onChange, idPrefix }) {
   return (
     <div className="grid grid-cols-2 gap-3">
-      {fields.map((field) => (
-        <div
-          key={field.key}
-          className={field.type === "textarea" ? "col-span-2 flex flex-col gap-1.5" : "flex flex-col gap-1.5"}
-        >
-          <Label htmlFor={`${idPrefix}-${field.key}`}>{field.label}</Label>
-          {field.type === "textarea" ? (
-            <Textarea
-              id={`${idPrefix}-${field.key}`}
-              value={values[field.key] || ""}
-              onChange={(event) => onChange(field.key, event.target.value)}
-              rows={3}
+      {fields.map((field) => {
+        if (field.type === "monthRange") {
+          return (
+            <MonthRangeField
+              key={field.key}
+              field={field}
+              value={values[field.key]}
+              onChange={onChange}
+              idPrefix={`${idPrefix}-${field.key}`}
             />
-          ) : (
-            <Input
-              id={`${idPrefix}-${field.key}`}
-              value={values[field.key] || ""}
-              onChange={(event) => onChange(field.key, event.target.value)}
-            />
-          )}
-        </div>
-      ))}
+          );
+        }
+        return (
+          <div
+            key={field.key}
+            className={field.type === "textarea" ? "col-span-2 flex flex-col gap-1.5" : "flex flex-col gap-1.5"}
+          >
+            <Label htmlFor={`${idPrefix}-${field.key}`}>{field.label}</Label>
+            {field.type === "textarea" ? (
+              <Textarea
+                id={`${idPrefix}-${field.key}`}
+                value={values[field.key] || ""}
+                onChange={(event) => onChange(field.key, event.target.value)}
+                rows={3}
+              />
+            ) : field.type === "month" ? (
+              <Input
+                id={`${idPrefix}-${field.key}`}
+                type="month"
+                value={toMonthInputValue(values[field.key])}
+                onChange={(event) => onChange(field.key, formatMonthYear(event.target.value))}
+              />
+            ) : (
+              <Input
+                id={`${idPrefix}-${field.key}`}
+                value={values[field.key] || ""}
+                onChange={(event) => onChange(field.key, event.target.value)}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -45,6 +135,7 @@ function EntryFields({ fields, values, onChange, idPrefix }) {
  * array in one call to `onSave`. No save-on-blur anywhere — every add/edit
  * needs an explicit Save/Add click, matching every other write path already
  * in this codebase (bullet editing, skill chips, the personalInfo dialog).
+ * A field marked `required: true` must be filled before Save/Add enables.
  */
 export function EditableEntryList({ title, entries, fields, onSave, emptyMessage, addLabel, renderSummary }) {
   const [editingIndex, setEditingIndex] = useState(null);
@@ -106,7 +197,9 @@ export function EditableEntryList({ title, entries, fields, onSave, emptyMessage
     }
   }
 
-  const hasAnyNewValue = fields.some((field) => (newValues[field.key] || "").trim());
+  const requiredFields = fields.filter((field) => field.required);
+  const isNewValid = requiredFields.every((field) => isFieldFilled(field, newValues));
+  const isEditValid = requiredFields.every((field) => isFieldFilled(field, editingValues));
 
   return (
     <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
@@ -135,7 +228,7 @@ export function EditableEntryList({ title, entries, fields, onSave, emptyMessage
                   idPrefix={`edit-${title}-${index}`}
                 />
                 <div className="flex gap-2">
-                  <Button size="sm" onClick={saveEditing} disabled={saving}>
+                  <Button size="sm" onClick={saveEditing} disabled={saving || !isEditValid}>
                     {saving ? "Saving…" : "Save"}
                   </Button>
                   <Button size="sm" variant="ghost" onClick={cancelEditing} disabled={saving}>
@@ -175,7 +268,7 @@ export function EditableEntryList({ title, entries, fields, onSave, emptyMessage
             idPrefix={`new-${title}`}
           />
           <div className="flex gap-2">
-            <Button size="sm" onClick={addEntry} disabled={saving || !hasAnyNewValue}>
+            <Button size="sm" onClick={addEntry} disabled={saving || !isNewValid}>
               {saving ? "Adding…" : "Add"}
             </Button>
             <Button

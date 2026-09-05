@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
+import { isPersonalInfoValid } from "../lib/personalInfo.js";
 import { EmptyState } from "../components/EmptyState.jsx";
 import { LoadingState } from "../components/LoadingState.jsx";
-import { Spinner } from "../components/Spinner.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
@@ -107,7 +107,7 @@ export default function MasterResumes() {
   }
 
   async function uploadResume() {
-    if (!file || !formLabel.trim() || !personalInfo.fullName.trim()) return;
+    if (!file || !formLabel.trim() || !isPersonalInfoValid(personalInfo)) return;
 
     setUploading(true);
     setUploadError("");
@@ -275,7 +275,7 @@ export default function MasterResumes() {
         ))}
       </div>
 
-      <Dialog open={isUploadOpen} onOpenChange={setIsUploadOpen}>
+      <Dialog open={isUploadOpen} onOpenChange={(open) => !uploading && setIsUploadOpen(open)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Upload a resume</DialogTitle>
@@ -284,87 +284,89 @@ export default function MasterResumes() {
             </DialogDescription>
           </DialogHeader>
 
-          {uploadError && (
-            <Alert variant="destructive">
-              <AlertDescription>{uploadError}</AlertDescription>
-            </Alert>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="resume-file">Resume file (.pdf or .docx)</Label>
-            <input
-              id="resume-file"
-              type="file"
-              accept=".pdf,.docx"
-              onChange={handleFileChange}
-              className="text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-secondary-foreground"
-            />
-            {parsingFile && <p className="text-xs text-muted-foreground">Reading file to pre-fill the fields below…</p>}
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="resume-label">Label</Label>
-            <Input
-              id="resume-label"
-              value={formLabel}
-              onChange={(event) => setFormLabel(event.target.value)}
-              placeholder="e.g. Full-stack CV"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <Label htmlFor="pi-fullName">Full name</Label>
-              <Input id="pi-fullName" value={personalInfo.fullName} onChange={updatePersonalInfoField("fullName")} />
+          {uploading ? (
+            <div className="flex min-h-[26rem] items-center justify-center">
+              <LoadingState
+                message="Reading your resume and tagging its skills. This can take a moment."
+                steps={["Reading your resume", "Finding your bullets and sections", "Tagging skills for each bullet", "Saving your resume"]}
+                className="border-0 bg-transparent p-0 shadow-none"
+              />
             </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pi-title">Title</Label>
-              <Input id="pi-title" value={personalInfo.title} onChange={updatePersonalInfoField("title")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pi-location">Location</Label>
-              <Input id="pi-location" value={personalInfo.location} onChange={updatePersonalInfoField("location")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pi-phone">Phone</Label>
-              <Input id="pi-phone" value={personalInfo.phone} onChange={updatePersonalInfoField("phone")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pi-email">Email</Label>
-              <Input id="pi-email" value={personalInfo.email} onChange={updatePersonalInfoField("email")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pi-linkedin">LinkedIn</Label>
-              <Input id="pi-linkedin" value={personalInfo.linkedin} onChange={updatePersonalInfoField("linkedin")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="pi-portfolio">Portfolio</Label>
-              <Input id="pi-portfolio" value={personalInfo.portfolio} onChange={updatePersonalInfoField("portfolio")} />
-            </div>
-          </div>
-
-          {uploading && (
-            <p className="text-xs text-muted-foreground">Extracting bullets and tagging skills — this can take a moment…</p>
-          )}
-
-          <DialogFooter>
-            <Button
-              onClick={uploadResume}
-              disabled={uploading || parsingFile || !file || !formLabel.trim() || !personalInfo.fullName.trim()}
-            >
-              {uploading ? (
-                <>
-                  <Spinner className="size-4" /> Uploading…
-                </>
-              ) : (
-                "Upload"
+          ) : (
+            <>
+              {uploadError && (
+                <Alert variant="destructive">
+                  <AlertDescription>{uploadError}</AlertDescription>
+                </Alert>
               )}
-            </Button>
-          </DialogFooter>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="resume-file">Resume file (.pdf or .docx)</Label>
+                <input
+                  id="resume-file"
+                  type="file"
+                  accept=".pdf,.docx"
+                  onChange={handleFileChange}
+                  className="text-sm text-foreground file:mr-3 file:rounded-md file:border-0 file:bg-secondary file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-secondary-foreground"
+                />
+                {parsingFile && <p className="text-xs text-muted-foreground">Reading file to pre-fill the fields below…</p>}
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="resume-label">Label</Label>
+                <Input
+                  id="resume-label"
+                  value={formLabel}
+                  onChange={(event) => setFormLabel(event.target.value)}
+                  placeholder="e.g. Full-stack CV"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 flex flex-col gap-1.5">
+                  <Label htmlFor="pi-fullName">Full name</Label>
+                  <Input id="pi-fullName" value={personalInfo.fullName} onChange={updatePersonalInfoField("fullName")} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="pi-title">Title</Label>
+                  <Input id="pi-title" value={personalInfo.title} onChange={updatePersonalInfoField("title")} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="pi-location">Location</Label>
+                  <Input id="pi-location" value={personalInfo.location} onChange={updatePersonalInfoField("location")} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="pi-phone">Phone</Label>
+                  <Input id="pi-phone" value={personalInfo.phone} onChange={updatePersonalInfoField("phone")} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="pi-email">Email</Label>
+                  <Input id="pi-email" value={personalInfo.email} onChange={updatePersonalInfoField("email")} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="pi-linkedin">LinkedIn</Label>
+                  <Input id="pi-linkedin" value={personalInfo.linkedin} onChange={updatePersonalInfoField("linkedin")} />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="pi-portfolio">Portfolio</Label>
+                  <Input id="pi-portfolio" value={personalInfo.portfolio} onChange={updatePersonalInfoField("portfolio")} />
+                </div>
+              </div>
+
+              <DialogFooter>
+                <Button
+                  onClick={uploadResume}
+                  disabled={parsingFile || !file || !formLabel.trim() || !isPersonalInfoValid(personalInfo)}
+                >
+                  Upload
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete "{deleteTarget?.label}"?</DialogTitle>
@@ -392,7 +394,7 @@ export default function MasterResumes() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)}>
+      <Dialog open={!!editTarget} onOpenChange={(open) => !open && !savingEdit && setEditTarget(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Rename "{editTarget?.label}"</DialogTitle>

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { RESUMES_API as API_BASE } from "../lib/api.js";
+import { buildDateRange } from "../lib/dateRange.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -22,23 +23,26 @@ import { Textarea } from "@/components/ui/textarea";
 
 const NEW_EMPLOYER_KEY = "__new__";
 
-// <input type="month"> gives "YYYY-MM" — every date range already on this
-// resume (parsed from an upload, or another manually-added bullet) uses
-// "MM/YYYY", so convert to match rather than introduce a second format that
-// would never group with anything.
-function formatMonthYear(value) {
-  if (!value) return "";
-  const [year, month] = value.split("-");
-  if (!year || !month) return "";
-  return `${month}/${year}`;
-}
-
-function buildDateRange(startMonth, endMonth, isCurrent) {
-  const start = formatMonthYear(startMonth);
-  if (!start) return "";
-  if (isCurrent) return `${start} - Present`;
-  const end = formatMonthYear(endMonth);
-  return end ? `${start} - ${end}` : start;
+// Same role|company|dateRange grouping used everywhere else this app shows
+// bullets against their employer (ResumeDetail.jsx's Experience section,
+// the Approval page's ExperienceSection.jsx, exportResumeDocx.js) — one
+// header per employer instead of repeating it on every single bullet.
+// Preserves first-appearance order, so groups still read top-to-bottom the
+// same way the flat list used to.
+function groupBulletsByEmployer(bullets) {
+  const groups = [];
+  const groupsByKey = new Map();
+  for (const bullet of bullets) {
+    const key = `${bullet.role || ""}|${bullet.company || ""}|${bullet.dateRange || ""}`;
+    let group = groupsByKey.get(key);
+    if (!group) {
+      group = { role: bullet.role, company: bullet.company, dateRange: bullet.dateRange, bullets: [] };
+      groupsByKey.set(key, group);
+      groups.push(group);
+    }
+    group.bullets.push(bullet);
+  }
+  return groups;
 }
 
 export default function ResumeBullets() {
@@ -63,20 +67,26 @@ export default function ResumeBullets() {
   const [addingBullet, setAddingBullet] = useState(false);
   const [isAddOpen, setIsAddOpen] = useState(false);
 
+  // One grouping computation feeds both the page's own bullet list (grouped
+  // under a company/role/date header) and the Add-bullet dialog's "existing
+  // employer" dropdown below.
+  const bulletGroups = useMemo(() => groupBulletsByEmployer(bullets), [bullets]);
+
   // Every distinct employer already on this resume, so adding another bullet
   // to one of them means picking it rather than retyping company/role/date
   // range by hand — a typo here would silently read as a different employer.
-  const employerOptions = useMemo(() => {
-    const seen = new Map();
-    for (const bullet of bullets) {
-      if (!bullet.company) continue;
-      const key = `${bullet.company}|${bullet.role || ""}|${bullet.dateRange || ""}`;
-      if (!seen.has(key)) {
-        seen.set(key, { key, role: bullet.role || "", company: bullet.company, dateRange: bullet.dateRange || "" });
-      }
-    }
-    return [...seen.values()];
-  }, [bullets]);
+  const employerOptions = useMemo(
+    () =>
+      bulletGroups
+        .filter((group) => group.company)
+        .map((group) => ({
+          key: `${group.company}|${group.role || ""}|${group.dateRange || ""}`,
+          role: group.role || "",
+          company: group.company,
+          dateRange: group.dateRange || "",
+        })),
+    [bulletGroups]
+  );
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -161,7 +171,7 @@ export default function ResumeBullets() {
   }
 
   async function addBullet() {
-    if (!newBulletText.trim()) return;
+    if (!newBulletText.trim() || !isNewBulletValid) return;
 
     const existingEmployer = employerOptions.find((option) => option.key === selectedEmployerKey);
     const employerFields = existingEmployer
@@ -212,6 +222,12 @@ export default function ResumeBullets() {
     }
   }
 
+  // Only the "add a new company" path needs its own fields validated —
+  // picking an existing employer already guarantees valid company/role/date.
+  const isNewBulletValid =
+    selectedEmployerKey !== NEW_EMPLOYER_KEY ||
+    (newBulletCompany.trim() && newBulletRole.trim() && newBulletStartMonth && (newBulletEndMonth || newBulletCurrent));
+
   return (
     <section className="mx-auto w-full max-w-5xl">
       <div className="sticky top-0 z-10 bg-background pb-10  pt-7 md:pt-10 px=1 md:px-2">
@@ -249,88 +265,96 @@ export default function ResumeBullets() {
         </p>
       )}
 
-      <ul className="flex flex-col gap-3">
-        {bullets.map((bullet) => {
-          const isEditing = editingId === bullet._id;
-          const isSaving = savingId === bullet._id;
-          const meta = [bullet.role, bullet.company, bullet.dateRange].filter(Boolean);
+      <div className="flex flex-col gap-6">
+        {bulletGroups.map((group, groupIndex) => (
+          <div key={groupIndex}>
+            <div className="mb-3">
+              <p className="text-sm font-medium text-foreground">
+                {[group.company, group.role].filter(Boolean).join(" — ") || "Untitled role"}
+              </p>
+              {group.dateRange && (
+                <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">{group.dateRange}</p>
+              )}
+            </div>
+            <ul className="flex flex-col gap-3">
+              {group.bullets.map((bullet) => {
+                const isEditing = editingId === bullet._id;
+                const isSaving = savingId === bullet._id;
 
-          return (
-            <li
-              key={bullet._id}
-              data-editing={isEditing}
-              className="flex gap-4 rounded-lg border border-border bg-card p-5 shadow-card transition-shadow hover:shadow-[0_2px_4px_rgba(22,33,27,0.06),0_12px_28px_-12px_rgba(22,33,27,0.22)]"
-            >
-              <span className="rb-bullet-strip" aria-hidden="true" />
-              <div className="flex flex-1 flex-col gap-2">
-                {isEditing ? (
-                  <>
-                    <Textarea
-                      value={editingText}
-                      onChange={(event) => setEditingText(event.target.value)}
-                      rows={3}
-                      autoFocus
-                    />
-                    <div className="flex gap-2">
-                      <Button onClick={() => saveEditing(bullet._id)} disabled={isSaving}>
-                        {isSaving ? "Saving…" : "Save"}
-                      </Button>
-                      <Button variant="ghost" onClick={cancelEditing} disabled={isSaving}>
-                        Cancel
-                      </Button>
+                return (
+                  <li
+                    key={bullet._id}
+                    data-editing={isEditing}
+                    className="flex gap-4 rounded-lg border border-border bg-card p-5 shadow-card transition-shadow hover:shadow-[0_2px_4px_rgba(22,33,27,0.06),0_12px_28px_-12px_rgba(22,33,27,0.22)]"
+                  >
+                    <span className="rb-bullet-strip" aria-hidden="true" />
+                    <div className="flex flex-1 flex-col gap-2">
+                      {isEditing ? (
+                        <>
+                          <Textarea
+                            value={editingText}
+                            onChange={(event) => setEditingText(event.target.value)}
+                            rows={3}
+                            autoFocus
+                          />
+                          <div className="flex gap-2">
+                            <Button onClick={() => saveEditing(bullet._id)} disabled={isSaving}>
+                              {isSaving ? "Saving…" : "Save"}
+                            </Button>
+                            <Button variant="ghost" onClick={cancelEditing} disabled={isSaving}>
+                              Cancel
+                            </Button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <p className="text-sm text-foreground">{bullet.text}</p>
+                          {(bullet.canonicalSkills?.length > 0 || bullet.metrics?.length > 0) && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {bullet.canonicalSkills?.map((skill) => (
+                                <Badge key={skill} variant="secondary">
+                                  {skill}
+                                </Badge>
+                              ))}
+                              {bullet.metrics?.map((metric) => (
+                                <Badge key={metric} variant="outline">
+                                  {metric}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="w-fit"
+                              onClick={() => startEditing(bullet)}
+                            >
+                              <Pencil className="size-4" />
+                              Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="w-fit text-destructive hover:text-destructive"
+                              onClick={() => setDeleteTarget(bullet)}
+                            >
+                              <Trash2 className="size-4" />
+                              Delete
+                            </Button>
+                          </div>
+                        </>
+                      )}
                     </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-sm text-foreground">{bullet.text}</p>
-                    {meta.length > 0 && (
-                      <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
-                        {meta.join(" · ")}
-                      </p>
-                    )}
-                    {(bullet.canonicalSkills?.length > 0 || bullet.metrics?.length > 0) && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {bullet.canonicalSkills?.map((skill) => (
-                          <Badge key={skill} variant="secondary">
-                            {skill}
-                          </Badge>
-                        ))}
-                        {bullet.metrics?.map((metric) => (
-                          <Badge key={metric} variant="outline">
-                            {metric}
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-fit"
-                        onClick={() => startEditing(bullet)}
-                      >
-                        <Pencil className="size-4" />
-                        Edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-fit text-destructive hover:text-destructive"
-                        onClick={() => setDeleteTarget(bullet)}
-                      >
-                        <Trash2 className="size-4" />
-                        Delete
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        ))}
+      </div>
 
-      <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
+      <Dialog open={isAddOpen} onOpenChange={(open) => !addingBullet && setIsAddOpen(open)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add a bullet</DialogTitle>
@@ -371,7 +395,7 @@ export default function ResumeBullets() {
           {selectedEmployerKey === NEW_EMPLOYER_KEY && (
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2 flex flex-col gap-1.5">
-                <Label htmlFor="new-bullet-company">Company (optional)</Label>
+                <Label htmlFor="new-bullet-company">Company</Label>
                 <Input
                   id="new-bullet-company"
                   value={newBulletCompany}
@@ -380,7 +404,7 @@ export default function ResumeBullets() {
                 />
               </div>
               <div className="col-span-2 flex flex-col gap-1.5">
-                <Label htmlFor="new-bullet-role">Role (optional)</Label>
+                <Label htmlFor="new-bullet-role">Role</Label>
                 <Input
                   id="new-bullet-role"
                   value={newBulletRole}
@@ -389,7 +413,7 @@ export default function ResumeBullets() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="new-bullet-start">Start (optional)</Label>
+                <Label htmlFor="new-bullet-start">Start</Label>
                 <Input
                   id="new-bullet-start"
                   type="month"
@@ -398,7 +422,7 @@ export default function ResumeBullets() {
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <Label htmlFor="new-bullet-end">End (optional)</Label>
+                <Label htmlFor="new-bullet-end">End </Label>
                 <Input
                   id="new-bullet-end"
                   type="month"
@@ -426,14 +450,14 @@ export default function ResumeBullets() {
               : "This bullet will be grouped with that job's other bullets, using its existing role and date range — no need to retype them."}
           </p>
           <DialogFooter>
-            <Button onClick={addBullet} disabled={addingBullet || !newBulletText.trim()}>
+            <Button onClick={addBullet} disabled={addingBullet || !newBulletText.trim() || !isNewBulletValid}>
               {addingBullet ? "Adding…" : "Add bullet"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Delete this bullet?</DialogTitle>

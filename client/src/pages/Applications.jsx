@@ -449,7 +449,7 @@ export default function Applications() {
         </div>
       )}
 
-      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>

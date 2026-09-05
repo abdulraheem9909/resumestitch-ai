@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ListChecks, Pencil, X } from "lucide-react";
+import { Pencil, X } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
+import { isPersonalInfoValid } from "../lib/personalInfo.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { EditableEntryList } from "../components/EditableEntryList.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -53,10 +54,10 @@ function groupBulletsByRole(bullets) {
 }
 
 const EDUCATION_FIELDS = [
-  { key: "degree", label: "Degree" },
-  { key: "institution", label: "Institution" },
+  { key: "degree", label: "Degree", required: true },
+  { key: "institution", label: "Institution", required: true },
   { key: "location", label: "Location" },
-  { key: "dateRange", label: "Date range" },
+  { key: "dateRange", label: "Date range", type: "monthRange", currentLabel: "Currently studying here", required: true },
 ];
 
 const PROJECT_FIELDS = [
@@ -65,16 +66,16 @@ const PROJECT_FIELDS = [
 ];
 
 const CERTIFICATION_FIELDS = [
-  { key: "name", label: "Name" },
-  { key: "issuer", label: "Issuer" },
-  { key: "date", label: "Date" },
+  { key: "name", label: "Name", required: true },
+  { key: "issuer", label: "Issuer", required: true },
+  { key: "date", label: "Date", type: "month", required: true },
 ];
 
 const VOLUNTEER_FIELDS = [
-  { key: "role", label: "Role" },
-  { key: "organization", label: "Organization" },
-  { key: "dateRange", label: "Date range" },
-  { key: "description", label: "Description", type: "textarea" },
+  { key: "role", label: "Role", required: true },
+  { key: "organization", label: "Organization", required: true },
+  { key: "dateRange", label: "Date range", type: "monthRange", currentLabel: "Currently volunteering here", required: true },
+  { key: "description", label: "Description", type: "textarea", required: true },
 ];
 
 export default function ResumeDetail() {
@@ -181,7 +182,7 @@ export default function ResumeDetail() {
   }
 
   async function savePersonalInfo() {
-    if (!personalInfoDraft.fullName.trim()) return;
+    if (!isPersonalInfoValid(personalInfoDraft)) return;
     setSavingPersonalInfo(true);
     setError("");
     try {
@@ -233,18 +234,23 @@ export default function ResumeDetail() {
         />
         {resume && (
           <>
-            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                  {resume.personalInfo?.title || "Master resume"}
-                </p>
+            <div className="mb-3">
+              <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                {resume.personalInfo?.title || "Master resume"}
+              </p>
+              <div className="flex items-center gap-1.5">
                 <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">
                   {resume.personalInfo?.fullName || resume.label}
                 </h1>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={startEditingPersonalInfo}
+                  aria-label="Edit details"
+                >
+                  <Pencil className="size-4" />
+                </Button>
               </div>
-              <Button size="sm" variant="outline" className="w-fit" onClick={startEditingPersonalInfo}>
-                <Pencil className="size-4" /> Edit details
-              </Button>
             </div>
             {contactLine && <p className="max-w-prose text-sm text-muted-foreground md:text-base">{contactLine}</p>}
           </>
@@ -322,7 +328,7 @@ export default function ResumeDetail() {
                 </div>
               </div>
               <div className="mt-3 flex gap-2">
-                <Button size="sm" onClick={savePersonalInfo} disabled={savingPersonalInfo || !personalInfoDraft.fullName.trim()}>
+                <Button size="sm" onClick={savePersonalInfo} disabled={savingPersonalInfo || !isPersonalInfoValid(personalInfoDraft)}>
                   {savingPersonalInfo ? "Saving…" : "Save"}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setIsEditingPersonalInfo(false)} disabled={savingPersonalInfo}>
@@ -361,8 +367,13 @@ export default function ResumeDetail() {
           <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
             <div className="mb-3 flex items-center justify-between gap-2">
               <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">Experience</p>
-              <Button variant="ghost" size="sm" className="w-fit" onClick={() => navigate(`/resumes/${id}/bullets`)}>
-                <ListChecks className="size-4" /> Edit Bullets
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => navigate(`/resumes/${id}/bullets`)}
+                aria-label="Edit Bullets"
+              >
+                <Pencil className="size-4" />
               </Button>
             </div>
             {experience.length === 0 ? (

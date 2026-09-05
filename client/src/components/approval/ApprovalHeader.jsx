@@ -78,7 +78,7 @@ export function ApprovalHeader({
         </div>
       </div>
 
-      <Dialog open={discardDialogOpen} onOpenChange={(open) => !open && setDiscardDialogOpen(false)}>
+      <Dialog open={discardDialogOpen} onOpenChange={(open) => !open && !discarding && setDiscardDialogOpen(false)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Discard this application?</DialogTitle>
