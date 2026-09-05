@@ -40,6 +40,29 @@ export function segmentResumeSections(rawText) {
   let pendingDegreeName = null;
   let currentProject = null; // { name, description } being accumulated
   let currentVolunteer = null; // { role, organization, dateRange, description } being accumulated
+  // A real certification or volunteer-work entry's header (name/issuer, or
+  // role/organization) is sometimes one line, but is just as often split
+  // across two — title on its own line, then issuer/organization on the
+  // next, with the date arriving on a third line by itself. Buffered here
+  // until a date line resolves them into one entry, mirroring Education's
+  // own pendingDegreeName buffer for exactly the same reason. Capped at 2
+  // lines — a third dateless line in a row is ambiguous (same "no date ever
+  // turns up" precedent Education already accepts) and is instead treated
+  // as the start of the *next* entry, flushing whatever was pending as-is.
+  let pendingCertificationLines = [];
+  let pendingVolunteerHeaderLines = [];
+
+  // Some PDFs' column layouts extract several section headings back-to-back
+  // — e.g. "Core Skills" / "Education" / "Certificates" one after another —
+  // with none of their actual content between them, followed by all three
+  // sections' real content as one unbroken block. This parser has no way to
+  // tell which of the stacked headings that content really belongs to, and
+  // simply attributes it all to whichever heading it saw last. Tracked here
+  // so resumes.js can flag every section in a stacked run as suspect and
+  // hand it to the AI fallback, rather than silently trusting whichever one
+  // happened to end up as currentSection.
+  const ambiguousSections = new Set();
+  let headingRunKinds = [];
 
   // Some resumes never label their summary with a heading at all — the paragraph
   // just sits under the name/contact/title block. sawAnyHeading gates a fallback
@@ -76,6 +99,37 @@ export function segmentResumeSections(rawText) {
     }
   }
 
+  // Resolves 1-2 buffered header lines (seen before a date was found) into a
+  // primary/secondary field pair — shared by certifications (name/issuer)
+  // and volunteer work (role/organization), since both can spread a single
+  // entry's header across up to two lines before the date line itself.
+  function resolveMultiLineHeader(bufferedLines) {
+    if (bufferedLines.length === 0) return { primary: '', secondary: '' };
+    if (bufferedLines.length === 1) {
+      const split = trySplitHeaderLine(bufferedLines[0]);
+      return split
+        ? { primary: split.role, secondary: split.company }
+        : { primary: bufferedLines[0], secondary: '' };
+    }
+    return { primary: bufferedLines[0], secondary: bufferedLines.slice(1).join(' ') };
+  }
+
+  function flushCertifications() {
+    if (pendingCertificationLines.length > 0) {
+      const { primary, secondary } = resolveMultiLineHeader(pendingCertificationLines);
+      certifications.push({ name: primary, issuer: secondary, date: '' });
+      pendingCertificationLines = [];
+    }
+  }
+
+  function flushPendingVolunteerHeader() {
+    if (pendingVolunteerHeaderLines.length > 0) {
+      const { primary, secondary } = resolveMultiLineHeader(pendingVolunteerHeaderLines);
+      volunteerWork.push({ role: primary, organization: secondary, dateRange: '', description: '' });
+      pendingVolunteerHeaderLines = [];
+    }
+  }
+
   lines.forEach((line, index) => {
     if (!sawAnyHeading) {
       if (isSectionHeading(line)) {
@@ -102,9 +156,23 @@ export function segmentResumeSections(rawText) {
       flushProject();
       flushEducation();
       flushVolunteer();
+      flushPendingVolunteerHeader();
+      flushCertifications();
       currentSection = classifySectionHeading(line);
+      headingRunKinds.push(currentSection);
       return;
     }
+
+    // The line right after a run of headings is real content — if that run
+    // was 2+ headings long, every one of them is ambiguous (see
+    // ambiguousSections above). A single, isolated heading followed by its
+    // own content is the normal case and flags nothing.
+    if (headingRunKinds.length > 1) {
+      for (const kind of headingRunKinds) {
+        if (kind) ambiguousSections.add(kind);
+      }
+    }
+    headingRunKinds = [];
 
     if (currentSection === 'summary') {
       summaryLines.push(line);
@@ -176,18 +244,29 @@ export function segmentResumeSections(rawText) {
     }
 
     if (currentSection === 'certifications') {
-      // One line in, one entry out — certifications are almost always a
-      // single line each (unlike Education/Projects, no multi-line buffering).
+      // A real certification is a single line ("Name — Issuer, 2023") just as
+      // often as it's spread across up to three ("Name" / "Issuer" / "2023"
+      // each on their own line) — buffer dateless lines and only finalize
+      // into one entry once a date turns up, or the section/file ends.
       const dateMatch = line.match(DATE_TOKEN_REGEX);
-      const withoutDate = dateMatch
-        ? line.slice(0, dateMatch.index).replace(/[\s|,•\-–—]+$/, '').trim()
-        : line;
-      const split = trySplitHeaderLine(withoutDate);
-      certifications.push({
-        name: (split ? split.role : withoutDate).replace(/\s+/g, ' '),
-        issuer: (split ? split.company : '').replace(/\s+/g, ' '),
-        date: dateMatch ? dateMatch[0].trim() : '',
-      });
+      if (dateMatch) {
+        const remainder = line
+          .slice(0, dateMatch.index)
+          .replace(/[\s|,•\-–—]+$/, '')
+          .trim();
+        const lines = remainder ? [...pendingCertificationLines, remainder.replace(/\s+/g, ' ')] : pendingCertificationLines;
+        const { primary, secondary } = resolveMultiLineHeader(lines);
+        certifications.push({ name: primary, issuer: secondary, date: dateMatch[0].trim() });
+        pendingCertificationLines = [];
+      } else if (pendingCertificationLines.length >= 2) {
+        // A third dateless line in a row — ambiguous, same "no date ever
+        // turns up" precedent Education accepts. Flush what's buffered as
+        // its own entry and start fresh, treating this as the next one.
+        flushCertifications();
+        pendingCertificationLines = [line.replace(/\s+/g, ' ')];
+      } else {
+        pendingCertificationLines.push(line.replace(/\s+/g, ' '));
+      }
       return;
     }
 
@@ -199,21 +278,51 @@ export function segmentResumeSections(rawText) {
           .slice(0, dateMatch.index)
           .replace(/[\s|,•\-–—]+$/, '')
           .trim();
-        const split = trySplitHeaderLine(beforeDate);
+        const headerLines = beforeDate
+          ? [...pendingVolunteerHeaderLines, beforeDate.replace(/\s+/g, ' ')]
+          : pendingVolunteerHeaderLines;
+        const { primary, secondary } = resolveMultiLineHeader(headerLines);
         currentVolunteer = {
-          role: (split ? split.role : beforeDate).replace(/\s+/g, ' '),
-          organization: (split ? split.company : '').replace(/\s+/g, ' '),
+          role: primary,
+          organization: secondary,
           dateRange: dateMatch[0].trim(),
           description: '',
         };
-      } else if (!currentVolunteer) {
-        // Nothing buffered yet and no date on this line either — same
-        // "something is better than nothing" fallback Projects already uses.
-        currentVolunteer = { role: line.replace(/\s+/g, ' '), organization: '', dateRange: '', description: '' };
+        pendingVolunteerHeaderLines = [];
+      } else if (currentVolunteer) {
+        // A dateless line while a completed entry is active is usually its
+        // description — but once that description already reads as a
+        // finished sentence, a new short, capitalized line is more likely
+        // the *next* entry's title starting (its own header spread across
+        // dateless lines too) than a continuation. Exact same heuristic,
+        // and the exact same "requires an already-complete-looking
+        // description" guard, Projects already uses for this ambiguity —
+        // deliberately does NOT fire on an entry's still-empty description,
+        // since that's almost always its description's own first line, not
+        // a new entry (tested live: an empty-description entry immediately
+        // followed by "Ran weekly programming workshops for teenagers." was
+        // wrongly read as a new entry until this guard was added).
+        const looksLikeNewEntryStart =
+          currentVolunteer.description &&
+          /[.!:]$/.test(currentVolunteer.description) &&
+          line.length <= 60 &&
+          !/^[a-z]/.test(line);
+        if (looksLikeNewEntryStart) {
+          flushVolunteer();
+          pendingVolunteerHeaderLines = [line.replace(/\s+/g, ' ')];
+        } else {
+          currentVolunteer.description = currentVolunteer.description
+            ? `${currentVolunteer.description} ${line}`
+            : line;
+        }
+      } else if (pendingVolunteerHeaderLines.length >= 2) {
+        // A third dateless line in a row — same ambiguous case as
+        // certifications: flush the pending header-only stub and start
+        // fresh, treating this as the next entry's start.
+        flushPendingVolunteerHeader();
+        pendingVolunteerHeaderLines = [line.replace(/\s+/g, ' ')];
       } else {
-        currentVolunteer.description = currentVolunteer.description
-          ? `${currentVolunteer.description} ${line}`
-          : line;
+        pendingVolunteerHeaderLines.push(line.replace(/\s+/g, ' '));
       }
       return;
     }
@@ -224,6 +333,17 @@ export function segmentResumeSections(rawText) {
   flushProject();
   flushEducation();
   flushVolunteer();
+  flushPendingVolunteerHeader();
+  flushCertifications();
+
+  // The file can end right after a run of stacked headings with no content
+  // ever following (e.g. the last section on the page is genuinely empty) —
+  // same ambiguity as mid-file, so flag it here too.
+  if (headingRunKinds.length > 1) {
+    for (const kind of headingRunKinds) {
+      if (kind) ambiguousSections.add(kind);
+    }
+  }
 
   const skills = skillsLines
     .join(' ')
@@ -238,5 +358,6 @@ export function segmentResumeSections(rawText) {
     skills,
     certifications,
     volunteerWork,
+    ambiguousSections: [...ambiguousSections],
   };
 }

@@ -136,7 +136,8 @@ router.post("/", upload.single("file"), async (req, res) => {
   try {
     // Step 4 — segmentation
     let segments = segmentResume(bulletedText);
-    const { summary, education, projects, skills, certifications, volunteerWork } = segmentResumeSections(bulletedText);
+    const { summary, education, projects, skills, certifications, volunteerWork, ambiguousSections } =
+      segmentResumeSections(bulletedText);
 
     // Fallback: the same kind of layout scrambling that can zero out bullets
     // (see below) can also leave the summary/education/skills extraction
@@ -148,25 +149,54 @@ router.post("/", upload.single("file"), async (req, res) => {
     let finalSummary = summary;
     let finalEducation = education;
     let finalSkills = skills;
+    let finalCertifications = certifications;
+    let finalVolunteerWork = volunteerWork;
     const summaryLooksBroken = summary.length > 600;
     // A scrambled layout can still produce a non-empty education array —
     // e.g. one garbage entry with no institution at all, which is virtually
     // never true of a genuine degree — so "empty" alone isn't a strong
-    // enough signal on its own to catch every broken parse.
-    const educationLooksBroken = education.length === 0 || education.some((entry) => !entry.institution);
+    // enough signal on its own to catch every broken parse. ambiguousSections
+    // (several headings extracted back-to-back with no content between them
+    // — see segmentResumeSections.js) is the same signal that already
+    // explains why an affected section can come back completely empty in
+    // the first place, so it's included here too rather than relying only
+    // on emptiness/shape to notice it.
+    const educationLooksBroken =
+      education.length === 0 || education.some((entry) => !entry.institution) || ambiguousSections.includes('education');
     // Same reasoning as education: a scrambled layout can produce a non-empty
     // but wrong skills array too — e.g. every skill on its own line with no
     // commas between them joins into one giant string, bullet glyphs and all,
     // instead of splitting into separate items. A single implausibly long
     // "skill," or one that still contains a literal bullet character, is
     // virtually never genuine.
-    const skillsLooksBroken = skills.length === 0 || skills.some((skill) => /[•●]/.test(skill) || skill.length > 60);
-    if (summaryLooksBroken || educationLooksBroken || skillsLooksBroken) {
+    const skillsLooksBroken =
+      skills.length === 0 ||
+      skills.some((skill) => /[•●]/.test(skill) || skill.length > 60) ||
+      ambiguousSections.includes('skills');
+    // Certifications/volunteerWork have no shape-based "looks broken" signal
+    // of their own the way education/skills do — a scrambled resume's
+    // certifications array isn't empty or oddly-shaped, it's just padded
+    // with other sections' real content (verified live: a stacked-heading
+    // PDF produced 3 genuine certifications plus its entire skills list and
+    // both education entries, misfiled as certifications). ambiguousSections
+    // is the only signal available for these two, so it's the sole trigger.
+    const certificationsLooksBroken = ambiguousSections.includes('certifications');
+    const volunteerWorkLooksBroken = ambiguousSections.includes('volunteerWork');
+    if (summaryLooksBroken || educationLooksBroken || skillsLooksBroken || certificationsLooksBroken || volunteerWorkLooksBroken) {
       try {
         const aiSections = await segmentResumeSectionsWithAI(bulletedText);
         if (summaryLooksBroken) finalSummary = aiSections.summary || finalSummary;
         if (educationLooksBroken) finalEducation = aiSections.education.length > 0 ? aiSections.education : finalEducation;
         if (skillsLooksBroken) finalSkills = aiSections.skills.length > 0 ? aiSections.skills : finalSkills;
+        // No "length > 0 ?" guard here, unlike education/skills above: those
+        // two are only ever flagged broken when the deterministic result is
+        // already empty, so falling back to it when the AI also returns
+        // empty is a no-op either way. Certifications/volunteerWork can be
+        // flagged broken while still holding real (if padded-out) entries,
+        // so keeping that guard would wrongly keep the padded-out result
+        // whenever the AI correctly determines a resume genuinely has none.
+        if (certificationsLooksBroken) finalCertifications = aiSections.certifications;
+        if (volunteerWorkLooksBroken) finalVolunteerWork = aiSections.volunteerWork;
       } catch (err) {
         console.error("AI section-extraction fallback failed (upload still proceeds with deterministic result):", err);
       }
@@ -271,11 +301,11 @@ router.post("/", upload.single("file"), async (req, res) => {
       summary: finalSummary,
       education: finalEducation,
       projects: taggedProjects,
-      // Static, verbatim, never skill-tagged — no AI-fallback recovery either,
-      // matching the existing precedent that projects itself has none. See
-      // key-decisions-log.md.
-      certifications,
-      volunteerWork,
+      // Static, verbatim, never skill-tagged. Unlike projects itself, these
+      // two do get an AI-fallback recovery path (certificationsLooksBroken/
+      // volunteerWorkLooksBroken above) — see key-decisions-log.md.
+      certifications: finalCertifications,
+      volunteerWork: finalVolunteerWork,
       skills: finalSkills,
     });
     const resumeBullets = await ResumeBullet.insertMany(

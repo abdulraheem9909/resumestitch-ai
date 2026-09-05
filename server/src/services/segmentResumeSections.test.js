@@ -206,6 +206,53 @@ test('falls back to the whole line as the certification name when it has no clea
   });
 });
 
+// Real-world repro: a real resume's certifications aren't reliably one line
+// each — a title/issuer/date block just as often spans three separate lines.
+// The original single-line-only parser split each of these into three
+// garbled entries instead of merging them into one.
+test('merges a certification whose title, issuer, and date each sit on their own line into one entry', () => {
+  const rawText = [
+    'SUMMARY',
+    'A short summary.',
+    'CERTIFICATIONS',
+    'Build Apps with Flutter',
+    'Google',
+    'Oct 2024',
+    'Swift Programming Language Course',
+    'Udemy',
+    'Jun 2024',
+    'SKILLS',
+    'Flutter',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.certifications.length, 2);
+  assert.deepEqual(result.certifications[0], { name: 'Build Apps with Flutter', issuer: 'Google', date: 'Oct 2024' });
+  assert.deepEqual(result.certifications[1], {
+    name: 'Swift Programming Language Course',
+    issuer: 'Udemy',
+    date: 'Jun 2024',
+  });
+});
+
+test('merges a certification with a title line and a date line but no separate issuer line', () => {
+  const rawText = [
+    'SUMMARY',
+    'A short summary.',
+    'CERTIFICATIONS',
+    'Certified Scrum Master',
+    '2021',
+    'SKILLS',
+    'Agile',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.certifications.length, 1);
+  assert.deepEqual(result.certifications[0], { name: 'Certified Scrum Master', issuer: '', date: '2021' });
+});
+
 test('extracts volunteer work entries across role/organization/dateRange header lines and a following description', () => {
   const rawText = [
     'SUMMARY',
@@ -226,6 +273,88 @@ test('extracts volunteer work entries across role/organization/dateRange header 
     organization: 'Code Club',
     dateRange: '06/2020 - 08/2022',
     description: 'Ran weekly programming workshops for teenagers in the local community.',
+  });
+  assert.deepEqual(result.volunteerWork[1], {
+    role: 'Food Bank Volunteer',
+    organization: 'Trussell Trust',
+    dateRange: '01/2019 - 05/2020',
+    description: '',
+  });
+});
+
+// Real-world repro: a volunteer entry's role, organization, and date range
+// each sitting on their own line (rather than role+organization sharing the
+// date's line) used to shred one entry into two garbled ones — a bare role
+// line with no date ever attached, and a bare-organization-as-description
+// entry with the date but no role.
+test('merges a volunteer entry whose role, organization, and date range each sit on their own line', () => {
+  const rawText = [
+    'SUMMARY',
+    'A short summary.',
+    'VOLUNTEER WORK',
+    'Youth Coding Mentor',
+    'Code Club',
+    '06/2020 - 08/2022',
+    'EDUCATION',
+    "Bachelor's degree",
+    'Some University - 2020',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.volunteerWork.length, 1);
+  assert.deepEqual(result.volunteerWork[0], {
+    role: 'Youth Coding Mentor',
+    organization: 'Code Club',
+    dateRange: '06/2020 - 08/2022',
+    description: '',
+  });
+});
+
+test('keeps a description wrapped across two lines as one entry, not a new one', () => {
+  const rawText = [
+    'SUMMARY',
+    'A short summary.',
+    'VOLUNTEER WORK',
+    'Mentor',
+    'Code Club',
+    '2020 - 2021',
+    'Helped organize weekly',
+    'sessions for beginners.',
+    'SKILLS',
+    'React',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.volunteerWork.length, 1);
+  assert.equal(result.volunteerWork[0].description, 'Helped organize weekly sessions for beginners.');
+});
+
+test('splits two consecutive multi-line volunteer entries once the first has a complete, punctuated description', () => {
+  const rawText = [
+    'SUMMARY',
+    'A short summary.',
+    'VOLUNTEER WORK',
+    'Youth Coding Mentor',
+    'Code Club',
+    '06/2020 - 08/2022',
+    'Ran weekly programming workshops for teenagers.',
+    'Food Bank Volunteer',
+    'Trussell Trust',
+    '01/2019 - 05/2020',
+    'SKILLS',
+    'React',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.volunteerWork.length, 2);
+  assert.deepEqual(result.volunteerWork[0], {
+    role: 'Youth Coding Mentor',
+    organization: 'Code Club',
+    dateRange: '06/2020 - 08/2022',
+    description: 'Ran weekly programming workshops for teenagers.',
   });
   assert.deepEqual(result.volunteerWork[1], {
     role: 'Food Bank Volunteer',
@@ -291,4 +420,48 @@ test('excludes a bare location line from the implied summary when there is no ex
   const result = segmentResumeSections(rawText);
 
   assert.equal(result.summary, 'Experienced developer with 6+ years building mobile and web applications.');
+});
+
+// Real-world repro: a resume's sidebar layout extracted "Core Skills" /
+// "Education" / "Certificates" back-to-back with none of their actual
+// content between them, so every line after "Certificates" — the real
+// skills list, both real education entries, and the real certificates —
+// all got attributed to certifications. ambiguousSections is what lets
+// resumes.js recognize that education/skills/certifications are all suspect
+// here, not just silently trust whichever one happened to end up holding
+// the content.
+test('flags every heading in a back-to-back run as ambiguous when their content is stacked afterward', () => {
+  const rawText = [
+    'SUMMARY',
+    'A short summary.',
+    'CORE SKILLS',
+    'EDUCATION',
+    'CERTIFICATES',
+    'Flutter, Swift.',
+    'University Of Central Punjab',
+    "Bachelor's degree Computer Science 2015 - 2020",
+    'Build Apps with Flutter',
+    'Google',
+    'Oct 2024',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.deepEqual(new Set(result.ambiguousSections), new Set(['skills', 'education', 'certifications']));
+});
+
+test('does not flag an isolated heading immediately followed by its own content', () => {
+  const rawText = [
+    'SUMMARY',
+    'A short summary.',
+    'EDUCATION',
+    "Bachelor's degree",
+    'Some University - 2020',
+    'SKILLS',
+    'React, Node.js',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.deepEqual(result.ambiguousSections, []);
 });
