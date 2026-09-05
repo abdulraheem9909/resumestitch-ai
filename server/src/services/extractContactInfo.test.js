@@ -72,3 +72,43 @@ test('leaves location blank when the contact line has no leftover text after pho
   assert.equal(result.location, '');
   assert.equal(result.title, 'Backend Developer');
 });
+
+// Real-world repro: a resume whose actual name never appears in the header
+// block at all (a multi-column PDF layout artifact — the real name shows up
+// deep inside the Work Experience section instead) opens with its tagline
+// on line 0. The old code unconditionally trusted line 0 as the name,
+// silently prefilling a job title as someone's name.
+test('leaves fullName blank rather than guessing wrong when line 0 is actually a tagline', () => {
+  const rawText = [
+    'Senior/ Lead Flutter Developer',
+    'maan852@live.com',
+    'https://www.linkedin.com/in/abdul-rehman-55397a1b5',
+    '+92 303 4923706',
+    'Dubai, 00000, United Arab Emirates',
+    'Experienced Flutter Developer with 6+ years in mobile and web app development.',
+    'Work Experience',
+  ].join('\n');
+
+  const result = extractContactInfo(rawText);
+
+  assert.equal(result.fullName, '');
+  assert.equal(result.title, 'Senior/ Lead Flutter Developer');
+  assert.equal(result.location, 'Dubai, 00000, United Arab Emirates');
+  assert.equal(result.phone, '+92 303 4923706');
+  assert.equal(result.email, 'maan852@live.com');
+  assert.equal(result.linkedin, 'https://www.linkedin.com/in/abdul-rehman-55397a1b5');
+});
+
+// Real-world repro: a bare location line with no phone/email/URL on it at
+// all never reaches looksLikeContactLine, so it needs its own check —
+// and the contact line before it (email only, nothing left over) must not
+// have already locked locationCaptured true with nothing found.
+test('captures a bare location line on its own, separate from the contact-info lines', () => {
+  const rawText = ['Jordan Kim', 'jordan@example.com', 'Berlin, Germany', 'Product Designer'].join('\n');
+
+  const result = extractContactInfo(rawText);
+
+  assert.equal(result.fullName, 'Jordan Kim');
+  assert.equal(result.location, 'Berlin, Germany');
+  assert.equal(result.title, 'Product Designer');
+});

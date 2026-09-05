@@ -6,6 +6,7 @@ import {
   PHONE_REGEX,
   looksLikeContactLine,
   looksLikeTaglineLine,
+  looksLikeLocationLine,
 } from './segmentResume.js';
 import { isSectionHeading } from './resumeSectionHeadings.js';
 
@@ -33,17 +34,31 @@ export function extractContactInfo(rawText) {
   const result = { fullName: '', title: '', location: '', phone: '', email: '', linkedin: '', portfolio: '' };
   if (lines.length === 0) return result;
 
-  // The first non-empty line of a real resume is almost universally the
-  // candidate's name.
-  result.fullName = lines[0];
+  // The first non-empty line of a real resume is almost always the
+  // candidate's name — unless it clearly reads as something else (a
+  // tagline, a contact line, or a bare location line), which some layouts
+  // put first instead. Found live: a resume whose actual name never
+  // appears in the header block at all — extracted deep inside its Work
+  // Experience section instead, a multi-column PDF layout artifact —
+  // leaving line 0 as its tagline. Guessing wrong here (silently prefilling
+  // a job title as someone's name) is worse than leaving fullName blank for
+  // the user to type by hand, so it's only ever set when line 0 doesn't
+  // already look like one of those other things — which still flows
+  // through the same per-line classification below instead, so a real
+  // tagline/location on line 0 is still captured correctly, just not as a name.
+  if (!looksLikeContactLine(lines[0]) && !looksLikeTaglineLine(lines[0]) && !looksLikeLocationLine(lines[0])) {
+    result.fullName = lines[0];
+  }
 
   let locationCaptured = false;
 
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     // Stop at the first sign the preamble is over: a recognized section
     // heading, or experience content starting with no heading at all.
-    if (isSectionHeading(line) || BULLET_REGEX.test(line) || DATE_RANGE_REGEX.test(line)) break;
+    // Never breaks on line 0 itself — a resume's very first line is always
+    // still part of the preamble, whatever it turns out to be.
+    if (i > 0 && (isSectionHeading(line) || BULLET_REGEX.test(line) || DATE_RANGE_REGEX.test(line))) break;
 
     if (looksLikeContactLine(line)) {
       let remainder = line;
@@ -74,18 +89,35 @@ export function extractContactInfo(rawText) {
         urlMatch = remainder.match(FULL_URL_REGEX);
       }
 
-      // Whatever's left after stripping phone/email/links is the location —
-      // only taken from the first contact-shaped line, since that's where a
-      // "City, Country • Phone • Email • Links" layout puts it.
+      // Whatever's left after stripping phone/email/links is the location,
+      // taken from the first contact-shaped line that actually has leftover
+      // text — a "City, Country • Phone • Email • Links" layout puts it
+      // here, but a line that's only ever a bare email/phone/URL (location
+      // stated on its own separate line instead) leaves nothing behind, so
+      // locationCaptured only locks once something real was actually found
+      // — otherwise a later line never gets a chance to supply it.
       if (!locationCaptured) {
         const leftover = remainder
           .split('•')
           .map((part) => part.replace(/^[\s,|.\-–—]+|[\s,|.\-–—]+$/g, '').trim())
           .filter(Boolean)
           .join(', ');
-        if (leftover) result.location = leftover;
-        locationCaptured = true;
+        if (leftover) {
+          result.location = leftover;
+          locationCaptured = true;
+        }
       }
+      continue;
+    }
+
+    // A bare "City, Country" (or similar) line with no phone/email/URL on it
+    // at all — some layouts put contact details and location on entirely
+    // separate lines rather than sharing one. Found live: "Dubai, 00000,
+    // United Arab Emirates" has no digit run long enough to look like a
+    // phone number, so it never reaches looksLikeContactLine at all.
+    if (!locationCaptured && looksLikeLocationLine(line)) {
+      result.location = line;
+      locationCaptured = true;
       continue;
     }
 

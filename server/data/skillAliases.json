@@ -215,5 +215,9 @@
   "real time notifications": "real-time-notifications",
   "web3": "web3",
   "nft": "nft",
-  "non-fungible token": "nft"
+  "non-fungible token": "nft",
+  "memory leak elimination": "memory-leak-elimination",
+  "memory leak prevention": "memory-leak-elimination",
+  "memory management": "memory-leak-elimination",
+  "memory optimization": "memory-leak-elimination"
 }
