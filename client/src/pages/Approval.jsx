@@ -24,6 +24,7 @@ import { SuggestSkillsCard } from "../components/approval/SuggestSkillsCard.jsx"
 import { SearchabilityCheckCard } from "../components/approval/SearchabilityCheckCard.jsx";
 import { SkillFrequencyCard } from "../components/approval/SkillFrequencyCard.jsx";
 import { ApprovalActions } from "../components/approval/ApprovalActions.jsx";
+import { CompareTab } from "../components/approval/CompareTab.jsx";
 
 export default function Approval() {
   const { applicationId } = useParams();
@@ -537,11 +538,27 @@ export default function Approval() {
         <Tabs defaultValue="report">
           <TabsList className="mb-5 h-11 w-full">
             <TabsTrigger value="report">Report</TabsTrigger>
+            <TabsTrigger value="compare">Compare</TabsTrigger>
             <TabsTrigger value="job-details">Job Details</TabsTrigger>
           </TabsList>
 
           <TabsContent value="job-details">
             <JobDetailsPanel application={application} />
+          </TabsContent>
+
+          <TabsContent value="compare">
+            <CompareTab
+              application={application}
+              masterResume={masterResume}
+              originalsById={originalsById}
+              originalSummary={originalSummary}
+              originalEducation={originalEducation}
+              originalProjects={originalProjects}
+              originalCertifications={originalCertifications}
+              originalVolunteerWork={originalVolunteerWork}
+              effectiveSkills={effectiveSkills}
+              bulletGroups={bulletGroups}
+            />
           </TabsContent>
 
           <TabsContent value="report">
