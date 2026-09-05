@@ -6,6 +6,7 @@ import { segmentResume, DATE_RANGE_REGEX } from "../services/segmentResume.js";
 import { segmentResumeWithAI } from "../services/segmentResumeWithAI.js";
 import { segmentResumeSections } from "../services/segmentResumeSections.js";
 import { segmentResumeSectionsWithAI } from "../services/segmentResumeSectionsWithAI.js";
+import { normalizeDate } from "../services/normalizeDate.js";
 import { extractContactInfo } from "../services/extractContactInfo.js";
 import { tagBullet } from "../services/tagBullet.js";
 import { canonicalizeSkill } from "../services/canonicalizeSkill.js";
@@ -299,13 +300,19 @@ router.post("/", upload.single("file"), async (req, res) => {
       label,
       personalInfo,
       summary: finalSummary,
-      education: finalEducation,
+      // normalizeDate reformats a parsed date to this app's own "MM/YYYY"
+      // shape wherever a real month was actually stated, so the date
+      // pickers in the Education/Certifications/Volunteer-Work editor can
+      // parse it back for editing instead of always starting blank — never
+      // touches a bare year, which would mean inventing a month. See
+      // key-decisions-log.md.
+      education: finalEducation.map((entry) => ({ ...entry, dateRange: normalizeDate(entry.dateRange) })),
       projects: taggedProjects,
       // Static, verbatim, never skill-tagged. Unlike projects itself, these
       // two do get an AI-fallback recovery path (certificationsLooksBroken/
       // volunteerWorkLooksBroken above) — see key-decisions-log.md.
-      certifications: finalCertifications,
-      volunteerWork: finalVolunteerWork,
+      certifications: finalCertifications.map((entry) => ({ ...entry, date: normalizeDate(entry.date) })),
+      volunteerWork: finalVolunteerWork.map((entry) => ({ ...entry, dateRange: normalizeDate(entry.dateRange) })),
       skills: finalSkills,
     });
     const resumeBullets = await ResumeBullet.insertMany(
@@ -314,7 +321,7 @@ router.post("/", upload.single("file"), async (req, res) => {
         text: bullet.text,
         role: bullet.role,
         company: bullet.company,
-        dateRange: bullet.dateRange,
+        dateRange: normalizeDate(bullet.dateRange),
         order: index,
         skills: bullet.skills,
         canonicalSkills: bullet.canonicalSkills,

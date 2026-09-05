@@ -1,6 +1,8 @@
 import { classifySectionHeading, isSectionHeading } from './resumeSectionHeadings.js';
 
-const MONTH = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?';
+// Exported so normalizeDate.js's month-name lookup can never drift from what
+// this file itself recognizes as a valid month.
+export const MONTH = '(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\\.?';
 const NUMERIC_MONTH_YEAR = '\\d{1,2}/\\d{4}';
 const NAMED_MONTH_YEAR = `${MONTH}\\s+\\d{4}`;
 const YEAR_ONLY = '\\d{4}';
