@@ -13,6 +13,9 @@ import { canonicalizeSkill } from "../services/canonicalizeSkill.js";
 import { computeVerifiedSkills } from "../services/verifiedSkills.js";
 import { getSkillAliases, addSkillAliasEntries } from "../services/skillAliasesStore.js";
 import { proposeSkillAliasGroups } from "../services/generateSkillAliases.js";
+import { buildResumeDocxBuffer } from "../services/exportResumeDocx.js";
+import { convertDocxBufferToPdf } from "../services/convertDocxToPdf.js";
+import { buildExportFilename } from "../services/buildExportFilename.js";
 import MasterResume from "../models/MasterResume.js";
 import ResumeBullet from "../models/ResumeBullet.js";
 import Application from "../models/Application.js";
@@ -449,6 +452,104 @@ router.patch("/:id/profile", async (req, res) => {
     return res.json({ masterResume: resume });
   } catch (err) {
     return res.status(500).json({ error: "Failed to update resume profile." });
+  }
+});
+
+// Builds this resume's own bullets/summary/title into the `tailoredBullets`/
+// `tailoredSummary`/`tailoredTitle` shape buildResumeDocxBuffer expects,
+// copying everything verbatim — there's no JD, so nothing here is ever
+// tailored. Reuses the exact same builder every application export already
+// uses rather than maintaining a second, divergent layout.
+async function buildMasterResumeDocxInputs(resume) {
+  const bullets = await ResumeBullet.find({ masterResumeId: resume._id }).sort({ order: 1 });
+  const tailoredBullets = bullets.map((bullet) => ({
+    bulletId: bullet._id.toString(),
+    sourceBulletId: bullet._id.toString(),
+    finalText: bullet.text,
+    rejected: false,
+  }));
+  const originalBulletsById = new Map(
+    bullets.map((bullet) => [
+      bullet._id.toString(),
+      { role: bullet.role, company: bullet.company, dateRange: bullet.dateRange },
+    ])
+  );
+
+  return {
+    personalInfo: resume.personalInfo || {},
+    tailoredSummary: { finalText: resume.summary || "" },
+    tailoredTitle: { finalText: resume.personalInfo?.title || "" },
+    tailoredBullets,
+    originalBulletsById,
+    education: resume.education || [],
+    projects: resume.projects || [],
+    certifications: resume.certifications || [],
+    volunteerWork: resume.volunteerWork || [],
+    skills: resume.skills || [],
+  };
+}
+
+// Untailored export of a master resume as-is — no JD, no "approved" gate
+// (that status concept is application-only). Built fresh from MongoDB on
+// every request, never stored server-side, same as every other export route.
+router.get("/:id/export/resume.docx", async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: "Invalid resume id." });
+  }
+
+  try {
+    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    if (!resume) {
+      return res.status(404).json({ error: "Resume not found." });
+    }
+
+    const buffer = await buildResumeDocxBuffer(await buildMasterResumeDocxInputs(resume));
+    const filename = buildExportFilename({ fullName: resume.personalInfo?.fullName, suffix: "Resume" });
+    res.set({
+      "Content-Type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    });
+    return res.send(buffer);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to generate resume." });
+  }
+});
+
+// Same content as the .docx route above, converted via the existing
+// LibreOffice-headless helper — see convertDocxToPdf.js for the
+// never-stored-on-disk guarantee.
+router.get("/:id/export/resume.pdf", async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: "Invalid resume id." });
+  }
+
+  try {
+    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    if (!resume) {
+      return res.status(404).json({ error: "Resume not found." });
+    }
+
+    const docxBuffer = await buildResumeDocxBuffer(await buildMasterResumeDocxInputs(resume));
+    let pdfBuffer;
+    try {
+      pdfBuffer = await convertDocxBufferToPdf(docxBuffer);
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: "Failed to convert resume to PDF." });
+    }
+
+    const filename = buildExportFilename({ fullName: resume.personalInfo?.fullName, suffix: "Resume", extension: "pdf" });
+    res.set({
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+    });
+    return res.send(pdfBuffer);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: "Failed to generate resume." });
   }
 });
 

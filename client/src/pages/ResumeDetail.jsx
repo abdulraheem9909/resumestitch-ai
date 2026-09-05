@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Pencil, X } from "lucide-react";
+import { ChevronDown, Download, Pencil, Trash2, X } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
 import { isPersonalInfoValid } from "../lib/personalInfo.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
@@ -8,6 +8,20 @@ import { EditableEntryList } from "../components/EditableEntryList.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -99,6 +113,10 @@ export default function ResumeDetail() {
   const [summaryDraft, setSummaryDraft] = useState("");
   const [savingSummary, setSavingSummary] = useState(false);
 
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+
   useEffect(() => {
     async function loadResume() {
       setLoading(true);
@@ -175,6 +193,20 @@ export default function ResumeDetail() {
     updateSkills((resume?.skills || []).filter((existing) => existing !== skill));
   }
 
+  async function deleteResume() {
+    setDeleting(true);
+    setDeleteError("");
+    try {
+      const res = await fetch(`${RESUMES_API}/${id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't delete this resume.");
+      navigate("/resumes");
+    } catch (err) {
+      setDeleteError(err.message);
+      setDeleting(false);
+    }
+  }
+
   function startEditingPersonalInfo() {
     setPersonalInfoDraft({ ...EMPTY_PERSONAL_INFO, ...resume.personalInfo });
     setIsEditingPersonalInfo(true);
@@ -234,21 +266,49 @@ export default function ResumeDetail() {
         />
         {resume && (
           <>
-            <div className="mb-3">
-              <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
-                {resume.personalInfo?.title || "Master resume"}
-              </p>
-              <div className="flex items-center gap-1.5">
-                <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">
-                  {resume.personalInfo?.fullName || resume.label}
-                </h1>
+            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                  {resume.personalInfo?.title || "Master resume"}
+                </p>
+                <div className="flex items-center gap-1.5">
+                  <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">
+                    {resume.personalInfo?.fullName || resume.label}
+                  </h1>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    onClick={startEditingPersonalInfo}
+                    aria-label="Edit details"
+                  >
+                    <Pencil className="size-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="outline">
+                      <Download className="size-4" /> Download
+                      <ChevronDown className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="min-w-48">
+                    <DropdownMenuItem asChild>
+                      <a href={`${RESUMES_API}/${id}/export/resume.docx`}>Word (.docx)</a>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem asChild>
+                      <a href={`${RESUMES_API}/${id}/export/resume.pdf`}>PDF (.pdf)</a>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={startEditingPersonalInfo}
-                  aria-label="Edit details"
+                  size="sm"
+                  variant="outline"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setDeleteDialogOpen(true)}
                 >
-                  <Pencil className="size-4" />
+                  <Trash2 className="size-4" /> Delete
                 </Button>
               </div>
             </div>
@@ -522,6 +582,34 @@ export default function ResumeDetail() {
           </div>
         </>
       )}
+
+      <Dialog open={deleteDialogOpen} onOpenChange={(open) => !open && !deleting && setDeleteDialogOpen(false)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete "{resume?.label}"?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes this resume, every bullet in it, and every application ever
+              run against it — including their tailored resumes, cover letters, and scoring
+              history. This can't be undone.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deleteError && (
+            <Alert variant="destructive">
+              <AlertDescription>{deleteError}</AlertDescription>
+            </Alert>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeleteDialogOpen(false)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={deleteResume} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete permanently"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }
