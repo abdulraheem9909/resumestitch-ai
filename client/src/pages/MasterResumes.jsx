@@ -47,7 +47,7 @@ export default function MasterResumes() {
   const [deleteError, setDeleteError] = useState("");
 
   const [editTarget, setEditTarget] = useState(null);
-  const [editPersonalInfo, setEditPersonalInfo] = useState(EMPTY_PERSONAL_INFO);
+  const [editLabel, setEditLabel] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
 
@@ -152,29 +152,28 @@ export default function MasterResumes() {
     }
   }
 
-  function updateEditPersonalInfoField(field) {
-    return (event) => setEditPersonalInfo((prev) => ({ ...prev, [field]: event.target.value }));
-  }
-
   function startEditing(resume) {
     setEditTarget(resume);
-    setEditPersonalInfo({ ...EMPTY_PERSONAL_INFO, ...resume.personalInfo });
+    setEditLabel(resume.label);
     setEditError("");
   }
 
+  // Full contact-detail editing lives on the resume's own detail page now
+  // (client/src/pages/ResumeDetail.jsx) — this dialog only renames the
+  // resume, via the rename route that already existed but had no caller.
   async function saveEdit() {
-    if (!editTarget || !editPersonalInfo.fullName.trim()) return;
+    if (!editTarget || !editLabel.trim()) return;
 
     setSavingEdit(true);
     setEditError("");
     try {
-      const res = await fetch(`${RESUMES_API}/${editTarget._id}/profile`, {
+      const res = await fetch(`${RESUMES_API}/${editTarget._id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ personalInfo: editPersonalInfo }),
+        body: JSON.stringify({ label: editLabel }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't save these changes.");
+      if (!res.ok) throw new Error(data.error || "Couldn't rename this resume.");
 
       setMasterResumes((prev) =>
         prev.map((resume) => (resume._id === editTarget._id ? data.masterResume : resume))
@@ -200,7 +199,7 @@ export default function MasterResumes() {
           </Button>
         </div>
         <p className="max-w-prose text-sm text-muted-foreground md:text-base">
-          Click a resume to view it, or manage it from here — edit its contact details, or delete it
+          Click a resume to view and edit it, or manage it from here — rename it, or delete it
           along with everything ever run against it.
         </p>
       </div>
@@ -396,8 +395,11 @@ export default function MasterResumes() {
       <Dialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Edit "{editTarget?.label}"</DialogTitle>
-            <DialogDescription>Update this resume's contact details.</DialogDescription>
+            <DialogTitle>Rename "{editTarget?.label}"</DialogTitle>
+            <DialogDescription>
+              Contact details, summary, education, and everything else are edited from the resume's
+              own page.
+            </DialogDescription>
           </DialogHeader>
 
           {editError && (
@@ -406,58 +408,16 @@ export default function MasterResumes() {
             </Alert>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2 flex flex-col gap-1.5">
-              <Label htmlFor="edit-fullName">Full name</Label>
-              <Input
-                id="edit-fullName"
-                value={editPersonalInfo.fullName}
-                onChange={updateEditPersonalInfoField("fullName")}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-title">Title</Label>
-              <Input id="edit-title" value={editPersonalInfo.title} onChange={updateEditPersonalInfoField("title")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-location">Location</Label>
-              <Input
-                id="edit-location"
-                value={editPersonalInfo.location}
-                onChange={updateEditPersonalInfoField("location")}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-phone">Phone</Label>
-              <Input id="edit-phone" value={editPersonalInfo.phone} onChange={updateEditPersonalInfoField("phone")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-email">Email</Label>
-              <Input id="edit-email" value={editPersonalInfo.email} onChange={updateEditPersonalInfoField("email")} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-linkedin">LinkedIn</Label>
-              <Input
-                id="edit-linkedin"
-                value={editPersonalInfo.linkedin}
-                onChange={updateEditPersonalInfoField("linkedin")}
-              />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="edit-portfolio">Portfolio</Label>
-              <Input
-                id="edit-portfolio"
-                value={editPersonalInfo.portfolio}
-                onChange={updateEditPersonalInfoField("portfolio")}
-              />
-            </div>
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="edit-label">Label</Label>
+            <Input id="edit-label" value={editLabel} onChange={(event) => setEditLabel(event.target.value)} />
           </div>
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => setEditTarget(null)} disabled={savingEdit}>
               Cancel
             </Button>
-            <Button onClick={saveEdit} disabled={savingEdit || !editPersonalInfo.fullName.trim()}>
+            <Button onClick={saveEdit} disabled={savingEdit || !editLabel.trim()}>
               {savingEdit ? "Saving…" : "Save"}
             </Button>
           </DialogFooter>

@@ -1,12 +1,25 @@
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ListChecks, X } from "lucide-react";
+import { ListChecks, Pencil, X } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
+import { EditableEntryList } from "../components/EditableEntryList.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+
+const EMPTY_PERSONAL_INFO = {
+  fullName: "",
+  title: "",
+  location: "",
+  phone: "",
+  email: "",
+  linkedin: "",
+  portfolio: "",
+};
 
 // A skill can be "verified" two different ways: its own exact wording is in
 // the bullet/summary/project text (safe even against a strict, literal-
@@ -39,6 +52,31 @@ function groupBulletsByRole(bullets) {
   return groups;
 }
 
+const EDUCATION_FIELDS = [
+  { key: "degree", label: "Degree" },
+  { key: "institution", label: "Institution" },
+  { key: "location", label: "Location" },
+  { key: "dateRange", label: "Date range" },
+];
+
+const PROJECT_FIELDS = [
+  { key: "name", label: "Name" },
+  { key: "description", label: "Description", type: "textarea" },
+];
+
+const CERTIFICATION_FIELDS = [
+  { key: "name", label: "Name" },
+  { key: "issuer", label: "Issuer" },
+  { key: "date", label: "Date" },
+];
+
+const VOLUNTEER_FIELDS = [
+  { key: "role", label: "Role" },
+  { key: "organization", label: "Organization" },
+  { key: "dateRange", label: "Date range" },
+  { key: "description", label: "Description", type: "textarea" },
+];
+
 export default function ResumeDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -51,6 +89,14 @@ export default function ResumeDetail() {
   const [error, setError] = useState("");
   const [skillInput, setSkillInput] = useState("");
   const [savingSkills, setSavingSkills] = useState(false);
+
+  const [isEditingPersonalInfo, setIsEditingPersonalInfo] = useState(false);
+  const [personalInfoDraft, setPersonalInfoDraft] = useState(EMPTY_PERSONAL_INFO);
+  const [savingPersonalInfo, setSavingPersonalInfo] = useState(false);
+
+  const [isEditingSummary, setIsEditingSummary] = useState(false);
+  const [summaryDraft, setSummaryDraft] = useState("");
+  const [savingSummary, setSavingSummary] = useState(false);
 
   useEffect(() => {
     async function loadResume() {
@@ -79,30 +125,34 @@ export default function ResumeDetail() {
     loadResume();
   }, [id]);
 
-  // Permanent edit — same PATCH /:id/profile endpoint the Resumes list page's
-  // edit dialog already uses, but applied live per chip instead of batched
-  // behind a Save button, matching the Approval page's skill-editing UX.
-  // That endpoint doesn't return verifiedSkills, so re-fetch the resume
-  // detail afterward to get a fresh solid/outline read on the updated list.
+  // Shared write path for every field this page edits — personalInfo,
+  // summary, education, projects, certifications, volunteerWork, and skills
+  // all go through the same PATCH /:id/profile route. That route doesn't
+  // return verifiedSkills, so re-fetch the resume detail afterward to get a
+  // fresh solid/outline read on whatever changed.
+  async function updateProfileField(field, value) {
+    const res = await fetch(`${RESUMES_API}/${id}/profile`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [field]: value }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Couldn't save these changes.");
+    setResume(data.masterResume);
+
+    const refreshed = await fetch(`${RESUMES_API}/${id}`);
+    const refreshedData = await refreshed.json();
+    if (refreshed.ok) {
+      setVerifiedSkills(refreshedData.verifiedSkills || []);
+      setSkillMatchTypes(refreshedData.skillMatchTypes || {});
+    }
+  }
+
   async function updateSkills(nextSkills) {
     setSavingSkills(true);
     setError("");
     try {
-      const res = await fetch(`${RESUMES_API}/${id}/profile`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ skills: nextSkills }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't update skills.");
-      setResume(data.masterResume);
-
-      const refreshed = await fetch(`${RESUMES_API}/${id}`);
-      const refreshedData = await refreshed.json();
-      if (refreshed.ok) {
-        setVerifiedSkills(refreshedData.verifiedSkills || []);
-        setSkillMatchTypes(refreshedData.skillMatchTypes || {});
-      }
+      await updateProfileField("skills", nextSkills);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -122,6 +172,45 @@ export default function ResumeDetail() {
 
   function removeSkill(skill) {
     updateSkills((resume?.skills || []).filter((existing) => existing !== skill));
+  }
+
+  function startEditingPersonalInfo() {
+    setPersonalInfoDraft({ ...EMPTY_PERSONAL_INFO, ...resume.personalInfo });
+    setIsEditingPersonalInfo(true);
+    setError("");
+  }
+
+  async function savePersonalInfo() {
+    if (!personalInfoDraft.fullName.trim()) return;
+    setSavingPersonalInfo(true);
+    setError("");
+    try {
+      await updateProfileField("personalInfo", personalInfoDraft);
+      setIsEditingPersonalInfo(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingPersonalInfo(false);
+    }
+  }
+
+  function startEditingSummary() {
+    setSummaryDraft(resume.summary || "");
+    setIsEditingSummary(true);
+    setError("");
+  }
+
+  async function saveSummary() {
+    setSavingSummary(true);
+    setError("");
+    try {
+      await updateProfileField("summary", summaryDraft);
+      setIsEditingSummary(false);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingSummary(false);
+    }
   }
 
   const contactLine = resume
@@ -153,8 +242,8 @@ export default function ResumeDetail() {
                   {resume.personalInfo?.fullName || resume.label}
                 </h1>
               </div>
-              <Button size="sm" className="w-fit" onClick={() => navigate(`/resumes/${id}/bullets`)}>
-                <ListChecks className="size-4" /> Resume Bullets
+              <Button size="sm" variant="outline" className="w-fit" onClick={startEditingPersonalInfo}>
+                <Pencil className="size-4" /> Edit details
               </Button>
             </div>
             {contactLine && <p className="max-w-prose text-sm text-muted-foreground md:text-base">{contactLine}</p>}
@@ -171,16 +260,114 @@ export default function ResumeDetail() {
 
       {!loading && resume && (
         <>
-          {resume.summary && (
+          {isEditingPersonalInfo && (
             <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
-              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Summary</p>
-              <p className="text-sm text-foreground">{resume.summary}</p>
+              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Contact details</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2 flex flex-col gap-1.5">
+                  <Label htmlFor="rd-fullName">Full name</Label>
+                  <Input
+                    id="rd-fullName"
+                    value={personalInfoDraft.fullName}
+                    onChange={(event) => setPersonalInfoDraft((prev) => ({ ...prev, fullName: event.target.value }))}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="rd-title">Title</Label>
+                  <Input
+                    id="rd-title"
+                    value={personalInfoDraft.title}
+                    onChange={(event) => setPersonalInfoDraft((prev) => ({ ...prev, title: event.target.value }))}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="rd-location">Location</Label>
+                  <Input
+                    id="rd-location"
+                    value={personalInfoDraft.location}
+                    onChange={(event) => setPersonalInfoDraft((prev) => ({ ...prev, location: event.target.value }))}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="rd-phone">Phone</Label>
+                  <Input
+                    id="rd-phone"
+                    value={personalInfoDraft.phone}
+                    onChange={(event) => setPersonalInfoDraft((prev) => ({ ...prev, phone: event.target.value }))}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="rd-email">Email</Label>
+                  <Input
+                    id="rd-email"
+                    value={personalInfoDraft.email}
+                    onChange={(event) => setPersonalInfoDraft((prev) => ({ ...prev, email: event.target.value }))}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="rd-linkedin">LinkedIn</Label>
+                  <Input
+                    id="rd-linkedin"
+                    value={personalInfoDraft.linkedin}
+                    onChange={(event) => setPersonalInfoDraft((prev) => ({ ...prev, linkedin: event.target.value }))}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label htmlFor="rd-portfolio">Portfolio</Label>
+                  <Input
+                    id="rd-portfolio"
+                    value={personalInfoDraft.portfolio}
+                    onChange={(event) => setPersonalInfoDraft((prev) => ({ ...prev, portfolio: event.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <Button size="sm" onClick={savePersonalInfo} disabled={savingPersonalInfo || !personalInfoDraft.fullName.trim()}>
+                  {savingPersonalInfo ? "Saving…" : "Save"}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setIsEditingPersonalInfo(false)} disabled={savingPersonalInfo}>
+                  Cancel
+                </Button>
+              </div>
             </div>
           )}
 
-          {experience.length > 0 && (
-            <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
-              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Experience</p>
+          <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">Summary</p>
+              {!isEditingSummary && (
+                <Button variant="ghost" size="icon-sm" onClick={startEditingSummary}>
+                  <Pencil className="size-4" />
+                </Button>
+              )}
+            </div>
+            {isEditingSummary ? (
+              <div className="flex flex-col gap-3">
+                <Textarea value={summaryDraft} onChange={(event) => setSummaryDraft(event.target.value)} rows={4} autoFocus />
+                <div className="flex gap-2">
+                  <Button size="sm" onClick={saveSummary} disabled={savingSummary}>
+                    {savingSummary ? "Saving…" : "Save"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setIsEditingSummary(false)} disabled={savingSummary}>
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-foreground">{resume.summary || "No summary yet."}</p>
+            )}
+          </div>
+
+          <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">Experience</p>
+              <Button variant="ghost" size="sm" className="w-fit" onClick={() => navigate(`/resumes/${id}/bullets`)}>
+                <ListChecks className="size-4" /> Edit Bullets
+              </Button>
+            </div>
+            {experience.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No bullets yet.</p>
+            ) : (
               <ul className="flex flex-col gap-5">
                 {experience.map((group, index) => (
                   <li key={index}>
@@ -202,38 +389,75 @@ export default function ResumeDetail() {
                   </li>
                 ))}
               </ul>
-            </div>
-          )}
+            )}
+          </div>
 
-          {resume.education?.length > 0 && (
-            <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
-              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Education</p>
-              <ul className="flex flex-col gap-3">
-                {resume.education.map((entry, index) => (
-                  <li key={index}>
-                    <p className="text-sm font-medium text-foreground">{entry.degree}</p>
-                    <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
-                      {[entry.institution, entry.location, entry.dateRange].filter(Boolean).join(" · ")}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <EditableEntryList
+            title="Education"
+            entries={resume.education || []}
+            fields={EDUCATION_FIELDS}
+            onSave={(next) => updateProfileField("education", next)}
+            emptyMessage="No education listed."
+            addLabel="Add education"
+            renderSummary={(entry) => (
+              <>
+                <p className="text-sm font-medium text-foreground">{entry.degree}</p>
+                <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
+                  {[entry.institution, entry.location, entry.dateRange].filter(Boolean).join(" · ")}
+                </p>
+              </>
+            )}
+          />
 
-          {resume.projects?.length > 0 && (
-            <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
-              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Projects</p>
-              <ul className="flex flex-col gap-3">
-                {resume.projects.map((entry, index) => (
-                  <li key={index}>
-                    <p className="text-sm font-medium text-foreground">{entry.name}</p>
-                    <p className="text-sm text-muted-foreground">{entry.description}</p>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
+          <EditableEntryList
+            title="Certifications"
+            entries={resume.certifications || []}
+            fields={CERTIFICATION_FIELDS}
+            onSave={(next) => updateProfileField("certifications", next)}
+            emptyMessage="No certifications listed."
+            addLabel="Add certification"
+            renderSummary={(entry) => (
+              <>
+                <p className="text-sm font-medium text-foreground">{entry.name}</p>
+                <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
+                  {[entry.issuer, entry.date].filter(Boolean).join(" · ")}
+                </p>
+              </>
+            )}
+          />
+
+          <EditableEntryList
+            title="Projects"
+            entries={resume.projects || []}
+            fields={PROJECT_FIELDS}
+            onSave={(next) => updateProfileField("projects", next)}
+            emptyMessage="No projects listed."
+            addLabel="Add project"
+            renderSummary={(entry) => (
+              <>
+                <p className="text-sm font-medium text-foreground">{entry.name}</p>
+                <p className="text-sm text-muted-foreground">{entry.description}</p>
+              </>
+            )}
+          />
+
+          <EditableEntryList
+            title="Volunteer Work"
+            entries={resume.volunteerWork || []}
+            fields={VOLUNTEER_FIELDS}
+            onSave={(next) => updateProfileField("volunteerWork", next)}
+            emptyMessage="No volunteer work listed."
+            addLabel="Add volunteer work"
+            renderSummary={(entry) => (
+              <>
+                <p className="text-sm font-medium text-foreground">{entry.role}</p>
+                <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">
+                  {[entry.organization, entry.dateRange].filter(Boolean).join(" · ")}
+                </p>
+                {entry.description && <p className="mt-1 text-sm text-muted-foreground">{entry.description}</p>}
+              </>
+            )}
+          />
 
           <div className="rounded-lg border border-border bg-card p-5 shadow-card">
             <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Skills</p>

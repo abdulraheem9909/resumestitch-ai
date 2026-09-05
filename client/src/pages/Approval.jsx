@@ -12,6 +12,8 @@ import { TailoredSummaryCard } from "../components/approval/TailoredSummaryCard.
 import { ExperienceSection, groupTailoredBulletsByEmployer } from "../components/approval/ExperienceSection.jsx";
 import { EducationCard } from "../components/approval/EducationCard.jsx";
 import { ProjectsCard } from "../components/approval/ProjectsCard.jsx";
+import { CertificationsCard } from "../components/approval/CertificationsCard.jsx";
+import { VolunteerWorkCard } from "../components/approval/VolunteerWorkCard.jsx";
 import { SkillsCard } from "../components/approval/SkillsCard.jsx";
 import { CoverageCheckCard } from "../components/approval/CoverageCheckCard.jsx";
 import { AtsScoreSummary } from "../components/approval/AtsScoreSummary.jsx";
@@ -565,10 +567,18 @@ export default function Approval() {
                 bulletActions={bulletActions}
               />
 
-              {/* Education / Projects / Skills — read-only, from the master resume */}
+              {/* Education / Certifications / Projects / Volunteer Work / Skills — read-only, from the master resume */}
               {masterResume?.education?.length > 0 && <EducationCard education={masterResume.education} />}
 
+              {masterResume?.certifications?.length > 0 && (
+                <CertificationsCard certifications={masterResume.certifications} />
+              )}
+
               {masterResume?.projects?.length > 0 && <ProjectsCard projects={masterResume.projects} />}
+
+              {masterResume?.volunteerWork?.length > 0 && (
+                <VolunteerWorkCard volunteerWork={masterResume.volunteerWork} />
+              )}
 
               {/* Cover letter (node 7, conditional) */}
               {application.coverLetterRequested && (
