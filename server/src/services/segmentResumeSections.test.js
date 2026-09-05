@@ -152,8 +152,8 @@ test('drops content under an unrecognized heading rather than mis-bucketing it',
   const rawText = [
     'SUMMARY',
     'A short summary.',
-    'CERTIFICATIONS',
-    'AWS Certified Solutions Architect',
+    'AWARDS',
+    'Employee of the Year',
     'SKILLS',
     'AWS, Docker',
   ].join('\n');
@@ -162,8 +162,97 @@ test('drops content under an unrecognized heading rather than mis-bucketing it',
 
   assert.equal(result.summary, 'A short summary.');
   assert.deepEqual(result.skills, ['AWS', 'Docker']);
-  assert.ok(!result.summary.includes('AWS Certified'));
-  assert.ok(!result.skills.includes('AWS Certified Solutions Architect'));
+  assert.ok(!result.summary.includes('Employee of the Year'));
+  assert.ok(!result.skills.includes('Employee of the Year'));
+});
+
+test('extracts a certification with issuer and date split from a single line', () => {
+  const rawText = [
+    'SUMMARY',
+    'A short summary.',
+    'CERTIFICATIONS',
+    'AWS Certified Solutions Architect — Amazon Web Services, 2023',
+    'SKILLS',
+    'AWS',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.certifications.length, 1);
+  assert.deepEqual(result.certifications[0], {
+    name: 'AWS Certified Solutions Architect',
+    issuer: 'Amazon Web Services',
+    date: '2023',
+  });
+});
+
+test('falls back to the whole line as the certification name when it has no clean issuer split', () => {
+  const rawText = [
+    'SUMMARY',
+    'A short summary.',
+    'CERTIFICATIONS',
+    'Certified Kubernetes Administrator 2022',
+    'SKILLS',
+    'Kubernetes',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.certifications.length, 1);
+  assert.deepEqual(result.certifications[0], {
+    name: 'Certified Kubernetes Administrator',
+    issuer: '',
+    date: '2022',
+  });
+});
+
+test('extracts volunteer work entries across role/organization/dateRange header lines and a following description', () => {
+  const rawText = [
+    'SUMMARY',
+    'A short summary.',
+    'VOLUNTEER WORK',
+    'Youth Coding Mentor — Code Club 06/2020 - 08/2022',
+    'Ran weekly programming workshops for teenagers in the local community.',
+    'Food Bank Volunteer — Trussell Trust 01/2019 - 05/2020',
+    'SKILLS',
+    'React',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.volunteerWork.length, 2);
+  assert.deepEqual(result.volunteerWork[0], {
+    role: 'Youth Coding Mentor',
+    organization: 'Code Club',
+    dateRange: '06/2020 - 08/2022',
+    description: 'Ran weekly programming workshops for teenagers in the local community.',
+  });
+  assert.deepEqual(result.volunteerWork[1], {
+    role: 'Food Bank Volunteer',
+    organization: 'Trussell Trust',
+    dateRange: '01/2019 - 05/2020',
+    description: '',
+  });
+});
+
+test('recognizes CERTIFICATIONS and VOLUNTEER WORK heading variants written in Title Case', () => {
+  const rawText = [
+    'Summary',
+    'A short summary.',
+    'Certifications',
+    'Certified Scrum Master 2021',
+    'Volunteering',
+    'Community Helper — Local Shelter 2020 - 2021',
+    'Skills',
+    'React',
+  ].join('\n');
+
+  const result = segmentResumeSections(rawText);
+
+  assert.equal(result.certifications.length, 1);
+  assert.equal(result.certifications[0].name, 'Certified Scrum Master');
+  assert.equal(result.volunteerWork.length, 1);
+  assert.equal(result.volunteerWork[0].role, 'Community Helper');
 });
 
 // Real-world repro: a resume's headings ("Work Experience", "Core Skills",

@@ -23,6 +23,11 @@ export const DATE_RANGE_REGEX = new RegExp(
     `|${SPECIFIC_DATE_TOKEN}\\s+(?:${SPECIFIC_DATE_TOKEN}|Present|Current)`,
   'i'
 );
+// A single date, not a range — e.g. a certification's trailing "2023" or
+// "Jun 2023". Anchored to the end of the line, since a one-line
+// certification entry's date (when present at all) is always its trailing
+// token, never a range.
+export const DATE_TOKEN_REGEX = new RegExp(`${DATE_TOKEN}\\s*$`, 'i');
 
 // •/● etc. cover the bullet glyphs actually seen from Word/LibreOffice PDF exports,
 // in addition to the plain '-' and '*' called out in the spec.

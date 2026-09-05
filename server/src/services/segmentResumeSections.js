@@ -1,5 +1,6 @@
 import {
   DATE_RANGE_REGEX,
+  DATE_TOKEN_REGEX,
   PAGE_BREAK_REGEX,
   trySplitHeaderLine,
   BULLET_REGEX,
@@ -11,11 +12,12 @@ import { classifySectionHeading, isSectionHeading } from './resumeSectionHeading
 
 /**
  * Rule-based, deterministic extraction of the non-experience sections of a resume:
- * summary, education, projects, and the raw declared skills list. No LLM calls, no
- * rephrasing — everything is copied verbatim, since these are preserved as-is in
- * every generated resume rather than tailored per JD. Sibling to segmentResume(),
- * which handles WORK EXPERIENCE bullets; both share the same heading classifier
- * (resumeSectionHeadings.js) so they can never disagree on what a heading means.
+ * summary, education, projects, certifications, volunteer work, and the raw declared
+ * skills list. No LLM calls, no rephrasing — everything is copied verbatim, since
+ * these are preserved as-is in every generated resume rather than tailored per JD.
+ * Sibling to segmentResume(), which handles WORK EXPERIENCE bullets; both share the
+ * same heading classifier (resumeSectionHeadings.js) so they can never disagree on
+ * what a heading means.
  */
 export function segmentResumeSections(rawText) {
   const lines = (rawText || '')
@@ -28,6 +30,8 @@ export function segmentResumeSections(rawText) {
   const education = [];
   const projects = [];
   const skillsLines = [];
+  const certifications = [];
+  const volunteerWork = [];
 
   let pendingEducation = null; // { degree, dateRange } awaiting an institution line
   // A bare degree-name line seen with no date on it yet, awaiting the
@@ -35,6 +39,7 @@ export function segmentResumeSections(rawText) {
   // instead of sharing the degree's own line.
   let pendingDegreeName = null;
   let currentProject = null; // { name, description } being accumulated
+  let currentVolunteer = null; // { role, organization, dateRange, description } being accumulated
 
   // Some resumes never label their summary with a heading at all — the paragraph
   // just sits under the name/contact/title block. sawAnyHeading gates a fallback
@@ -64,6 +69,13 @@ export function segmentResumeSections(rawText) {
     pendingDegreeName = null;
   }
 
+  function flushVolunteer() {
+    if (currentVolunteer) {
+      volunteerWork.push(currentVolunteer);
+      currentVolunteer = null;
+    }
+  }
+
   lines.forEach((line, index) => {
     if (!sawAnyHeading) {
       if (isSectionHeading(line)) {
@@ -89,6 +101,7 @@ export function segmentResumeSections(rawText) {
       sawAnyHeading = true;
       flushProject();
       flushEducation();
+      flushVolunteer();
       currentSection = classifySectionHeading(line);
       return;
     }
@@ -159,6 +172,50 @@ export function segmentResumeSections(rawText) {
 
     if (currentSection === 'skills') {
       skillsLines.push(line);
+      return;
+    }
+
+    if (currentSection === 'certifications') {
+      // One line in, one entry out — certifications are almost always a
+      // single line each (unlike Education/Projects, no multi-line buffering).
+      const dateMatch = line.match(DATE_TOKEN_REGEX);
+      const withoutDate = dateMatch
+        ? line.slice(0, dateMatch.index).replace(/[\s|,•\-–—]+$/, '').trim()
+        : line;
+      const split = trySplitHeaderLine(withoutDate);
+      certifications.push({
+        name: (split ? split.role : withoutDate).replace(/\s+/g, ' '),
+        issuer: (split ? split.company : '').replace(/\s+/g, ' '),
+        date: dateMatch ? dateMatch[0].trim() : '',
+      });
+      return;
+    }
+
+    if (currentSection === 'volunteerWork') {
+      const dateMatch = line.match(DATE_RANGE_REGEX);
+      if (dateMatch) {
+        flushVolunteer();
+        const beforeDate = line
+          .slice(0, dateMatch.index)
+          .replace(/[\s|,•\-–—]+$/, '')
+          .trim();
+        const split = trySplitHeaderLine(beforeDate);
+        currentVolunteer = {
+          role: (split ? split.role : beforeDate).replace(/\s+/g, ' '),
+          organization: (split ? split.company : '').replace(/\s+/g, ' '),
+          dateRange: dateMatch[0].trim(),
+          description: '',
+        };
+      } else if (!currentVolunteer) {
+        // Nothing buffered yet and no date on this line either — same
+        // "something is better than nothing" fallback Projects already uses.
+        currentVolunteer = { role: line.replace(/\s+/g, ' '), organization: '', dateRange: '', description: '' };
+      } else {
+        currentVolunteer.description = currentVolunteer.description
+          ? `${currentVolunteer.description} ${line}`
+          : line;
+      }
+      return;
     }
     // currentSection === 'experience' or null (unrecognized heading) — ignored here,
     // WORK EXPERIENCE is handled by segmentResume() instead.
@@ -166,6 +223,7 @@ export function segmentResumeSections(rawText) {
 
   flushProject();
   flushEducation();
+  flushVolunteer();
 
   const skills = skillsLines
     .join(' ')
@@ -178,5 +236,7 @@ export function segmentResumeSections(rawText) {
     education,
     projects,
     skills,
+    certifications,
+    volunteerWork,
   };
 }

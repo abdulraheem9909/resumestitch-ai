@@ -136,7 +136,7 @@ router.post("/", upload.single("file"), async (req, res) => {
   try {
     // Step 4 — segmentation
     let segments = segmentResume(bulletedText);
-    const { summary, education, projects, skills } = segmentResumeSections(bulletedText);
+    const { summary, education, projects, skills, certifications, volunteerWork } = segmentResumeSections(bulletedText);
 
     // Fallback: the same kind of layout scrambling that can zero out bullets
     // (see below) can also leave the summary/education/skills extraction
@@ -271,6 +271,11 @@ router.post("/", upload.single("file"), async (req, res) => {
       summary: finalSummary,
       education: finalEducation,
       projects: taggedProjects,
+      // Static, verbatim, never skill-tagged — no AI-fallback recovery either,
+      // matching the existing precedent that projects itself has none. See
+      // key-decisions-log.md.
+      certifications,
+      volunteerWork,
       skills: finalSkills,
     });
     const resumeBullets = await ResumeBullet.insertMany(
@@ -360,7 +365,7 @@ router.patch("/:id/profile", async (req, res) => {
     return res.status(400).json({ error: "Invalid resume id." });
   }
 
-  const { personalInfo, summary, education, projects, skills } = req.body;
+  const { personalInfo, summary, education, projects, certifications, volunteerWork, skills } = req.body;
 
   if (personalInfo !== undefined) {
     if (typeof personalInfo !== "object" || personalInfo === null || Array.isArray(personalInfo)) {
@@ -379,6 +384,12 @@ router.patch("/:id/profile", async (req, res) => {
   if (projects !== undefined && !Array.isArray(projects)) {
     return res.status(400).json({ error: "projects must be an array." });
   }
+  if (certifications !== undefined && !Array.isArray(certifications)) {
+    return res.status(400).json({ error: "certifications must be an array." });
+  }
+  if (volunteerWork !== undefined && !Array.isArray(volunteerWork)) {
+    return res.status(400).json({ error: "volunteerWork must be an array." });
+  }
   if (skills !== undefined && !Array.isArray(skills)) {
     return res.status(400).json({ error: "skills must be an array." });
   }
@@ -393,6 +404,8 @@ router.patch("/:id/profile", async (req, res) => {
     if (summary !== undefined) resume.summary = summary;
     if (education !== undefined) resume.education = education;
     if (projects !== undefined) resume.projects = projects;
+    if (certifications !== undefined) resume.certifications = certifications;
+    if (volunteerWork !== undefined) resume.volunteerWork = volunteerWork;
     if (skills !== undefined) resume.skills = skills;
     await resume.save();
 

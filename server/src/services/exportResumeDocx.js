@@ -55,6 +55,8 @@ export function buildResumeDocxBuffer({
   originalBulletsById,
   education = [],
   projects = [],
+  certifications = [],
+  volunteerWork = [],
   skills = [],
 }) {
   const contactLine = [personalInfo.location, personalInfo.phone, personalInfo.email, personalInfo.linkedin, personalInfo.portfolio]
@@ -118,6 +120,19 @@ export function buildResumeDocxBuffer({
     }
   }
 
+  if (certifications.length > 0) {
+    children.push(new Paragraph({ text: 'CERTIFICATIONS', heading: HeadingLevel.HEADING_2 }));
+    for (const entry of certifications) {
+      if (entry.name) {
+        children.push(new Paragraph({ text: entry.name, heading: HeadingLevel.HEADING_3 }));
+      }
+      const subline = [entry.issuer, entry.date].filter(Boolean).join(' · ');
+      if (subline) {
+        children.push(new Paragraph({ children: [new TextRun({ text: subline, italics: true })] }));
+      }
+    }
+  }
+
   if (projects.length > 0) {
     children.push(new Paragraph({ text: 'PROJECTS', heading: HeadingLevel.HEADING_2 }));
     for (const project of projects) {
@@ -126,6 +141,22 @@ export function buildResumeDocxBuffer({
       }
       if (project.description) {
         children.push(new Paragraph({ text: project.description }));
+      }
+    }
+  }
+
+  if (volunteerWork.length > 0) {
+    children.push(new Paragraph({ text: 'VOLUNTEER WORK', heading: HeadingLevel.HEADING_2 }));
+    for (const entry of volunteerWork) {
+      if (entry.role) {
+        children.push(new Paragraph({ text: entry.role, heading: HeadingLevel.HEADING_3 }));
+      }
+      const subline = [entry.organization, entry.dateRange].filter(Boolean).join(' — ');
+      if (subline) {
+        children.push(new Paragraph({ children: [new TextRun({ text: subline, italics: true })] }));
+      }
+      if (entry.description) {
+        children.push(new Paragraph({ text: entry.description }));
       }
     }
   }

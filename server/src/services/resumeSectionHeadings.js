@@ -17,6 +17,13 @@ const SUMMARY_NAMES = new Set([
 const EDUCATION_NAMES = new Set(['EDUCATION', 'EDUCATIONANDTRAINING', 'ACADEMICBACKGROUND']);
 const PROJECTS_NAMES = new Set(['PROJECTS', 'PROJECTEXPERIENCE', 'KEYPROJECTS', 'PERSONALPROJECTS']);
 const SKILLS_NAMES = new Set(['SKILLS', 'TECHNICALSKILLS', 'CORECOMPETENCIES', 'SKILLSSUMMARY', 'CORESKILLS']);
+const CERTIFICATIONS_NAMES = new Set([
+  'CERTIFICATIONS',
+  'CERTIFICATIONSANDLICENSES',
+  'LICENSESANDCERTIFICATIONS',
+  'CERTIFICATES',
+]);
+const VOLUNTEER_NAMES = new Set(['VOLUNTEERWORK', 'VOLUNTEEREXPERIENCE', 'VOLUNTEERING', 'COMMUNITYINVOLVEMENT']);
 
 const KNOWN_HEADING_NAMES = new Set([
   ...EXPERIENCE_NAMES,
@@ -24,17 +31,19 @@ const KNOWN_HEADING_NAMES = new Set([
   ...EDUCATION_NAMES,
   ...PROJECTS_NAMES,
   ...SKILLS_NAMES,
+  ...CERTIFICATIONS_NAMES,
+  ...VOLUNTEER_NAMES,
 ]);
 
 // A line counts as a section heading two different ways: the traditional
 // shouty ALL-CAPS style (this also catches a heading this app has no specific
-// category for, e.g. "CERTIFICATIONS" — its content still won't be captured,
-// but at least this stops it from leaking into whatever section came before
-// it), or — regardless of case — text matching one of the specific headings
-// this app does recognize. "Work Experience" in Title Case describes the
-// exact same section as "WORK EXPERIENCE" and is at least as common a way to
-// write it; requiring shouting on top of the right words missed every
-// Title-Case-headed resume entirely.
+// category for — its content still won't be captured, but at least this
+// stops it from leaking into whatever section came before it), or —
+// regardless of case — text matching one of the specific headings this app
+// does recognize. "Work Experience" in Title Case describes the exact same
+// section as "WORK EXPERIENCE" and is at least as common a way to write it;
+// requiring shouting on top of the right words missed every Title-Case-
+// headed resume entirely.
 export function isSectionHeading(line) {
   const letters = line.replace(/[^A-Za-z]/g, '');
   if (letters.length === 0 || line.length > 40) return false;
@@ -44,9 +53,9 @@ export function isSectionHeading(line) {
 
 /**
  * Classifies a heading line already confirmed by isSectionHeading(). A fixed
- * whitelist rather than fuzzy matching — an unrecognized heading (e.g.
- * "CERTIFICATIONS") returns null and its content is simply not captured,
- * rather than risking it being mis-bucketed into the wrong section.
+ * whitelist rather than fuzzy matching — an unrecognized heading returns
+ * null and its content is simply not captured, rather than risking it being
+ * mis-bucketed into the wrong section.
  */
 export function classifySectionHeading(line) {
   const normalized = line.replace(/[^A-Za-z]/g, '').toUpperCase();
@@ -55,5 +64,7 @@ export function classifySectionHeading(line) {
   if (EDUCATION_NAMES.has(normalized)) return 'education';
   if (PROJECTS_NAMES.has(normalized)) return 'projects';
   if (SKILLS_NAMES.has(normalized)) return 'skills';
+  if (CERTIFICATIONS_NAMES.has(normalized)) return 'certifications';
+  if (VOLUNTEER_NAMES.has(normalized)) return 'volunteerWork';
   return null;
 }

@@ -30,6 +30,23 @@ const projectEntrySchema = new mongoose.Schema({
   canonicalSkills: { type: [String], default: [] },
 });
 
+// Certifications and volunteer work: static, verbatim, never tailored per JD —
+// same category as education/projects. Deliberately no canonicalSkills here
+// (unlike projectEntrySchema): neither is skill-tagged, so neither feeds gap
+// analysis, ATS scoring, or fabrication verification. See key-decisions-log.md.
+const certificationEntrySchema = new mongoose.Schema({
+  name: { type: String, default: '' },
+  issuer: { type: String, default: '' },
+  date: { type: String, default: '' },
+});
+
+const volunteerWorkEntrySchema = new mongoose.Schema({
+  role: { type: String, default: '' },
+  organization: { type: String, default: '' },
+  dateRange: { type: String, default: '' },
+  description: { type: String, default: '' },
+});
+
 const masterResumeSchema = new mongoose.Schema({
   label: {
     type: String,
@@ -58,6 +75,14 @@ const masterResumeSchema = new mongoose.Schema({
   },
   projects: {
     type: [projectEntrySchema],
+    default: [],
+  },
+  certifications: {
+    type: [certificationEntrySchema],
+    default: [],
+  },
+  volunteerWork: {
+    type: [volunteerWorkEntrySchema],
     default: [],
   },
   skills: {

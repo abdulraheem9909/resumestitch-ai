@@ -448,6 +448,8 @@ router.get('/:id/export/resume.docx', async (req, res) => {
       originalBulletsById,
       education: resume?.education || [],
       projects: resume?.projects || [],
+      certifications: resume?.certifications || [],
+      volunteerWork: resume?.volunteerWork || [],
       skills: application.tailoredSkills ?? resume?.skills ?? [],
     });
 
@@ -503,6 +505,8 @@ router.get('/:id/export/resume.pdf', async (req, res) => {
       originalBulletsById,
       education: resume?.education || [],
       projects: resume?.projects || [],
+      certifications: resume?.certifications || [],
+      volunteerWork: resume?.volunteerWork || [],
       skills: application.tailoredSkills ?? resume?.skills ?? [],
     });
 
@@ -656,6 +660,8 @@ router.get('/:id/searchability-check', async (req, res) => {
     const personalInfo = resume?.personalInfo || {};
     const education = resume?.education || [];
     const projects = resume?.projects || [];
+    const certifications = resume?.certifications || [];
+    const volunteerWork = resume?.volunteerWork || [];
     const skills = application.tailoredSkills ?? resume?.skills ?? [];
 
     const buffer = await buildResumeDocxBuffer({
@@ -666,6 +672,8 @@ router.get('/:id/searchability-check', async (req, res) => {
       originalBulletsById,
       education,
       projects,
+      certifications,
+      volunteerWork,
       skills,
     });
 
@@ -680,7 +688,9 @@ router.get('/:id/searchability-check', async (req, res) => {
       'SUMMARY',
       'WORK HISTORY',
       ...(education.length > 0 ? ['EDUCATION'] : []),
+      ...(certifications.length > 0 ? ['CERTIFICATIONS'] : []),
       ...(projects.length > 0 ? ['PROJECTS'] : []),
+      ...(volunteerWork.length > 0 ? ['VOLUNTEER WORK'] : []),
       ...(skills.length > 0 ? ['SKILLS'] : []),
     ];
     const standardHeadingsPresent = expectedHeadings.every((heading) => text.includes(heading));

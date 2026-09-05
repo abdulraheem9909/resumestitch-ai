@@ -107,6 +107,38 @@ test('buildResumeDocxBuffer\'s bullets actually render with a small "•" glyph,
   assert.ok(/<w:sz w:val="18"\/>/.test(abstractNumBlock || ''), 'the bullet glyph should be rendered smaller than body text');
 });
 
+test('buildResumeDocxBuffer renders CERTIFICATIONS and VOLUNTEER WORK sections when present', async () => {
+  const buffer = await buildResumeDocxBuffer(
+    buildFixture({
+      certifications: [{ name: 'AWS Certified Solutions Architect', issuer: 'Amazon', date: '2023' }],
+      volunteerWork: [
+        {
+          role: 'Youth Coding Mentor',
+          organization: 'Code Club',
+          dateRange: '2020 - 2022',
+          description: 'Ran weekly programming workshops for teenagers.',
+        },
+      ],
+    })
+  );
+  const { value: text } = await mammoth.extractRawText({ buffer });
+
+  assert.ok(text.includes('CERTIFICATIONS'), 'CERTIFICATIONS heading should be present');
+  assert.ok(text.includes('AWS Certified Solutions Architect'), 'certification name should be present');
+  assert.ok(text.includes('Amazon'), 'certification issuer should be present');
+  assert.ok(text.includes('VOLUNTEER WORK'), 'VOLUNTEER WORK heading should be present');
+  assert.ok(text.includes('Youth Coding Mentor'), 'volunteer role should be present');
+  assert.ok(text.includes('Ran weekly programming workshops'), 'volunteer description should be present');
+});
+
+test('buildResumeDocxBuffer omits CERTIFICATIONS and VOLUNTEER WORK headings when both are empty', async () => {
+  const buffer = await buildResumeDocxBuffer(buildFixture({ certifications: [], volunteerWork: [] }));
+  const { value: text } = await mammoth.extractRawText({ buffer });
+
+  assert.ok(!text.includes('CERTIFICATIONS'), 'CERTIFICATIONS heading should not be present when empty');
+  assert.ok(!text.includes('VOLUNTEER WORK'), 'VOLUNTEER WORK heading should not be present when empty');
+});
+
 test('buildResumeDocxBuffer renders skills as one flowing paragraph, matching Summary, not fixed-count rows', async () => {
   // A fixed "N skills per row" split was tried and reverted: skill names
   // vary too much in length to wrap evenly at a fixed count, and it leaves
