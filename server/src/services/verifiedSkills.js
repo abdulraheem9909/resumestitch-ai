@@ -22,16 +22,16 @@ function matchesLiterally(skill, texts) {
  * was ('partial') — e.g. a skill badge "Node.js" backed by bullet text that
  * only ever says "Node".
  */
-export function computeVerifiedSkills(skills, texts) {
+export function computeVerifiedSkills(skills, texts, matchers, skillAliases) {
   const claimed = new Set();
   for (const text of texts || []) {
-    for (const skill of extractClaimedSkills(text || '')) claimed.add(skill);
+    for (const skill of extractClaimedSkills(text || '', matchers, skillAliases)) claimed.add(skill);
   }
 
   const verifiedSkills = [];
   const skillMatchTypes = {};
   for (const skill of skills || []) {
-    if (!claimed.has(canonicalizeSkill(skill))) continue;
+    if (!claimed.has(canonicalizeSkill(skill, skillAliases))) continue;
     verifiedSkills.push(skill);
     skillMatchTypes[skill] = matchesLiterally(skill, texts) ? 'exact' : 'partial';
   }

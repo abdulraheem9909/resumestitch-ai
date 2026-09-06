@@ -1,6 +1,6 @@
 # Key Decisions Log
 
-A running record of the architectural choices behind the Job Application Agent and why they were made — for quick reference, so the reasoning doesn't have to be re-derived from scratch in a future session. Each entry names what we chose and, briefly, what it was chosen over.
+A running record of the architectural choices behind ResumeStitch AI and why they were made — for quick reference, so the reasoning doesn't have to be re-derived from scratch in a future session. Each entry names what we chose and, briefly, what it was chosen over.
 
 **Retrieval, not generation, for tailoring.** Resume content lives as individual `resumeBullets` records; the tailoring node selects and rephrases from them rather than writing from a blank page. Chosen over free-form generation because it removes most of the surface area for fabrication structurally, rather than relying on the model to police itself.
 

@@ -1,10 +1,10 @@
-# Job Application Agent — Project Overview
+# ResumeStitch AI — Project Overview
 
 ## What this is
 
 A personal, self-hosted job application assistant. It takes a job description and one of my parsed master resumes, tailors a resume and cover letter against it, checks the result for ATS fit and factual accuracy, and lets me review and approve everything before anything is saved. It's built with a MERN stack (MongoDB, Express, React, Node) and an agentic core written with LangChain.js and LangGraph.js.
 
-For the detailed technical spec — every node, the data model, and the diagrams — see the companion document, *Job Application Agent — Development Workflow*.
+For the detailed technical spec — every node, the data model, and the diagrams — see the companion document, *ResumeStitch AI — Development Workflow*.
 
 ## Why I'm building it
 

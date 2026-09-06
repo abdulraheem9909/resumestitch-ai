@@ -1,16 +1,15 @@
 import { canonicalizeSkill } from './canonicalizeSkill.js';
-import { getSkillMatchers } from './skillAliasesStore.js';
 
-// Longer terms are matched first (getSkillMatchers() is sorted longest-
-// first); a shorter term whose match span overlaps one already claimed is
-// suppressed — otherwise e.g. "React.js" (-> react) would also register a
-// spurious separate "js" (-> javascript) match, since "." is a word-boundary
-// character and "js" is itself a valid standalone alias.
-export function extractClaimedSkills(text) {
+// Longer terms are matched first (matchers is sorted longest-first by
+// buildSkillMatchers); a shorter term whose match span overlaps one already
+// claimed is suppressed — otherwise e.g. "React.js" (-> react) would also
+// register a spurious separate "js" (-> javascript) match, since "." is a
+// word-boundary character and "js" is itself a valid standalone alias.
+export function extractClaimedSkills(text, matchers, skillAliases) {
   const claimed = new Set();
   const claimedSpans = [];
 
-  for (const { term, regex } of getSkillMatchers()) {
+  for (const { term, regex } of matchers) {
     regex.lastIndex = 0;
     let match;
     while ((match = regex.exec(text)) !== null) {
@@ -18,7 +17,7 @@ export function extractClaimedSkills(text) {
       const end = start + match[0].length;
       const overlaps = claimedSpans.some(([spanStart, spanEnd]) => start < spanEnd && end > spanStart);
       if (!overlaps) {
-        claimed.add(canonicalizeSkill(term));
+        claimed.add(canonicalizeSkill(term, skillAliases));
         claimedSpans.push([start, end]);
       }
     }
@@ -56,8 +55,8 @@ const NON_VERIFIABLE_CLAIM_IDS = new Set([
 // Used only for the fabrication check (buildResult/trustHumanEdit below) —
 // never by verifiedSkills.js, which needs the full, unfiltered set for the
 // display badge.
-function extractVerifiableClaims(text) {
-  return new Set([...extractClaimedSkills(text)].filter((id) => !NON_VERIFIABLE_CLAIM_IDS.has(id)));
+function extractVerifiableClaims(text, matchers, skillAliases) {
+  return new Set([...extractClaimedSkills(text, matchers, skillAliases)].filter((id) => !NON_VERIFIABLE_CLAIM_IDS.has(id)));
 }
 
 const NUMERIC_TOKEN_PATTERN = /\d+(?:\.\d+)?(?:%|x|k|m|\+)?/gi;
@@ -72,8 +71,8 @@ function diffNumericTokens(generatedText, allowedText) {
   return [...claimed].filter((token) => !allowed.has(token));
 }
 
-function buildResult(generatedText, allowedSkills, allowedNumericText) {
-  const claimedSkills = extractVerifiableClaims(generatedText);
+function buildResult(generatedText, allowedSkills, allowedNumericText, matchers, skillAliases) {
+  const claimedSkills = extractVerifiableClaims(generatedText, matchers, skillAliases);
   const allowed = new Set(allowedSkills);
   const fabricatedSkills = [...claimedSkills].filter((skill) => !allowed.has(skill));
   const fabricatedMetrics = diffNumericTokens(generatedText, allowedNumericText);
@@ -90,12 +89,12 @@ function buildResult(generatedText, allowedSkills, allowedNumericText) {
 // resume, not the AI inventing something — there's nothing to fact-check against
 // a source. Trust it outright, but still report what it claims (claimedSkills)
 // so callers can credit those skills elsewhere (e.g. a live "still missing" view).
-export function trustHumanEdit(text) {
+export function trustHumanEdit(text, matchers, skillAliases) {
   return {
     passed: true,
     fabricatedSkills: [],
     fabricatedMetrics: [],
-    claimedSkills: [...extractVerifiableClaims(text || '')],
+    claimedSkills: [...extractVerifiableClaims(text || '', matchers, skillAliases)],
   };
 }
 
@@ -105,10 +104,13 @@ export function trustHumanEdit(text) {
  * human-approval "re-check" action (section 4a) re-invokes this directly
  * against hand-edited text.
  */
-export function verifyBullet({ generatedText, sourceBullet }) {
+export function verifyBullet({ generatedText, sourceBullet }, matchers, skillAliases) {
   const sourceText = sourceBullet.text || '';
-  const allowedSkills = new Set([...(sourceBullet.canonicalSkills || []), ...extractClaimedSkills(sourceText)]);
-  return buildResult(generatedText, [...allowedSkills], sourceText);
+  const allowedSkills = new Set([
+    ...(sourceBullet.canonicalSkills || []),
+    ...extractClaimedSkills(sourceText, matchers, skillAliases),
+  ]);
+  return buildResult(generatedText, [...allowedSkills], sourceText, matchers, skillAliases);
 }
 
 /**
@@ -116,12 +118,12 @@ export function verifyBullet({ generatedText, sourceBullet }) {
  * inputs node 5 was constrained to (selected bullets, matched skills, years
  * of experience) — the same three sources the tailoring prompt was scoped to.
  */
-export function verifySummary({ generatedText, matchedSkills, selectedBullets, yearsOfExperience }) {
+export function verifySummary({ generatedText, matchedSkills, selectedBullets, yearsOfExperience }, matchers, skillAliases) {
   const allowedSkills = new Set([
     ...(matchedSkills || []),
     ...(selectedBullets || []).flatMap((bullet) => [
       ...(bullet.canonicalSkills || []),
-      ...extractClaimedSkills(bullet.text || ''),
+      ...extractClaimedSkills(bullet.text || '', matchers, skillAliases),
     ]),
   ]);
   const allowedNumericText = [
@@ -131,5 +133,5 @@ export function verifySummary({ generatedText, matchedSkills, selectedBullets, y
     String(Math.ceil(yearsOfExperience)),
   ].join(' ');
 
-  return buildResult(generatedText, [...allowedSkills], allowedNumericText);
+  return buildResult(generatedText, [...allowedSkills], allowedNumericText, matchers, skillAliases);
 }

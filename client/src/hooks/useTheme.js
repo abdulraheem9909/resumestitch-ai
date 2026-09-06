@@ -1,6 +1,4 @@
 import { useEffect, useState } from "react";
-import { Moon, Sun } from "lucide-react";
-import { Button } from "@/components/ui/button";
 
 function getInitialTheme() {
   const stored = localStorage.getItem("theme");
@@ -10,7 +8,7 @@ function getInitialTheme() {
   return "light";
 }
 
-export default function ThemeToggle() {
+export function useTheme() {
   const [theme, setTheme] = useState(getInitialTheme);
 
   useEffect(() => {
@@ -22,19 +20,5 @@ export default function ThemeToggle() {
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));
   }
 
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      onClick={toggleTheme}
-      className="w-full justify-start gap-2 text-base font-medium cursor-pointer" 
-    >
-      {theme === "dark" ? (
-        <Sun size={20} strokeWidth={1.75} aria-hidden="true" />
-      ) : (
-        <Moon size={20} strokeWidth={1.75} aria-hidden="true" />
-      )}
-      <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
-    </Button>
-  );
+  return { theme, toggleTheme };
 }

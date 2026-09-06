@@ -1,5 +1,5 @@
 {
-  "name": "job-application-agent-server",
+  "name": "resumestitch-ai-server",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,17 +13,20 @@
     "@langchain/langgraph": "^1.4.12",
     "@langchain/langgraph-checkpoint-mongodb": "^1.4.1",
     "@langchain/openai": "^1.5.10",
+    "bcryptjs": "^3.0.3",
     "cors": "^2.8.5",
     "docx": "^9.7.1",
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
     "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.3",
     "jszip": "^3.10.1",
     "langchain": "^1.5.10",
     "mammoth": "^1.12.1",
     "mongoose": "^8.5.0",
     "multer": "^2.2.0",
     "node-html-parser": "^9.0.1",
+    "nodemailer": "^10.0.0",
     "pdf-parse": "^2.4.5",
     "zod": "^4.4.3"
   }

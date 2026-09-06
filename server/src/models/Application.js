@@ -46,6 +46,11 @@ const tailoredTitleSchema = new mongoose.Schema(
 
 const applicationSchema = new mongoose.Schema(
   {
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
     masterResumeId: { type: String, required: true },
     // The master resume's own updatedAt (or uploadedAt, for one predating
     // MasterResume's timestamps) at the moment this application was

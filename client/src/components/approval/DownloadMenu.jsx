@@ -1,5 +1,6 @@
 import { ChevronDown, Download } from "lucide-react";
 import { APPLICATIONS_API as API_BASE } from "../../lib/api.js";
+import { downloadFile } from "../../lib/downloadFile.js";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -16,7 +17,9 @@ import {
 // their own labels with a separator; otherwise it's just the plain
 // Word/PDF pair. Same export routes as before
 // (GET /:id/export/resume.docx|pdf, cover-letter.docx|pdf), gated on
-// approval by the caller (ApprovalHeader).
+// approval by the caller (ApprovalHeader). Fetched via downloadFile rather
+// than a plain <a href> — these routes now require the Bearer token a raw
+// link navigation can't carry.
 export function DownloadMenu({ applicationId, coverLetterRequested }) {
   const resumeDocx = `${API_BASE}/${applicationId}/export/resume.docx`;
   const resumePdf = `${API_BASE}/${applicationId}/export/resume.pdf`;
@@ -33,22 +36,14 @@ export function DownloadMenu({ applicationId, coverLetterRequested }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-48">
         {coverLetterRequested && <DropdownMenuLabel>Resume</DropdownMenuLabel>}
-        <DropdownMenuItem asChild>
-          <a href={resumeDocx}>Word (.docx)</a>
-        </DropdownMenuItem>
-        <DropdownMenuItem asChild>
-          <a href={resumePdf}>PDF (.pdf)</a>
-        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => downloadFile(resumeDocx, "resume.docx")}>Word (.docx)</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => downloadFile(resumePdf, "resume.pdf")}>PDF (.pdf)</DropdownMenuItem>
         {coverLetterRequested && (
           <>
             <DropdownMenuSeparator />
             <DropdownMenuLabel>Cover letter</DropdownMenuLabel>
-            <DropdownMenuItem asChild>
-              <a href={coverDocx}>Word (.docx)</a>
-            </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <a href={coverPdf}>PDF (.pdf)</a>
-            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => downloadFile(coverDocx, "cover-letter.docx")}>Word (.docx)</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => downloadFile(coverPdf, "cover-letter.pdf")}>PDF (.pdf)</DropdownMenuItem>
           </>
         )}
       </DropdownMenuContent>

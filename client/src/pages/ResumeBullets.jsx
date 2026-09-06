@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Pencil, Plus, Trash2 } from "lucide-react";
 import { RESUMES_API as API_BASE } from "../lib/api.js";
+import { apiFetch } from "../lib/apiFetch.js";
 import { buildDateRange } from "../lib/dateRange.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -95,7 +96,7 @@ export default function ResumeBullets() {
   useEffect(() => {
     async function loadResume() {
       try {
-        const res = await fetch(`${API_BASE}/${id}`);
+        const res = await apiFetch(`${API_BASE}/${id}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Couldn't load this resume.");
         setResume(data.masterResume);
@@ -111,7 +112,7 @@ export default function ResumeBullets() {
       setLoading(true);
       setError("");
       try {
-        const res = await fetch(`${API_BASE}/${id}/bullets`);
+        const res = await apiFetch(`${API_BASE}/${id}/bullets`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Couldn't load bullets for this resume.");
         setBullets(data.resumeBullets);
@@ -140,7 +141,7 @@ export default function ResumeBullets() {
     setSavingId(bulletId);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/bullets/${bulletId}`, {
+      const res = await apiFetch(`${API_BASE}/bullets/${bulletId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: editingText }),
@@ -185,7 +186,7 @@ export default function ResumeBullets() {
     setAddingBullet(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${id}/bullets`, {
+      const res = await apiFetch(`${API_BASE}/${id}/bullets`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: newBulletText, ...employerFields }),
@@ -209,7 +210,7 @@ export default function ResumeBullets() {
     setDeleting(true);
     setDeleteError("");
     try {
-      const res = await fetch(`${API_BASE}/bullets/${deleteTarget._id}`, { method: "DELETE" });
+      const res = await apiFetch(`${API_BASE}/bullets/${deleteTarget._id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't delete this bullet.");
 

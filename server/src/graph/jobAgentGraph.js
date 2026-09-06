@@ -13,6 +13,7 @@ import { tailorContent } from '../services/tailorContent.js';
 import { suggestResumeTitle } from '../services/suggestResumeTitle.js';
 import { rephraseIntensity } from '../services/rephraseIntensity.js';
 import { verifyBullet, verifySummary, trustHumanEdit, extractClaimedSkills } from '../services/deterministicVerification.js';
+import { getSkillDictionaryForUser } from '../services/skillAliasesStore.js';
 import { generateCoverLetter } from '../services/generateCoverLetter.js';
 import { styleLinting } from '../services/styleLinting.js';
 import { atsScoreAndRecruiter, shouldRetryAutomatically, buildAutoRetryNotes } from '../services/atsScoreAndRecruiter.js';
@@ -96,6 +97,7 @@ const volunteerEntrySchema = z.object({
 
 const JobAgentState = new StateSchema({
   applicationId: z.string(),
+  userId: z.string(),
   masterResumeId: z.string().optional(),
   companyName: z.string().optional(),
   jdText: z.string(),
@@ -183,8 +185,9 @@ async function extractJdKeywordsNode(state) {
 }
 
 // Node 2 (section 4)
-function normalizeSkillsNode(state) {
-  const jdCanonicalSkills = normalizeSkills([...state.jdKeywords.skills, ...state.jdKeywords.tools]);
+async function normalizeSkillsNode(state) {
+  const { aliases } = await getSkillDictionaryForUser(state.userId);
+  const jdCanonicalSkills = normalizeSkills([...state.jdKeywords.skills, ...state.jdKeywords.tools], aliases);
   return { jdCanonicalSkills };
 }
 
@@ -322,7 +325,7 @@ export function ensureEveryEmployerRepresented(bullets, resumeBullets, jdCanonic
 // trying to surgically patch one word back into an arbitrary sentence.
 // Scoped to matchedSkills only: a dropped word irrelevant to this JD isn't
 // worth losing an otherwise-good rephrase over.
-export function preserveMatchedSkillWording(bullets, resumeBulletsById, matchedSkills) {
+export function preserveMatchedSkillWording(bullets, resumeBulletsById, matchedSkills, matchers, skillAliases) {
   const matchedSet = new Set(matchedSkills || []);
   if (matchedSet.size === 0) return bullets;
 
@@ -331,8 +334,8 @@ export function preserveMatchedSkillWording(bullets, resumeBulletsById, matchedS
     const sourceBullet = resumeBulletsById.get(bullet.sourceBulletId);
     if (!sourceBullet) return bullet;
 
-    const sourceSkills = extractClaimedSkills(sourceBullet.text);
-    const tailoredSkills = extractClaimedSkills(bullet.finalText);
+    const sourceSkills = extractClaimedSkills(sourceBullet.text, matchers, skillAliases);
+    const tailoredSkills = extractClaimedSkills(bullet.finalText, matchers, skillAliases);
     const droppedMatchedSkill = [...sourceSkills].some(
       (skill) => matchedSet.has(skill) && !tailoredSkills.has(skill)
     );
@@ -356,6 +359,7 @@ async function tailorContentNode(state) {
     throw new Error('tailorContent requires at least one resume bullet.');
   }
 
+  const { aliases, matchers } = await getSkillDictionaryForUser(state.userId);
   const matched = matchedSkills(state.jdCanonicalSkills, state.resumeCanonicalSkills);
   const yearsOfExperience = calculateYearsOfExperience(state.resumeBullets);
 
@@ -386,7 +390,7 @@ async function tailorContentNode(state) {
   let tailoredBullets = mergeHumanEditedBullets(generated.tailoredBullets, state.tailoredBullets);
   tailoredBullets = ensureRequiredBulletIncluded(tailoredBullets, state.requiredBulletId, resumeBulletsById);
   tailoredBullets = ensureEveryEmployerRepresented(tailoredBullets, state.resumeBullets, state.jdCanonicalSkills);
-  tailoredBullets = preserveMatchedSkillWording(tailoredBullets, resumeBulletsById, matched);
+  tailoredBullets = preserveMatchedSkillWording(tailoredBullets, resumeBulletsById, matched, matchers, aliases);
 
   const tailoredSummary =
     state.tailoredSummary?.editSource === 'human' ? state.tailoredSummary : generated.tailoredSummary;
@@ -395,17 +399,22 @@ async function tailorContentNode(state) {
 }
 
 // Node 6 (section 4)
-function deterministicVerificationNode(state) {
+async function deterministicVerificationNode(state) {
+  const { aliases, matchers } = await getSkillDictionaryForUser(state.userId);
   const bulletsById = new Map(state.resumeBullets.map((bullet) => [bullet.bulletId, bullet]));
 
   const bullets = state.tailoredBullets.map((tailoredBullet) => ({
     bulletId: tailoredBullet.bulletId,
     ...(tailoredBullet.editSource === 'human'
-      ? trustHumanEdit(tailoredBullet.finalText)
-      : verifyBullet({
-          generatedText: tailoredBullet.finalText,
-          sourceBullet: bulletsById.get(tailoredBullet.sourceBulletId),
-        })),
+      ? trustHumanEdit(tailoredBullet.finalText, matchers, aliases)
+      : verifyBullet(
+          {
+            generatedText: tailoredBullet.finalText,
+            sourceBullet: bulletsById.get(tailoredBullet.sourceBulletId),
+          },
+          matchers,
+          aliases
+        )),
   }));
 
   const selectedBullets = state.tailoredBullets
@@ -413,13 +422,17 @@ function deterministicVerificationNode(state) {
     .map((tailoredBullet) => bulletsById.get(tailoredBullet.sourceBulletId));
   const summary =
     state.tailoredSummary.editSource === 'human'
-      ? trustHumanEdit(state.tailoredSummary.finalText)
-      : verifySummary({
-          generatedText: state.tailoredSummary.finalText,
-          matchedSkills: state.matchedSkills,
-          selectedBullets,
-          yearsOfExperience: state.yearsOfExperience,
-        });
+      ? trustHumanEdit(state.tailoredSummary.finalText, matchers, aliases)
+      : verifySummary(
+          {
+            generatedText: state.tailoredSummary.finalText,
+            matchedSkills: state.matchedSkills,
+            selectedBullets,
+            yearsOfExperience: state.yearsOfExperience,
+          },
+          matchers,
+          aliases
+        );
 
   const overallPassed = bullets.every((bullet) => bullet.passed) && summary.passed;
 

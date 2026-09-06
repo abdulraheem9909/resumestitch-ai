@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ChevronDown, Download, Pencil, Trash2, X } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
+import { apiFetch } from "../lib/apiFetch.js";
+import { downloadFile } from "../lib/downloadFile.js";
 import { isPersonalInfoValid } from "../lib/personalInfo.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { EditableEntryList } from "../components/EditableEntryList.jsx";
@@ -123,8 +125,8 @@ export default function ResumeDetail() {
       setError("");
       try {
         const [resumeRes, bulletsRes] = await Promise.all([
-          fetch(`${RESUMES_API}/${id}`),
-          fetch(`${RESUMES_API}/${id}/bullets`),
+          apiFetch(`${RESUMES_API}/${id}`),
+          apiFetch(`${RESUMES_API}/${id}/bullets`),
         ]);
         const resumeData = await resumeRes.json();
         if (!resumeRes.ok) throw new Error(resumeData.error || "Couldn't load this resume.");
@@ -150,7 +152,7 @@ export default function ResumeDetail() {
   // return verifiedSkills, so re-fetch the resume detail afterward to get a
   // fresh solid/outline read on whatever changed.
   async function updateProfileField(field, value) {
-    const res = await fetch(`${RESUMES_API}/${id}/profile`, {
+    const res = await apiFetch(`${RESUMES_API}/${id}/profile`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ [field]: value }),
@@ -159,7 +161,7 @@ export default function ResumeDetail() {
     if (!res.ok) throw new Error(data.error || "Couldn't save these changes.");
     setResume(data.masterResume);
 
-    const refreshed = await fetch(`${RESUMES_API}/${id}`);
+    const refreshed = await apiFetch(`${RESUMES_API}/${id}`);
     const refreshedData = await refreshed.json();
     if (refreshed.ok) {
       setVerifiedSkills(refreshedData.verifiedSkills || []);
@@ -197,7 +199,7 @@ export default function ResumeDetail() {
     setDeleting(true);
     setDeleteError("");
     try {
-      const res = await fetch(`${RESUMES_API}/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`${RESUMES_API}/${id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't delete this resume.");
       navigate("/resumes");
@@ -294,11 +296,11 @@ export default function ResumeDetail() {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-48">
-                    <DropdownMenuItem asChild>
-                      <a href={`${RESUMES_API}/${id}/export/resume.docx`}>Word (.docx)</a>
+                    <DropdownMenuItem onClick={() => downloadFile(`${RESUMES_API}/${id}/export/resume.docx`, "resume.docx")}>
+                      Word (.docx)
                     </DropdownMenuItem>
-                    <DropdownMenuItem asChild>
-                      <a href={`${RESUMES_API}/${id}/export/resume.pdf`}>PDF (.pdf)</a>
+                    <DropdownMenuItem onClick={() => downloadFile(`${RESUMES_API}/${id}/export/resume.pdf`, "resume.pdf")}>
+                      PDF (.pdf)
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>

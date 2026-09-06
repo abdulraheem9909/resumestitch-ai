@@ -1,5 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import {
   gapAnalysisNode,
   mergeHumanEditedBullets,
@@ -8,7 +11,13 @@ import {
   mergeHumanEditedTitle,
   preserveMatchedSkillWording,
 } from './jobAgentGraph.js';
-import { normalizeSkills } from '../services/normalizeSkills.js';
+import { normalizeSkills as normalizeSkillsWithAliases } from '../services/normalizeSkills.js';
+import { buildSkillMatchers } from '../services/skillAliasesStore.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const skillAliases = JSON.parse(readFileSync(path.join(__dirname, '../services/__fixtures__/skillAliases.json'), 'utf-8'));
+const matchers = buildSkillMatchers(skillAliases);
+const normalizeSkills = (skills) => normalizeSkillsWithAliases(skills, skillAliases);
 
 test('gapAnalysisNode recomputes resumeCanonicalSkills from current resumeBullets and shrinks keywordGaps when a missing skill is added', () => {
   const jdCanonicalSkills = ['node.js', 'express', 'git'];
@@ -306,7 +315,7 @@ test('preserveMatchedSkillWording reverts a kept bullet whose rephrase dropped a
     },
   ];
 
-  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express']);
+  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express'], matchers, skillAliases);
 
   assert.equal(result[0].finalText, resumeBulletsById.get('src-1').text);
   assert.equal(result[0].rephraseIntensity, 0);
@@ -320,7 +329,7 @@ test('preserveMatchedSkillWording leaves a kept bullet untouched when the tailor
     { bulletId: 'b1', sourceBulletId: 'src-1', finalText: 'Built secure APIs using Express.js and Node.js.', rejected: false, editSource: 'ai' },
   ];
 
-  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express']);
+  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express'], matchers, skillAliases);
 
   assert.deepEqual(result, bullets);
 });
@@ -335,7 +344,7 @@ test('preserveMatchedSkillWording leaves a kept bullet untouched when the droppe
 
   // "redis" was dropped, but it's not a JD-matched skill this time — "express"
   // (the only matched skill) is still present in the tailored text.
-  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express']);
+  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express'], matchers, skillAliases);
 
   assert.deepEqual(result, bullets);
 });
@@ -348,7 +357,7 @@ test('preserveMatchedSkillWording never touches a hand-edited bullet, even if it
     { bulletId: 'b1', sourceBulletId: 'src-1', finalText: 'Built APIs with Node.js.', rejected: false, editSource: 'human' },
   ];
 
-  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express']);
+  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express'], matchers, skillAliases);
 
   assert.deepEqual(result, bullets);
 });
@@ -361,7 +370,7 @@ test('preserveMatchedSkillWording no-ops on an already-rejected bullet', () => {
     { bulletId: 'b1', sourceBulletId: 'src-1', finalText: 'Built APIs with Node.js.', rejected: true, editSource: 'ai' },
   ];
 
-  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express']);
+  const result = preserveMatchedSkillWording(bullets, resumeBulletsById, ['express'], matchers, skillAliases);
 
   assert.deepEqual(result, bullets);
 });

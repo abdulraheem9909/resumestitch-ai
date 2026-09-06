@@ -1,4 +1,4 @@
-# Job Application Agent — Claude Code Memory
+# ResumeStitch AI — Claude Code Memory
 
 @job-application-agent-workflow.md
 @about-this-project.md

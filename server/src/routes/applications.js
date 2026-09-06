@@ -23,8 +23,11 @@ import { convertDocxBufferToPdf } from '../services/convertDocxToPdf.js';
 import { buildExportFilename } from '../services/buildExportFilename.js';
 import { getJobAgentGraph, getCheckpointer } from '../graph/graphInstance.js';
 import GenerationCache from '../models/GenerationCache.js';
+import { authenticate } from '../middleware/authenticate.js';
+import { getSkillDictionaryForUser } from '../services/skillAliasesStore.js';
 
 const router = Router();
+router.use(authenticate);
 
 // LangGraph's default recursionLimit is 25 super-steps. A single pass that
 // legitimately uses all 3 automatic retries (section 5) costs 9 + 3×6 = 27
@@ -85,13 +88,14 @@ async function computeHumanRecheck(application) {
   const snapshot = await graph.getState({ configurable: { thread_id: application._id.toString() } });
   const { resumeBullets = [], matchedSkills = [], yearsOfExperience, resumeTitle } = snapshot.values || {};
   const bulletsById = new Map(resumeBullets.map((bullet) => [bullet.bulletId, bullet]));
+  const { aliases, matchers } = await getSkillDictionaryForUser(application.userId.toString());
 
   const bulletResults = application.tailoredBullets.map((tailoredBullet) => {
     const sourceBullet = bulletsById.get(tailoredBullet.sourceBulletId);
     const result =
       tailoredBullet.editSource === 'human'
-        ? trustHumanEdit(tailoredBullet.finalText)
-        : verifyBullet({ generatedText: tailoredBullet.finalText, sourceBullet });
+        ? trustHumanEdit(tailoredBullet.finalText, matchers, aliases)
+        : verifyBullet({ generatedText: tailoredBullet.finalText, sourceBullet }, matchers, aliases);
     return { bulletId: tailoredBullet.bulletId, rejected: tailoredBullet.rejected, finalText: tailoredBullet.finalText, ...result };
   });
   const bulletFlags = bulletResults.flatMap((result) => {
@@ -108,13 +112,17 @@ async function computeHumanRecheck(application) {
   const summaryResult = !application.tailoredSummary
     ? { passed: true, fabricatedSkills: [], fabricatedMetrics: [], claimedSkills: [] }
     : application.tailoredSummary.editSource === 'human'
-      ? trustHumanEdit(application.tailoredSummary.finalText)
-      : verifySummary({
-          generatedText: application.tailoredSummary.finalText,
-          matchedSkills,
-          selectedBullets,
-          yearsOfExperience,
-        });
+      ? trustHumanEdit(application.tailoredSummary.finalText, matchers, aliases)
+      : verifySummary(
+          {
+            generatedText: application.tailoredSummary.finalText,
+            matchedSkills,
+            selectedBullets,
+            yearsOfExperience,
+          },
+          matchers,
+          aliases
+        );
 
   const summaryFlags = [
     ...summaryResult.fabricatedSkills.map((skill) => `Summary: fabricated skill "${skill}"`),
@@ -165,7 +173,7 @@ async function computeHumanRecheck(application) {
 // For the Applications list page — every application, most recently active first.
 router.get('/', async (req, res) => {
   try {
-    const applications = await Application.find({}).sort({ updatedAt: -1 });
+    const applications = await Application.find({ userId: req.user.id }).sort({ updatedAt: -1 });
     return res.json({ applications });
   } catch (err) {
     console.error(err);
@@ -203,12 +211,12 @@ router.post('/', async (req, res) => {
     const normalizedJdText = jdText.trim().replace(/\s+/g, ' ');
     const jdTextHash = createHash('sha256').update(normalizedJdText).digest('hex');
 
-    const existing = await Application.findOne({ masterResumeId, jdTextHash });
+    const existing = await Application.findOne({ masterResumeId, jdTextHash, userId: req.user.id });
     if (existing) {
       return res.json({ application: existing, deduped: true });
     }
 
-    const resume = await MasterResume.findOne({ _id: masterResumeId, status: 'active' });
+    const resume = await MasterResume.findOne({ _id: masterResumeId, status: 'active', userId: req.user.id });
     if (!resume) {
       return res.status(404).json({ error: 'Resume not found.' });
     }
@@ -218,13 +226,18 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Selected resume has no bullets.' });
     }
 
-    const resumeCanonicalSkills = normalizeSkills(bullets.flatMap((bullet) => bullet.skills));
+    const { aliases: skillAliases } = await getSkillDictionaryForUser(req.user.id);
+    const resumeCanonicalSkills = normalizeSkills(bullets.flatMap((bullet) => bullet.skills), skillAliases);
     const resumeBulletsForGraph = buildResumeBulletsForGraph(bullets);
-    const projectCanonicalSkills = normalizeSkills((resume.projects || []).flatMap((project) => project.canonicalSkills || []));
+    const projectCanonicalSkills = normalizeSkills(
+      (resume.projects || []).flatMap((project) => project.canonicalSkills || []),
+      skillAliases
+    );
 
     let application;
     try {
       application = await Application.create({
+        userId: req.user.id,
         masterResumeId,
         companyName: companyName.trim(),
         jobTitle: jobTitle.trim(),
@@ -239,7 +252,7 @@ router.post('/', async (req, res) => {
       });
     } catch (err) {
       if (err.code === 11000) {
-        const winner = await Application.findOne({ masterResumeId, jdTextHash });
+        const winner = await Application.findOne({ masterResumeId, jdTextHash, userId: req.user.id });
         return res.json({ application: winner, deduped: true });
       }
       throw err;
@@ -258,6 +271,7 @@ router.post('/', async (req, res) => {
       await graph.invoke(
         {
           applicationId,
+          userId: req.user.id,
           masterResumeId,
           companyName: companyName.trim(),
           jdText,
@@ -324,7 +338,7 @@ router.get('/:id', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -333,7 +347,7 @@ router.get('/:id', async (req, res) => {
     const snapshot = await graph.getState({ configurable: { thread_id: id } });
     const state = snapshot.values || {};
 
-    const resume = await MasterResume.findById(application.masterResumeId).select(
+    const resume = await MasterResume.findOne({ _id: application.masterResumeId, userId: req.user.id }).select(
       'skills projects education certifications volunteerWork updatedAt'
     );
 
@@ -358,7 +372,8 @@ router.get('/:id', async (req, res) => {
       application.tailoredSummary?.finalText,
       ...originalProjects.map((project) => project.description),
     ];
-    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(effectiveSkills, sourceTexts);
+    const { aliases: idSkillAliases, matchers: idSkillMatchers } = await getSkillDictionaryForUser(req.user.id);
+    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(effectiveSkills, sourceTexts, idSkillMatchers, idSkillAliases);
     const titleSeniorityWarning = computeTitleSeniorityWarning(application.tailoredTitle);
 
     // Deliberately false whenever masterResumeSnapshotAt itself is missing
@@ -404,7 +419,7 @@ router.delete('/:id', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -432,7 +447,7 @@ router.get('/:id/export/resume.docx', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -440,7 +455,7 @@ router.get('/:id/export/resume.docx', async (req, res) => {
       return res.status(400).json({ error: 'This application has not been approved yet.' });
     }
 
-    const resume = await MasterResume.findById(application.masterResumeId);
+    const resume = await MasterResume.findOne({ _id: application.masterResumeId, userId: req.user.id });
     const graph = getJobAgentGraph();
     const snapshot = await graph.getState({ configurable: { thread_id: id } });
     const originalBullets = snapshot.values?.resumeBullets || [];
@@ -491,7 +506,7 @@ router.get('/:id/export/resume.pdf', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -499,7 +514,7 @@ router.get('/:id/export/resume.pdf', async (req, res) => {
       return res.status(400).json({ error: 'This application has not been approved yet.' });
     }
 
-    const resume = await MasterResume.findById(application.masterResumeId);
+    const resume = await MasterResume.findOne({ _id: application.masterResumeId, userId: req.user.id });
     const graph = getJobAgentGraph();
     const snapshot = await graph.getState({ configurable: { thread_id: id } });
     const originalBullets = snapshot.values?.resumeBullets || [];
@@ -552,7 +567,7 @@ router.get('/:id/export/cover-letter.docx', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -563,7 +578,7 @@ router.get('/:id/export/cover-letter.docx', async (req, res) => {
       return res.status(400).json({ error: 'No cover letter was requested for this application.' });
     }
 
-    const resume = await MasterResume.findById(application.masterResumeId);
+    const resume = await MasterResume.findOne({ _id: application.masterResumeId, userId: req.user.id });
     const buffer = await buildCoverLetterDocxBuffer({
       personalInfo: resume?.personalInfo || {},
       companyName: application.companyName,
@@ -596,7 +611,7 @@ router.get('/:id/export/cover-letter.pdf', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -607,7 +622,7 @@ router.get('/:id/export/cover-letter.pdf', async (req, res) => {
       return res.status(400).json({ error: 'No cover letter was requested for this application.' });
     }
 
-    const resume = await MasterResume.findById(application.masterResumeId);
+    const resume = await MasterResume.findOne({ _id: application.masterResumeId, userId: req.user.id });
     const docxBuffer = await buildCoverLetterDocxBuffer({
       personalInfo: resume?.personalInfo || {},
       companyName: application.companyName,
@@ -656,12 +671,12 @@ router.get('/:id/searchability-check', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
 
-    const resume = await MasterResume.findById(application.masterResumeId);
+    const resume = await MasterResume.findOne({ _id: application.masterResumeId, userId: req.user.id });
     const graph = getJobAgentGraph();
     const snapshot = await graph.getState({ configurable: { thread_id: id } });
     const originalBullets = snapshot.values?.resumeBullets || [];
@@ -738,7 +753,7 @@ router.get('/:id/skill-frequency', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -747,10 +762,13 @@ router.get('/:id/skill-frequency', async (req, res) => {
       .filter((bullet) => !bullet.rejected)
       .map((bullet) => ({ text: bullet.finalText }));
 
+    const { aliases: freqSkillAliases, matchers: freqSkillMatchers } = await getSkillDictionaryForUser(req.user.id);
     const skillFrequency = computeSkillFrequency(
       application.jdSnapshot,
       resumeBulletsForCounting,
-      application.jdCanonicalSkills
+      application.jdCanonicalSkills,
+      freqSkillMatchers,
+      freqSkillAliases
     );
 
     return res.json({ skillFrequency });
@@ -762,7 +780,7 @@ router.get('/:id/skill-frequency', async (req, res) => {
 
 router.get('/export/tracker.xlsx', async (req, res) => {
   try {
-    const applications = await Application.find({ status: 'approved' }).sort({ approvedAt: -1 });
+    const applications = await Application.find({ userId: req.user.id, status: 'approved' }).sort({ approvedAt: -1 });
     const buffer = await buildTrackerXlsxBuffer(applications);
 
     res.set({
@@ -797,7 +815,7 @@ router.patch('/:id/bullets/:bulletId', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -829,14 +847,15 @@ router.patch('/:id/bullets/:bulletId', async (req, res) => {
     const activeTexts = application.tailoredBullets
       .filter((b) => !b.rejected)
       .map((b) => b.finalText);
-    const resume = await MasterResume.findById(application.masterResumeId).select('skills projects');
+    const resume = await MasterResume.findOne({ _id: application.masterResumeId, userId: req.user.id }).select('skills projects');
     const effectiveSkills = application.tailoredSkills ?? resume?.skills ?? [];
     const sourceTexts = [
       ...activeTexts,
       application.tailoredSummary?.finalText,
       ...(resume?.projects || []).map((project) => project.description),
     ];
-    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(effectiveSkills, sourceTexts);
+    const { aliases: bulletSkillAliases, matchers: bulletSkillMatchers } = await getSkillDictionaryForUser(req.user.id);
+    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(effectiveSkills, sourceTexts, bulletSkillMatchers, bulletSkillAliases);
 
     return res.json({ application, verifiedSkills, skillMatchTypes });
   } catch (err) {
@@ -858,7 +877,7 @@ router.patch('/:id/summary', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -892,7 +911,7 @@ router.patch('/:id/title', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -930,7 +949,7 @@ router.patch('/:id/skills', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -941,13 +960,14 @@ router.patch('/:id/skills', async (req, res) => {
     const activeTexts = application.tailoredBullets
       .filter((bullet) => !bullet.rejected)
       .map((bullet) => bullet.finalText);
-    const resume = await MasterResume.findById(application.masterResumeId).select('projects');
+    const resume = await MasterResume.findOne({ _id: application.masterResumeId, userId: req.user.id }).select('projects');
     const sourceTexts = [
       ...activeTexts,
       application.tailoredSummary?.finalText,
       ...(resume?.projects || []).map((project) => project.description),
     ];
-    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(skills, sourceTexts);
+    const { aliases: skillsSkillAliases, matchers: skillsSkillMatchers } = await getSkillDictionaryForUser(req.user.id);
+    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(skills, sourceTexts, skillsSkillMatchers, skillsSkillAliases);
 
     return res.json({ application, verifiedSkills, skillMatchTypes });
   } catch (err) {
@@ -967,7 +987,7 @@ router.post('/:id/recheck', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -1013,7 +1033,7 @@ router.post('/:id/resume', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -1138,7 +1158,7 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
   }
 
   try {
-    const application = await Application.findById(id);
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
     if (!application) {
       return res.status(404).json({ error: 'Application not found.' });
     }
@@ -1150,7 +1170,8 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
     }
 
     const { skills, metrics } = await tagBullet(bulletText);
-    const canonicalSkills = skills.map(canonicalizeSkill);
+    const { aliases: suggestSkillAliases } = await getSkillDictionaryForUser(req.user.id);
+    const canonicalSkills = skills.map((s) => canonicalizeSkill(s, suggestSkillAliases));
     const trimmedRole = typeof role === 'string' && role.trim() ? role.trim() : undefined;
     const trimmedCompany = typeof company === 'string' && company.trim() ? company.trim() : undefined;
     const trimmedDateRange = typeof dateRange === 'string' && dateRange.trim() ? dateRange.trim() : undefined;

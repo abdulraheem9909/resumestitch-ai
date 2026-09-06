@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { APPLICATIONS_API as API_BASE } from "../../lib/api.js";
+import { apiFetch } from "../../lib/apiFetch.js";
 import { Spinner } from "../Spinner.jsx";
 import { SkillMatchBar } from "./SkillMatchBar.jsx";
 
@@ -21,7 +22,7 @@ export function SkillFrequencyCard({ applicationId, jdCanonicalSkills, keywordGa
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}/skill-frequency`);
+      const res = await apiFetch(`${API_BASE}/${applicationId}/skill-frequency`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't compute skill frequency.");
       setSkillFrequency(data.skillFrequency);

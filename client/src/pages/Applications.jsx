@@ -14,6 +14,8 @@ import {
   Trash2,
 } from "lucide-react";
 import { APPLICATIONS_API, RESUMES_API } from "../lib/api.js";
+import { apiFetch } from "../lib/apiFetch.js";
+import { downloadFile } from "../lib/downloadFile.js";
 import { EmptyState } from "../components/EmptyState.jsx";
 import { LoadingState } from "../components/LoadingState.jsx";
 import { cn } from "@/lib/utils.js";
@@ -136,8 +138,8 @@ export default function Applications() {
       setError("");
       try {
         const [applicationsRes, resumesRes] = await Promise.all([
-          fetch(APPLICATIONS_API),
-          fetch(RESUMES_API),
+          apiFetch(APPLICATIONS_API),
+          apiFetch(RESUMES_API),
         ]);
         const data = await applicationsRes.json();
         if (!applicationsRes.ok) throw new Error(data.error || "Couldn't load your applications.");
@@ -207,7 +209,7 @@ export default function Applications() {
     setDeleting(true);
     setDeleteError("");
     try {
-      const res = await fetch(`${APPLICATIONS_API}/${deleteTarget._id}`, { method: "DELETE" });
+      const res = await apiFetch(`${APPLICATIONS_API}/${deleteTarget._id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't delete this application.");
 
@@ -247,11 +249,13 @@ export default function Applications() {
           </h1>
           <div className="flex flex-wrap gap-2">
             {hasApprovedApplications ? (
-              <a href={`${APPLICATIONS_API}/export/tracker.xlsx`}>
-                <Button size="sm" variant="outline">
-                  <Download className="size-4" /> Export as spreadsheet
-                </Button>
-              </a>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => downloadFile(`${APPLICATIONS_API}/export/tracker.xlsx`, "tracker.xlsx")}
+              >
+                <Download className="size-4" /> Export as spreadsheet
+              </Button>
             ) : (
               <Button size="sm" variant="outline" disabled title="No approved applications to export yet">
                 <Download className="size-4" /> Export as spreadsheet

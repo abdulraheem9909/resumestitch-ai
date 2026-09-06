@@ -1,7 +1,4 @@
-import { getSkillAliases } from './skillAliasesStore.js';
-
-export function canonicalizeSkill(rawSkill) {
-  const skillAliases = getSkillAliases();
+export function canonicalizeSkill(rawSkill, skillAliases) {
   const normalized = (rawSkill || '').trim().toLowerCase();
   if (skillAliases[normalized]) return skillAliases[normalized];
 

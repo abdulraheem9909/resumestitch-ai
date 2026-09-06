@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Info } from "lucide-react";
 import { APPLICATIONS_API as API_BASE, RESUMES_API } from "../lib/api.js";
+import { apiFetch } from "../lib/apiFetch.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StaleScoreToast } from "../components/approval/StaleScoreToast.jsx";
@@ -106,7 +107,7 @@ export default function Approval() {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}`);
+      const res = await apiFetch(`${API_BASE}/${applicationId}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't load this application.");
       setApplication(data.application);
@@ -142,7 +143,7 @@ export default function Approval() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${RESUMES_API}/${application.masterResumeId}`);
+        const res = await apiFetch(`${RESUMES_API}/${application.masterResumeId}`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Couldn't load resume details.");
         if (!cancelled) setMasterResume(data.masterResume);
@@ -200,7 +201,7 @@ export default function Approval() {
     setSavingBulletId(bulletId);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}/bullets/${bulletId}`, {
+      const res = await apiFetch(`${API_BASE}/${applicationId}/bullets/${bulletId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ rejected: nextRejected }),
@@ -224,7 +225,7 @@ export default function Approval() {
     setSavingBulletId(bulletId);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}/bullets/${bulletId}`, {
+      const res = await apiFetch(`${API_BASE}/${applicationId}/bullets/${bulletId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: editingBulletText }),
@@ -255,7 +256,7 @@ export default function Approval() {
     setSavingSummary(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}/summary`, {
+      const res = await apiFetch(`${API_BASE}/${applicationId}/summary`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: editingSummaryText }),
@@ -284,7 +285,7 @@ export default function Approval() {
     setSavingTitle(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}/title`, {
+      const res = await apiFetch(`${API_BASE}/${applicationId}/title`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: editingTitleText }),
@@ -307,7 +308,7 @@ export default function Approval() {
     setRechecking(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}/recheck`, { method: "POST" });
+      const res = await apiFetch(`${API_BASE}/${applicationId}/recheck`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't re-check this application.");
       setApplication((prev) => ({
@@ -333,7 +334,7 @@ export default function Approval() {
     setAddingSkill(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}/suggest-skills/accept`, {
+      const res = await apiFetch(`${API_BASE}/${applicationId}/suggest-skills/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -365,7 +366,7 @@ export default function Approval() {
     setSendingRetry(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}/resume`, {
+      const res = await apiFetch(`${API_BASE}/${applicationId}/resume`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "retry", notes: retryNotes }),
@@ -385,7 +386,7 @@ export default function Approval() {
     setApproving(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}/resume`, {
+      const res = await apiFetch(`${API_BASE}/${applicationId}/resume`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "approve" }),
@@ -404,7 +405,7 @@ export default function Approval() {
     setDiscarding(true);
     setDiscardError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}`, { method: "DELETE" });
+      const res = await apiFetch(`${API_BASE}/${applicationId}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't discard this application.");
       navigate("/applications");
@@ -421,7 +422,7 @@ export default function Approval() {
     setSavingSkills(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}/skills`, {
+      const res = await apiFetch(`${API_BASE}/${applicationId}/skills`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ skills: nextSkills }),

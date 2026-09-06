@@ -1,4 +1,4 @@
-# Job Application Agent — Development Workflow
+# ResumeStitch AI — Development Workflow
 
 Stack: MERN (MongoDB, Express, React, Node) + LangChain.js + LangGraph.js.
 

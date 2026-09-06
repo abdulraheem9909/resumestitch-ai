@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
+import { apiFetch } from "../lib/apiFetch.js";
 import { isPersonalInfoValid } from "../lib/personalInfo.js";
 import { EmptyState } from "../components/EmptyState.jsx";
 import { LoadingState } from "../components/LoadingState.jsx";
@@ -56,7 +57,7 @@ export default function MasterResumes() {
       setLoading(true);
       setError("");
       try {
-        const res = await fetch(RESUMES_API);
+        const res = await apiFetch(RESUMES_API);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Couldn't load your resumes.");
         setMasterResumes(data.masterResumes);
@@ -87,7 +88,7 @@ export default function MasterResumes() {
     try {
       const body = new FormData();
       body.append("file", selected);
-      const res = await fetch(`${RESUMES_API}/parse-preview`, { method: "POST", body });
+      const res = await apiFetch(`${RESUMES_API}/parse-preview`, { method: "POST", body });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't read this file.");
 
@@ -117,7 +118,7 @@ export default function MasterResumes() {
       body.append("label", formLabel);
       Object.entries(personalInfo).forEach(([key, value]) => body.append(key, value));
 
-      const res = await fetch(RESUMES_API, { method: "POST", body });
+      const res = await apiFetch(RESUMES_API, { method: "POST", body });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't upload this resume.");
 
@@ -139,7 +140,7 @@ export default function MasterResumes() {
     setDeleting(true);
     setDeleteError("");
     try {
-      const res = await fetch(`${RESUMES_API}/${deleteTarget._id}`, { method: "DELETE" });
+      const res = await apiFetch(`${RESUMES_API}/${deleteTarget._id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't delete this resume.");
 
@@ -167,7 +168,7 @@ export default function MasterResumes() {
     setSavingEdit(true);
     setEditError("");
     try {
-      const res = await fetch(`${RESUMES_API}/${editTarget._id}`, {
+      const res = await apiFetch(`${RESUMES_API}/${editTarget._id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ label: editLabel }),

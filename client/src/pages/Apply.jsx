@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { APPLICATIONS_API, RESUMES_API } from "../lib/api.js";
+import { apiFetch } from "../lib/apiFetch.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { LoadingState } from "../components/LoadingState.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -32,7 +33,7 @@ export default function Apply() {
   useEffect(() => {
     async function loadResumes() {
       try {
-        const res = await fetch(RESUMES_API);
+        const res = await apiFetch(RESUMES_API);
         const data = await res.json();
         if (!res.ok)
           throw new Error(data.error || "Couldn't load your resumes.");
@@ -50,7 +51,7 @@ export default function Apply() {
     setSubmitting(true);
     setError("");
     try {
-      const res = await fetch(APPLICATIONS_API, {
+      const res = await apiFetch(APPLICATIONS_API, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

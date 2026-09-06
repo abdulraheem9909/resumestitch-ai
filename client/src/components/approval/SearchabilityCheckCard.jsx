@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, X } from "lucide-react";
 import { APPLICATIONS_API as API_BASE } from "../../lib/api.js";
+import { apiFetch } from "../../lib/apiFetch.js";
 import { Spinner } from "../Spinner.jsx";
 
 // Purely informational, non-blocking — the same spirit as Re-check: nothing
@@ -21,7 +22,7 @@ export function SearchabilityCheckCard({ applicationId }) {
     setLoading(true);
     setError("");
     try {
-      const res = await fetch(`${API_BASE}/${applicationId}/searchability-check`);
+      const res = await apiFetch(`${API_BASE}/${applicationId}/searchability-check`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't run the searchability check.");
       setChecks(data.checks);

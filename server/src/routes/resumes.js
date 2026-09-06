@@ -11,7 +11,7 @@ import { extractContactInfo } from "../services/extractContactInfo.js";
 import { tagBullet } from "../services/tagBullet.js";
 import { canonicalizeSkill } from "../services/canonicalizeSkill.js";
 import { computeVerifiedSkills } from "../services/verifiedSkills.js";
-import { getSkillAliases, addSkillAliasEntries } from "../services/skillAliasesStore.js";
+import { getSkillDictionaryForUser, addSkillAliasEntriesForUser } from "../services/skillAliasesStore.js";
 import { proposeSkillAliasGroups } from "../services/generateSkillAliases.js";
 import { buildResumeDocxBuffer } from "../services/exportResumeDocx.js";
 import { convertDocxBufferToPdf } from "../services/convertDocxToPdf.js";
@@ -21,8 +21,10 @@ import ResumeBullet from "../models/ResumeBullet.js";
 import Application from "../models/Application.js";
 import GenerationCache from "../models/GenerationCache.js";
 import { getCheckpointer } from "../graph/graphInstance.js";
+import { authenticate } from "../middleware/authenticate.js";
 
 const router = Router();
+router.use(authenticate);
 // No legitimate resume file needs anywhere near this much room; caps how
 // much an upload can force the server to buffer into memory before any
 // other validation runs.
@@ -82,9 +84,9 @@ router.post("/parse-preview", upload.single("file"), async (req, res) => {
   }
 });
 
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
   try {
-    const masterResumes = await MasterResume.find({ status: "active" }).sort({ uploadedAt: -1 });
+    const masterResumes = await MasterResume.find({ status: "active", userId: req.user.id }).sort({ uploadedAt: -1 });
     return res.json({ masterResumes });
   } catch (err) {
     return res.status(500).json({ error: "Failed to list resumes." });
@@ -115,7 +117,7 @@ router.post("/", upload.single("file"), async (req, res) => {
 
   // Step 2 — cap check. Runs before any text extraction or LLM tagging so a
   // 6th upload that's going to be rejected anyway never pays for either.
-  const activeCount = await MasterResume.countDocuments({ status: "active" });
+  const activeCount = await MasterResume.countDocuments({ status: "active", userId: req.user.id });
   if (activeCount >= MAX_ACTIVE_RESUMES) {
     return res.status(409).json({ error: "delete a resume first" });
   }
@@ -249,6 +251,10 @@ router.post("/", upload.single("file"), async (req, res) => {
       }
     }
 
+    // Read once up front — every skill-tagging step below canonicalizes
+    // against this user's own dictionary (per-user, see key-decisions-log.md).
+    const { aliases: skillAliases } = await getSkillDictionaryForUser(req.user.id);
+
     // Step 5 — LLM tagging, one call per bullet
     const taggedBullets = await Promise.all(
       segments.map(async (segment) => {
@@ -256,7 +262,7 @@ router.post("/", upload.single("file"), async (req, res) => {
         return {
           ...segment,
           skills,
-          canonicalSkills: skills.map(canonicalizeSkill),
+          canonicalSkills: skills.map((s) => canonicalizeSkill(s, skillAliases)),
           metrics,
         };
       })
@@ -268,21 +274,25 @@ router.post("/", upload.single("file"), async (req, res) => {
     const taggedProjects = await Promise.all(
       projects.map(async (project) => {
         const { skills: projectSkills } = await tagBullet(project.description);
-        return { ...project, skills: projectSkills, canonicalSkills: projectSkills.map(canonicalizeSkill) };
+        return {
+          ...project,
+          skills: projectSkills,
+          canonicalSkills: projectSkills.map((s) => canonicalizeSkill(s, skillAliases)),
+        };
       })
     );
 
-    // Step 5b — grow the skill-alias dictionary (server/data/skillAliases.json)
-    // with anything this resume introduced that it doesn't already cover.
-    // Never fails the upload — this is an enhancement to future gap-analysis/
-    // verification accuracy, not a requirement of saving this resume.
+    // Step 5b — grow this user's own skill-alias dictionary with anything
+    // this resume introduced that it doesn't already cover. Never fails the
+    // upload — this is an enhancement to future gap-analysis/verification
+    // accuracy, not a requirement of saving this resume.
     const candidateSkills = [
       ...taggedBullets.flatMap((bullet) => bullet.skills),
       ...taggedProjects.flatMap((project) => project.skills),
       ...finalSkills,
     ];
     const known = new Set(
-      Object.entries(getSkillAliases()).flatMap(([alias, canonicalId]) => [alias.toLowerCase(), canonicalId.toLowerCase()])
+      Object.entries(skillAliases).flatMap(([alias, canonicalId]) => [alias.toLowerCase(), canonicalId.toLowerCase()])
     );
     const newTerms = [...new Set(candidateSkills.map((skill) => (skill || "").trim().toLowerCase()).filter(Boolean))].filter(
       (term) => !known.has(term)
@@ -292,7 +302,7 @@ router.post("/", upload.single("file"), async (req, res) => {
     if (newTerms.length > 0) {
       try {
         const { groups } = await proposeSkillAliasGroups(newTerms);
-        newSkillAliasesAdded = addSkillAliasEntries(groups);
+        newSkillAliasesAdded = await addSkillAliasEntriesForUser(req.user.id, groups);
       } catch (err) {
         console.error("Skill-alias generation failed (upload still succeeds):", err);
       }
@@ -300,6 +310,7 @@ router.post("/", upload.single("file"), async (req, res) => {
 
     // Step 6 — save
     const masterResume = await MasterResume.create({
+      userId: req.user.id,
       label,
       personalInfo,
       summary: finalSummary,
@@ -347,7 +358,7 @@ router.get("/:id", async (req, res) => {
   }
 
   try {
-    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    const resume = await MasterResume.findOne({ _id: id, status: "active", userId: req.user.id });
     if (!resume) {
       return res.status(404).json({ error: "Resume not found." });
     }
@@ -357,7 +368,8 @@ router.get("/:id", async (req, res) => {
       resume.summary,
       ...(resume.projects || []).map((project) => project.description),
     ];
-    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(resume.skills, sourceTexts);
+    const { aliases: detailSkillAliases, matchers: detailSkillMatchers } = await getSkillDictionaryForUser(req.user.id);
+    const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(resume.skills, sourceTexts, detailSkillMatchers, detailSkillAliases);
     return res.json({ masterResume: resume, verifiedSkills, skillMatchTypes });
   } catch (err) {
     return res.status(500).json({ error: "Failed to load resume." });
@@ -376,7 +388,7 @@ router.patch("/:id", async (req, res) => {
   }
 
   try {
-    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    const resume = await MasterResume.findOne({ _id: id, status: "active", userId: req.user.id });
     if (!resume) {
       return res.status(404).json({ error: "Resume not found." });
     }
@@ -384,6 +396,7 @@ router.patch("/:id", async (req, res) => {
     const nameTaken = await MasterResume.findOne({
       label,
       status: "active",
+      userId: req.user.id,
       _id: { $ne: id },
     });
     if (nameTaken) {
@@ -435,7 +448,7 @@ router.patch("/:id/profile", async (req, res) => {
   }
 
   try {
-    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    const resume = await MasterResume.findOne({ _id: id, status: "active", userId: req.user.id });
     if (!resume) {
       return res.status(404).json({ error: "Resume not found." });
     }
@@ -499,7 +512,7 @@ router.get("/:id/export/resume.docx", async (req, res) => {
   }
 
   try {
-    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    const resume = await MasterResume.findOne({ _id: id, status: "active", userId: req.user.id });
     if (!resume) {
       return res.status(404).json({ error: "Resume not found." });
     }
@@ -527,7 +540,7 @@ router.get("/:id/export/resume.pdf", async (req, res) => {
   }
 
   try {
-    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    const resume = await MasterResume.findOne({ _id: id, status: "active", userId: req.user.id });
     if (!resume) {
       return res.status(404).json({ error: "Resume not found." });
     }
@@ -560,6 +573,11 @@ router.get("/:id/bullets", async (req, res) => {
   }
 
   try {
+    const resume = await MasterResume.findOne({ _id: id, status: "active", userId: req.user.id });
+    if (!resume) {
+      return res.status(404).json({ error: "Resume not found." });
+    }
+
     const resumeBullets = await ResumeBullet.find({ masterResumeId: id }).sort({ order: 1 });
     return res.json({ resumeBullets });
   } catch (err) {
@@ -579,13 +597,14 @@ router.post("/:id/bullets", async (req, res) => {
   }
 
   try {
-    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    const resume = await MasterResume.findOne({ _id: id, status: "active", userId: req.user.id });
     if (!resume) {
       return res.status(404).json({ error: "Resume not found." });
     }
 
     const { skills, metrics } = await tagBullet(text);
-    const canonicalSkills = skills.map(canonicalizeSkill);
+    const { aliases: addBulletSkillAliases } = await getSkillDictionaryForUser(req.user.id);
+    const canonicalSkills = skills.map((s) => canonicalizeSkill(s, addBulletSkillAliases));
 
     // A manually added bullet always appends after everything already on
     // this resume, never at the front — see the `order` field's own comment.
@@ -630,12 +649,17 @@ router.patch("/bullets/:id", async (req, res) => {
     if (!bullet) {
       return res.status(404).json({ error: "Bullet not found." });
     }
+    const owningResume = await MasterResume.findOne({ _id: bullet.masterResumeId, userId: req.user.id });
+    if (!owningResume) {
+      return res.status(404).json({ error: "Bullet not found." });
+    }
 
     const { skills, metrics } = await tagBullet(text);
+    const { aliases: editBulletSkillAliases } = await getSkillDictionaryForUser(req.user.id);
 
     bullet.text = text;
     bullet.skills = skills;
-    bullet.canonicalSkills = skills.map(canonicalizeSkill);
+    bullet.canonicalSkills = skills.map((s) => canonicalizeSkill(s, editBulletSkillAliases));
     bullet.metrics = metrics;
     await bullet.save();
 
@@ -665,6 +689,10 @@ router.delete("/bullets/:id", async (req, res) => {
   try {
     const bullet = await ResumeBullet.findById(id);
     if (!bullet) {
+      return res.status(404).json({ error: "Bullet not found." });
+    }
+    const owningResume = await MasterResume.findOne({ _id: bullet.masterResumeId, userId: req.user.id });
+    if (!owningResume) {
       return res.status(404).json({ error: "Bullet not found." });
     }
 
@@ -700,7 +728,7 @@ router.delete("/:id", async (req, res) => {
   }
 
   try {
-    const resume = await MasterResume.findOne({ _id: id, status: "active" });
+    const resume = await MasterResume.findOne({ _id: id, status: "active", userId: req.user.id });
     if (!resume) {
       return res.status(404).json({ error: "Resume not found." });
     }

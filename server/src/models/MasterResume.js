@@ -48,6 +48,11 @@ const volunteerWorkEntrySchema = new mongoose.Schema({
 });
 
 const masterResumeSchema = new mongoose.Schema({
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true,
+  },
   label: {
     type: String,
     required: true,
