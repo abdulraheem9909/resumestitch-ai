@@ -40,6 +40,16 @@ router.use(authenticate);
 // can itself trigger further automatic retries on top.
 const GRAPH_RECURSION_LIMIT = 60;
 
+// Section 5 — "Cap retries at 3 regardless of reason," shared across
+// automatic retries (enforced inside shouldRetryAutomatically) and manual
+// ones. A manual "send back with notes" or an accepted suggest-missing-
+// skills bullet both route through the same POST-triggered retry pathway
+// (section 4a) but never went through the automatic loop's own cap check,
+// so retryCount could otherwise climb past 3 indefinitely — checked here,
+// before either route ever invokes the graph, so a refused retry costs
+// nothing (no LLM call, no DB write).
+const MAX_RETRY_COUNT = 3;
+
 function buildResumeBulletsForGraph(bullets) {
   return bullets.map((bullet) => ({
     bulletId: bullet._id.toString(),
@@ -1048,6 +1058,9 @@ router.post('/:id/resume', async (req, res) => {
       if (application.status === 'approved') {
         return res.status(400).json({ error: 'This application has already been approved.' });
       }
+      if (action === 'retry' && (application.retryCount ?? 0) >= MAX_RETRY_COUNT) {
+        return res.status(400).json({ error: `This application has already used all ${MAX_RETRY_COUNT} retries.` });
+      }
     }
 
     const resumePayload =
@@ -1164,6 +1177,9 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
     }
     if (application.status === 'role_mismatch' || application.status === 'approved') {
       return res.status(400).json({ error: 'Cannot suggest a skill for this application.' });
+    }
+    if ((application.retryCount ?? 0) >= MAX_RETRY_COUNT) {
+      return res.status(400).json({ error: `This application has already used all ${MAX_RETRY_COUNT} retries.` });
     }
     if (!(application.keywordGaps || []).includes(skill)) {
       return res.status(400).json({ error: "skill is not one of this application's keyword gaps." });
