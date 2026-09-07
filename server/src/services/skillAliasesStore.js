@@ -66,6 +66,34 @@ export function mergeAliasEntries(currentDict, proposedGroups) {
 }
 
 /**
+ * Pure — no I/O. proposeSkillAliasGroups' own prompt tells the model "every
+ * input term must end up as an alias in exactly one group," but nothing
+ * verifies it actually did — found live: given ["langgraph", "langchain"],
+ * the model correctly grouped "langchain" but silently dropped "langgraph"
+ * from every group in its response. A term missing from the dictionary
+ * entirely is invisible to buildSkillMatchers, so a resume bullet that
+ * genuinely says "LangGraph" can never verify the "LangGraph" skill badge.
+ * Called after mergeAliasEntries with the same `newTerms` list that was sent
+ * to the model; any term still not present as a key in `mergedDict` (i.e.
+ * neither self-mapped nor grouped under another term's canonical id) is
+ * self-mapped to itself, the same safe, no-fabrication-risk fallback this
+ * codebase already uses elsewhere (e.g. force-including a skill-gap bullet).
+ */
+export function ensureAllTermsCovered(mergedDict, terms) {
+  const dict = { ...mergedDict };
+  const addedEntries = [];
+
+  for (const rawTerm of terms || []) {
+    const term = (rawTerm || '').trim().toLowerCase();
+    if (!term || dict[term] !== undefined) continue;
+    dict[term] = term;
+    addedEntries.push([term, term]);
+  }
+
+  return { mergedDict: dict, addedEntries };
+}
+
+/**
  * Reads this user's own dictionary fresh from Mongo — no process-wide cache,
  * since the dictionary is now per-user rather than one shared file. Returns
  * the raw alias map plus its derived matchers together, since almost every
@@ -80,12 +108,22 @@ export async function getSkillDictionaryForUser(userId) {
 /**
  * Impure wrapper: merges the proposed groups into this user's own dictionary
  * and upserts it — called by the resume-upload route (resumes.js), never
- * during a per-JD run.
+ * during a per-JD run. `newTerms`, when given, is the same term list that
+ * was sent to proposeSkillAliasGroups — passed through to
+ * ensureAllTermsCovered so a term the model's response silently dropped
+ * still ends up in the dictionary (self-mapped) rather than staying
+ * permanently invisible to buildSkillMatchers. Omitted for the JD-side
+ * caller (jobAgentGraph.js), whose matchUnresolvedSkillsToKnown() already
+ * guarantees every non-"no match" term lands in a real group by construction
+ * (a closed-choice enum, not free-form grouping), so there's nothing to
+ * backfill there.
  */
-export async function addSkillAliasEntriesForUser(userId, proposedGroups) {
+export async function addSkillAliasEntriesForUser(userId, proposedGroups, newTerms) {
   const doc = await SkillAliasDictionary.findOne({ userId });
   const currentDict = doc?.aliases || {};
-  const { mergedDict, addedEntries } = mergeAliasEntries(currentDict, proposedGroups);
+  const { mergedDict: afterGroups, addedEntries: fromGroups } = mergeAliasEntries(currentDict, proposedGroups);
+  const { mergedDict, addedEntries: fromFallback } = ensureAllTermsCovered(afterGroups, newTerms);
+  const addedEntries = [...fromGroups, ...fromFallback];
   if (addedEntries.length === 0) return addedEntries;
 
   await SkillAliasDictionary.findOneAndUpdate({ userId }, { aliases: mergedDict }, { upsert: true });

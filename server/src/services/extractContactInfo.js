@@ -76,17 +76,50 @@ export function extractContactInfo(rawText) {
       }
 
       // Multiple URL-ish tokens can share one line (e.g. LinkedIn + portfolio) —
-      // peel them off one at a time until none remain.
+      // peel them off one at a time until none remain. Tracks whichever field
+      // the last (rightmost) one was assigned to, since that's the only one
+      // that could have been cut short by a PDF line-wrap (see below).
       let urlMatch = remainder.match(FULL_URL_REGEX);
+      let lastAssignedField = null;
+      let lastAssignedUrl = '';
       while (urlMatch) {
         const url = urlMatch[0];
         if (/linkedin/i.test(url)) {
-          if (!result.linkedin) result.linkedin = url;
+          if (!result.linkedin) {
+            result.linkedin = url;
+            lastAssignedField = 'linkedin';
+            lastAssignedUrl = url;
+          }
         } else if (!result.portfolio) {
           result.portfolio = url;
+          lastAssignedField = 'portfolio';
+          lastAssignedUrl = url;
         }
         remainder = remainder.replace(url, ' ');
         urlMatch = remainder.match(FULL_URL_REGEX);
+      }
+
+      // A URL can itself get PDF-wrapped mid-hostname/path, stranding its
+      // tail as a bare fragment on the very next line (e.g.
+      // "https://abdulraheem-" / "rho.vercel.app") — only worth checking
+      // when the URL just found sat right at this line's own end, since one
+      // followed by real text on the same line was never cut short.
+      // Requires the fragment to contain a "." or "/" (a real continuation
+      // of a hostname/path) so a genuinely unrelated single-word next line
+      // (e.g. a one-word tagline) is never mistaken for one.
+      if (lastAssignedField && line.trimEnd().endsWith(lastAssignedUrl)) {
+        const nextLine = lines[i + 1];
+        const looksLikeBareUrlContinuation =
+          nextLine &&
+          !/\s/.test(nextLine) &&
+          /[./]/.test(nextLine) &&
+          !isSectionHeading(nextLine) &&
+          !BULLET_REGEX.test(nextLine) &&
+          !DATE_RANGE_REGEX.test(nextLine);
+        if (looksLikeBareUrlContinuation) {
+          result[lastAssignedField] += nextLine;
+          i += 1;
+        }
       }
 
       // Whatever's left after stripping phone/email/links is the location,
@@ -97,8 +130,12 @@ export function extractContactInfo(rawText) {
       // locationCaptured only locks once something real was actually found
       // — otherwise a later line never gets a chance to supply it.
       if (!locationCaptured) {
+        // "·" (middle dot) is what this app's own resume export actually
+        // joins the contact line with, alongside "•" (bullet) — splitting
+        // on only one of the two left the other's separators un-split,
+        // dumping the whole line into "location" verbatim, dots and all.
         const leftover = remainder
-          .split('•')
+          .split(/[•·]/)
           .map((part) => part.replace(/^[\s,|.\-–—]+|[\s,|.\-–—]+$/g, '').trim())
           .filter(Boolean)
           .join(', ');

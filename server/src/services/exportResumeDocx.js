@@ -82,10 +82,7 @@ export function buildResumeDocxBuffer({
   children.push(new Paragraph({ text: 'SUMMARY', heading: HeadingLevel.HEADING_2 }));
   children.push(new Paragraph({ text: tailoredSummary.finalText }));
 
-  // "Work History" over "Experience" — a standard, ATS-recognized heading
-  // synonym (alongside "Work Experience"/"Professional Experience"/
-  // "Employment History"), confirmed against real ATS-scanner feedback.
-  children.push(new Paragraph({ text: 'WORK HISTORY', heading: HeadingLevel.HEADING_2 }));
+  children.push(new Paragraph({ text: 'EXPERIENCE', heading: HeadingLevel.HEADING_2 }));
   for (const group of groups) {
     // A bullet added with no role/company attached (e.g. an unassigned
     // suggest-missing-skills addition) still gets a real heading rather than

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { segmentResume } from './segmentResume.js';
+import { segmentResume, countExperienceDateLines } from './segmentResume.js';
 
 test('segments a job block with role, company, and date range on separate lines', () => {
   const rawText = [
@@ -217,6 +217,40 @@ test('a bullet ending mid-sentence with a trailing comma (no parenthesis) still 
   assert.equal(bullets[0].text, 'Built tools using React, Node.js, TypeScript, and GraphQL.');
 });
 
+// Real-world repro: a bullet wrapped mid-sentence with NO trailing comma,
+// colon, semicolon, or unmatched parenthesis at all — just cut off after a
+// conjunction ("and"). bulletTextLooksUnfinished() previously only checked
+// for those punctuation cases, so this bullet was wrongly treated as already
+// complete, and its continuation line got mistaken for the next job's header
+// (its company field ended up literally reading "GPT-4, demonstrating
+// proficiency in deploying applications on AWS." instead of a real company
+// name) — which then produced a second, duplicate copy of the entire
+// resume, since the corrupted header no longer matched anything the later
+// AI-recovery pass reconstructed correctly. See key-decisions-log.md.
+test('joins a wrapped bullet that ends mid-sentence with no trailing punctuation at all (no comma, colon, or open paren)', () => {
+  const rawText = [
+    'Software Engineer',
+    'Company A',
+    'Jan 2023 – Present',
+    '• Built a legal document assistant using Next.js and OpenAI',
+    'GPT-4, demonstrating proficiency in deploying applications on AWS.',
+    'Company B — Senior Engineer',
+    'Feb 2024 – Present',
+    '• Improved UI responsiveness by 30%.',
+  ].join('\n');
+
+  const bullets = segmentResume(rawText);
+
+  assert.equal(bullets.length, 2);
+  assert.equal(
+    bullets[0].text,
+    'Built a legal document assistant using Next.js and OpenAI GPT-4, demonstrating proficiency in deploying applications on AWS.'
+  );
+  assert.equal(bullets[0].company, 'Company A');
+  assert.equal(bullets[1].company, 'Senior Engineer');
+  assert.equal(bullets[1].text, 'Improved UI responsiveness by 30%.');
+});
+
 test('recognizes a date range whose connecting separator was lost to a multi-column PDF layout', () => {
   // Real-world repro: a two-column resume (job details left, date range
   // right) had its dash extracted onto a disconnected line elsewhere, leaving
@@ -264,4 +298,44 @@ test('prefers a self-contained "Company — Role" header buffered above over spl
   assert.equal(bullets.length, 1);
   assert.equal(bullets[0].role, 'Door Supervisor (Full-Time)');
   assert.equal(bullets[0].company, 'Auxillium Services');
+});
+
+// resumes.js uses this count as a rough proxy for "how many jobs should
+// exist," to decide whether to run the AI recovery pass. Found live: an
+// education section with its own multiple dated entries inflated this count
+// well past the number of jobs actually in the resume, wrongly triggering
+// that recovery pass even when every job had already been parsed correctly
+// — see key-decisions-log.md. Education/certification/project date ranges
+// must never count here, only ones inside the actual Experience section.
+test('countExperienceDateLines ignores date ranges outside the Experience section', () => {
+  const rawText = [
+    'Software Engineer',
+    'Company A',
+    'Jan 2023 – Present',
+    '• Built scalable systems using Node.js and MongoDB.',
+    'EDUCATION',
+    'Masters in Software Engineering',
+    'University of Salford',
+    '09/2024 - 01/2026',
+    'Bachelors in Computer Science',
+    'University of Central Punjab',
+    '10/2015 - 05/2020',
+  ].join('\n');
+
+  assert.equal(countExperienceDateLines(rawText), 1);
+});
+
+test('countExperienceDateLines counts every job date range when there is no other section at all', () => {
+  const rawText = [
+    'Software Engineer',
+    'Company A',
+    'Jan 2023 – Present',
+    '• Built scalable systems using Node.js and MongoDB.',
+    'Software Engineer',
+    'Company B',
+    'Feb 2024 – Present',
+    '• Improved UI responsiveness by 30%.',
+  ].join('\n');
+
+  assert.equal(countExperienceDateLines(rawText), 2);
 });

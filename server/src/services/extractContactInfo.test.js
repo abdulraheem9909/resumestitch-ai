@@ -112,3 +112,46 @@ test('captures a bare location line on its own, separate from the contact-info l
   assert.equal(result.location, 'Berlin, Germany');
   assert.equal(result.title, 'Product Designer');
 });
+
+// Real-world repro: this app's own exported resume joins its contact line
+// with a middle dot ("·"), not the bullet character ("•") this parser was
+// only ever splitting on — so re-uploading a resume this app itself exported
+// left the location field reading "Manchester, UK ·   ·   ·" (the whole line
+// treated as one leftover chunk, dangling separators and all) instead of
+// splitting cleanly. See key-decisions-log.md.
+test('splits a contact line on a middle dot (·) separator, not just a bullet (•)', () => {
+  const rawText = [
+    'Abdul Raheem',
+    'Senior Front-end Engineer',
+    'Manchester, UK · +447700900123 · abdul.raheem@example.com ·',
+    'linkedin.com/in/abdulraheem-dev · https://portfolio.example.com',
+  ].join('\n');
+
+  const result = extractContactInfo(rawText);
+
+  assert.equal(result.location, 'Manchester, UK');
+  assert.equal(result.phone, '+447700900123');
+  assert.equal(result.email, 'abdul.raheem@example.com');
+  assert.equal(result.linkedin, 'linkedin.com/in/abdulraheem-dev');
+  assert.equal(result.portfolio, 'https://portfolio.example.com');
+});
+
+// Real-world repro: a portfolio URL that PDF-wraps mid-hostname across two
+// lines ("https://abdulraheem-" / "rho.vercel.app") was previously truncated
+// to just the first line's fragment, since the parser only ever looked at
+// one line in isolation. See key-decisions-log.md.
+test('stitches a portfolio URL back together when the PDF wraps it across two lines', () => {
+  const rawText = [
+    'Abdul Raheem',
+    'Senior Front-end Engineer',
+    'Manchester, UK · +447700900123 · abdul.raheem@example.com ·',
+    'linkedin.com/in/abdulraheem-dev · https://abdulraheem-',
+    'rho.vercel.app',
+    'SUMMARY',
+  ].join('\n');
+
+  const result = extractContactInfo(rawText);
+
+  assert.equal(result.portfolio, 'https://abdul-portfolio.vercel.app');
+  assert.equal(result.linkedin, 'linkedin.com/in/abdulraheem-dev');
+});

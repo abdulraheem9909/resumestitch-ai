@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeAliasEntries } from './skillAliasesStore.js';
+import { mergeAliasEntries, ensureAllTermsCovered } from './skillAliasesStore.js';
 
 test('mergeAliasEntries adds every alias from a genuinely new group', () => {
   const current = { react: 'react' };
@@ -69,6 +69,33 @@ test('mergeAliasEntries redirects a proposed canonicalId that is itself an exist
   ]);
   assert.equal(mergedDict['server-side javascript runtime'], 'node.js');
   assert.deepEqual(addedEntries, [['server-side javascript runtime', 'node.js']]);
+});
+
+test('ensureAllTermsCovered self-maps a term the model silently dropped from every group, despite being told every input term must land in one', () => {
+  // Reproduces a real bug: proposeSkillAliasGroups was given "langgraph" and
+  // "langchain" as new terms, correctly grouped "langchain" but silently
+  // omitted "langgraph" entirely from its response groups — so mergeAliasEntries
+  // never saw it at all, and it never became a matcher, leaving a resume
+  // bullet that genuinely says "LangGraph" unable to verify the "LangGraph"
+  // skill badge.
+  const afterGroups = { langchain: 'langchain', 'langchain.js': 'langchain' };
+  const { mergedDict, addedEntries } = ensureAllTermsCovered(afterGroups, ['langgraph', 'langchain']);
+  assert.equal(mergedDict.langgraph, 'langgraph');
+  // "langchain" was already covered by the model's own grouping — not touched.
+  assert.equal(mergedDict.langchain, 'langchain');
+  assert.deepEqual(addedEntries, [['langgraph', 'langgraph']]);
+});
+
+test('ensureAllTermsCovered is a no-op when every term is already covered', () => {
+  const current = { react: 'react' };
+  const { mergedDict, addedEntries } = ensureAllTermsCovered(current, ['React']);
+  assert.deepEqual(mergedDict, current);
+  assert.deepEqual(addedEntries, []);
+});
+
+test('ensureAllTermsCovered handles empty/missing input without throwing', () => {
+  assert.deepEqual(ensureAllTermsCovered({ react: 'react' }, []), { mergedDict: { react: 'react' }, addedEntries: [] });
+  assert.deepEqual(ensureAllTermsCovered({}, undefined), { mergedDict: {}, addedEntries: [] });
 });
 
 test('mergeAliasEntries applies the same canonicalId redirect across two groups in the same batch, not just against pre-existing entries', () => {

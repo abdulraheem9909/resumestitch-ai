@@ -261,3 +261,32 @@ test('trustHumanEdit still reports a genuine hard-skill claim, only soft-skill/j
   assert.ok(!result.claimedSkills.includes('full-stack-engineer'));
   assert.ok(!result.claimedSkills.includes('mentorship'));
 });
+
+// Reproduces a real bug: "unit-testing" was mistakenly added to
+// NON_VERIFIABLE_CLAIM_IDS alongside genuine soft-skills/job-titles
+// (mentorship, agile, full-stack-engineer, ...) even though tagBullet.js's
+// own prompt never excludes it — "unit testing" is a concrete, taggable
+// technical practice, not a soft skill or job title. Because
+// computeHumanRecheck (applications.js) builds its live "still missing"
+// list from verifyBullet's claimedSkills, excluding "unit-testing" here made
+// a bullet that genuinely, verifiably says "unit testing" silently drop back
+// out of that list — producing a lower "skills matched" count on the
+// Approval page's Re-check pass than the original, unaffected node-3 gap
+// analysis (which doesn't use this exclusion list at all) showed for the
+// exact same resume content.
+test('verifyBullet counts "unit testing" as a real, verifiable claim, not a soft-skill/job-title exclusion', () => {
+  const sourceBullet = {
+    text: 'Conducted comprehensive unit testing and quality assurance (QA), reducing bug reports post-launch.',
+    canonicalSkills: ['unit testing', 'quality assurance (qa)'],
+  };
+  const result = verifyBullet(
+    {
+      generatedText: 'Conducted comprehensive unit testing and quality assurance (QA), reducing bug reports post-launch.',
+      sourceBullet,
+    },
+    matchers,
+    skillAliases
+  );
+
+  assert.ok(result.claimedSkills.includes('unit-testing'));
+});

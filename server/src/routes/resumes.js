@@ -2,7 +2,7 @@ import { Router } from "express";
 import mongoose from "mongoose";
 import multer from "multer";
 import { extractResumeText } from "../services/extractResumeText.js";
-import { segmentResume, DATE_RANGE_REGEX } from "../services/segmentResume.js";
+import { segmentResume, countExperienceDateLines } from "../services/segmentResume.js";
 import { segmentResumeWithAI } from "../services/segmentResumeWithAI.js";
 import { segmentResumeSections } from "../services/segmentResumeSections.js";
 import { segmentResumeSectionsWithAI } from "../services/segmentResumeSectionsWithAI.js";
@@ -236,7 +236,7 @@ router.post("/", upload.single("file"), async (req, res) => {
     // "how many jobs should exist" catches this. Purely additive: only jobs
     // the deterministic pass never found at all (by role+company) get added
     // from the AI's result — anything already parsed correctly is untouched.
-    const dateLineCount = bulletedText.split('\n').filter((line) => DATE_RANGE_REGEX.test(line)).length;
+    const dateLineCount = countExperienceDateLines(bulletedText);
     const distinctJobCount = new Set(segments.map((segment) => `${segment.role}|${segment.company}|${segment.dateRange}`)).size;
     if (segments.length > 0 && distinctJobCount < dateLineCount) {
       try {
@@ -302,7 +302,7 @@ router.post("/", upload.single("file"), async (req, res) => {
     if (newTerms.length > 0) {
       try {
         const { groups } = await proposeSkillAliasGroups(newTerms);
-        newSkillAliasesAdded = await addSkillAliasEntriesForUser(req.user.id, groups);
+        newSkillAliasesAdded = await addSkillAliasEntriesForUser(req.user.id, groups, newTerms);
       } catch (err) {
         console.error("Skill-alias generation failed (upload still succeeds):", err);
       }

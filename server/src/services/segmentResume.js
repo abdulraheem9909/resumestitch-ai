@@ -100,12 +100,22 @@ function startsNewHeaderBlock(lines, fromIndex) {
 // LangChain, Pinecone), deployed on AWS.") looks identical to a genuine new
 // header line to that heuristic, since both are capitalized and both can
 // have the next job's real header/date sitting a line or two later.
+//
+// A wrapped line can also be cut with no trailing punctuation at all (e.g.
+// "...using Next.js and OpenAI", mid-sentence right after "and") — found
+// live: this was silently swallowing the rest of that bullet as if it were
+// a new job's header line, corrupting that job's company field and,
+// downstream, duplicating the whole resume (see key-decisions-log.md). A
+// genuine, fully-extracted bullet essentially always ends in terminal
+// punctuation; one that doesn't is virtually always still mid-sentence.
 function bulletTextLooksUnfinished(text) {
   const trimmed = (text || '').trimEnd();
+  if (!trimmed) return false;
   if (/[,:;]$/.test(trimmed)) return true;
   const opens = (trimmed.match(/\(/g) || []).length;
   const closes = (trimmed.match(/\)/g) || []).length;
-  return opens > closes;
+  if (opens > closes) return true;
+  return !/[.!?]$/.test(trimmed);
 }
 
 export function trySplitHeaderLine(line) {
@@ -302,4 +312,34 @@ export function segmentResume(rawText) {
   }
 
   return bullets;
+}
+
+/**
+ * Counts date-range-shaped lines within the Experience section only — reuses
+ * the exact same section-boundary tracking segmentResume() itself uses, so
+ * an Education/Certifications/Volunteer-Work entry's own date range (e.g. a
+ * degree's graduation year) is never mistaken for a job that might exist.
+ * resumes.js uses this count as a rough proxy for "how many jobs should
+ * exist" to decide whether the AI recovery pass is worth running — a count
+ * that included every section's dates indiscriminately could wrongly
+ * conclude jobs were missing on a resume with, say, two dated education
+ * entries, even when every job had already been parsed correctly.
+ */
+export function countExperienceDateLines(rawText) {
+  const lines = (rawText || '')
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !PAGE_BREAK_REGEX.test(line));
+
+  let inExperienceSection = true;
+  let count = 0;
+  for (const line of lines) {
+    if (isSectionHeading(line)) {
+      const kind = classifySectionHeading(line);
+      inExperienceSection = kind === 'experience' || kind === null;
+      continue;
+    }
+    if (inExperienceSection && DATE_RANGE_REGEX.test(line)) count++;
+  }
+  return count;
 }

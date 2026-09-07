@@ -725,7 +725,7 @@ router.get('/:id/searchability-check', async (req, res) => {
 
     const expectedHeadings = [
       'SUMMARY',
-      'WORK HISTORY',
+      'EXPERIENCE',
       ...(education.length > 0 ? ['EDUCATION'] : []),
       ...(certifications.length > 0 ? ['CERTIFICATIONS'] : []),
       ...(projects.length > 0 ? ['PROJECTS'] : []),

@@ -42,7 +42,6 @@ const NON_VERIFIABLE_CLAIM_IDS = new Set([
   'mentorship',
   'code-review',
   'web-scraping',
-  'unit-testing',
   'agile',
   'system-architecture',
   'frontend',
