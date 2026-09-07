@@ -3,8 +3,12 @@ import { ChatOpenAI } from '@langchain/openai';
 import { z } from 'zod';
 import GenerationCache from '../models/GenerationCache.js';
 import { rephraseIntensity } from './rephraseIntensity.js';
+import { findSummaryStyleViolations } from './summaryStyleCheck.js';
 
-export const TAILOR_PROMPT_VERSION = 'tailor-v11';
+// Bumped for this fix: same inputs could previously return a cached summary
+// generated before the style-violation regeneration step existed below, so
+// the old cache key must not be reused.
+export const TAILOR_PROMPT_VERSION = 'tailor-v12';
 const TAILOR_MODEL = 'gpt-4o';
 
 // Single source of truth for the tailoredSummary rules — reused verbatim by both
@@ -72,6 +76,44 @@ const model = new ChatOpenAI({ model: TAILOR_MODEL, temperature: 0 }).withStruct
   name: 'tailor_content',
   strict: true,
 });
+
+// Dedicated to the corrective regeneration below — never used for the
+// primary bullets+summary call. Kept as a separate, smaller schema/call so a
+// style-only re-write never touches or re-costs the bullet tailoring.
+const summaryOnlySchema = z.object({ tailoredSummary: z.string().describe(SUMMARY_RULES) });
+const summaryOnlyModel = new ChatOpenAI({ model: TAILOR_MODEL, temperature: 0 }).withStructuredOutput(
+  summaryOnlySchema,
+  { name: 'regenerate_tailored_summary', strict: true }
+);
+
+// The prompt already tells the model not to do this (SUMMARY_RULES) — found
+// live that the instruction alone isn't reliable enough on its own. Rather
+// than re-running the whole bullets+summary call (wasteful, and would also
+// perturb bullets that were already fine), this re-asks for just the
+// summary, naming the exact violation found so the correction is targeted
+// rather than another blind attempt. One retry only: this is a style/quality
+// backstop, not a fabrication risk, so it isn't worth an unbounded loop.
+async function regenerateSummary({ title, matchedSkills, yearsOfExperience, keptBulletTexts, violations }) {
+  const result = await summaryOnlyModel.invoke([
+    {
+      role: 'system',
+      content:
+        'Write ONLY the tailored resume summary described below, from scratch. ' +
+        SUMMARY_RULES +
+        ` Your previous attempt at this exact summary broke this rule by using: ${violations.join(', ')}. ` +
+        'Do not repeat that mistake.',
+    },
+    {
+      role: 'user',
+      content:
+        `<title>\n${title}\n</title>\n\n` +
+        `<kept_bullets>\n${keptBulletTexts.join('\n')}\n</kept_bullets>\n\n` +
+        `<matched_skills>\n${matchedSkills.join(', ')}\n</matched_skills>\n\n` +
+        `<years_of_experience>\n${yearsOfExperience}\n</years_of_experience>`,
+    },
+  ]);
+  return result.tailoredSummary;
+}
 
 function formatCandidateBullets(resumeBullets) {
   return resumeBullets
@@ -215,10 +257,27 @@ export async function tailorContent({
   ]);
 
   const tailoredBullets = buildTailoredBullets(llmResult.bullets, candidatesById);
+
+  let summaryText = llmResult.tailoredSummary;
+  const styleViolations = findSummaryStyleViolations(summaryText);
+  if (styleViolations.length > 0) {
+    console.log(
+      `[tailorContent] summary style violation (${styleViolations.join(', ')}) — applicationId=${applicationId} — regenerating summary once.`
+    );
+    const keptBulletTexts = tailoredBullets.filter((bullet) => !bullet.rejected).map((bullet) => bullet.finalText);
+    summaryText = await regenerateSummary({ title, matchedSkills, yearsOfExperience, keptBulletTexts, violations: styleViolations });
+    const remainingViolations = findSummaryStyleViolations(summaryText);
+    if (remainingViolations.length > 0) {
+      console.warn(
+        `[tailorContent] summary still violated style rules after regeneration (${remainingViolations.join(', ')}) — applicationId=${applicationId} — proceeding with best-effort text.`
+      );
+    }
+  }
+
   const tailoredSummary = {
-    generatedText: llmResult.tailoredSummary,
+    generatedText: summaryText,
     humanEditedText: null,
-    finalText: llmResult.tailoredSummary,
+    finalText: summaryText,
     editSource: 'ai',
   };
   const generationId = randomUUID();
