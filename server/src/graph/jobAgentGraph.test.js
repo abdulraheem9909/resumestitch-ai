@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
-  gapAnalysisNode,
+  computeGapAnalysis,
   mergeHumanEditedBullets,
   ensureRequiredBulletIncluded,
   ensureEveryEmployerRepresented,
@@ -19,13 +19,13 @@ const skillAliases = JSON.parse(readFileSync(path.join(__dirname, '../services/_
 const matchers = buildSkillMatchers(skillAliases);
 const normalizeSkills = (skills) => normalizeSkillsWithAliases(skills, skillAliases);
 
-test('gapAnalysisNode recomputes resumeCanonicalSkills from current resumeBullets and shrinks keywordGaps when a missing skill is added', () => {
+test('computeGapAnalysis recomputes resumeCanonicalSkills from current resumeBullets and shrinks keywordGaps when a missing skill is added', () => {
   const jdCanonicalSkills = ['node.js', 'express', 'git'];
   const resumeBullets = [
     { bulletId: '1', canonicalSkills: ['node.js', 'react'] },
   ];
 
-  const before = gapAnalysisNode({ jdCanonicalSkills, resumeBullets });
+  const before = computeGapAnalysis({ jdCanonicalSkills, resumeBullets }, skillAliases);
   assert.deepEqual(before.resumeCanonicalSkills, ['node.js', 'react']);
   assert.deepEqual(before.keywordGaps, ['express', 'git']);
 
@@ -34,12 +34,12 @@ test('gapAnalysisNode recomputes resumeCanonicalSkills from current resumeBullet
     { bulletId: '2', canonicalSkills: ['express', 'git'] },
   ];
 
-  const after = gapAnalysisNode({ jdCanonicalSkills, resumeBullets: resumeBulletsWithNewBullet });
+  const after = computeGapAnalysis({ jdCanonicalSkills, resumeBullets: resumeBulletsWithNewBullet }, skillAliases);
   assert.deepEqual(new Set(after.resumeCanonicalSkills), new Set(['node.js', 'react', 'express', 'git']));
   assert.deepEqual(after.keywordGaps, []);
 });
 
-test('gapAnalysisNode in-graph recompute matches the route-level normalizeSkills(bullets.flatMap(b => b.skills)) computation', () => {
+test('computeGapAnalysis in-graph recompute matches the route-level normalizeSkills(bullets.flatMap(b => b.skills)) computation', () => {
   const rawBullets = [
     { skills: ['Node.js', 'Express.js'] },
     { skills: ['Git', 'node']  },
@@ -50,26 +50,41 @@ test('gapAnalysisNode in-graph recompute matches the route-level normalizeSkills
   }));
 
   const routeLevel = normalizeSkills(rawBullets.flatMap((bullet) => bullet.skills));
-  const { resumeCanonicalSkills } = gapAnalysisNode({ jdCanonicalSkills: [], resumeBullets });
+  const { resumeCanonicalSkills } = computeGapAnalysis({ jdCanonicalSkills: [], resumeBullets }, skillAliases);
 
   assert.deepEqual(new Set(resumeCanonicalSkills), new Set(routeLevel));
 });
 
-test('gapAnalysisNode folds projectCanonicalSkills into resumeCanonicalSkills and shrinks keywordGaps accordingly', () => {
+test('computeGapAnalysis folds projectCanonicalSkills into resumeCanonicalSkills and shrinks keywordGaps accordingly', () => {
   const jdCanonicalSkills = ['react', 'rag', 'kubernetes'];
   const resumeBullets = [{ bulletId: '1', canonicalSkills: ['react'] }];
   const projectCanonicalSkills = ['rag', 'pinecone'];
 
-  const withoutProjects = gapAnalysisNode({ jdCanonicalSkills, resumeBullets });
+  const withoutProjects = computeGapAnalysis({ jdCanonicalSkills, resumeBullets }, skillAliases);
   assert.deepEqual(withoutProjects.keywordGaps, ['rag', 'kubernetes']);
 
-  const withProjects = gapAnalysisNode({ jdCanonicalSkills, resumeBullets, projectCanonicalSkills });
+  const withProjects = computeGapAnalysis({ jdCanonicalSkills, resumeBullets, projectCanonicalSkills }, skillAliases);
   assert.deepEqual(new Set(withProjects.resumeCanonicalSkills), new Set(['react', 'rag', 'pinecone']));
   assert.deepEqual(withProjects.keywordGaps, ['kubernetes']);
 });
 
-test('gapAnalysisNode handles missing/empty resumeBullets without throwing', () => {
-  const result = gapAnalysisNode({ jdCanonicalSkills: ['docker'], resumeBullets: undefined });
+test('computeGapAnalysis re-resolves a stale, un-canonicalized resume skill against the current alias dictionary instead of trusting it verbatim', () => {
+  // Simulates the real bug: a bullet's canonicalSkills was frozen at upload
+  // time as raw text ("aws ec2") rather than the true canonical id ("ec2"),
+  // e.g. because the alias-learning step ran moments too late to affect it.
+  // A JD requirement that's already correctly canonicalized to "ec2" must
+  // still be recognized as a match, not a false gap, once this runs back
+  // through the current dictionary.
+  const jdCanonicalSkills = ['ec2', 'react'];
+  const resumeBullets = [{ bulletId: '1', canonicalSkills: ['aws ec2', 'react'] }];
+
+  const result = computeGapAnalysis({ jdCanonicalSkills, resumeBullets }, skillAliases);
+  assert.deepEqual(result.resumeCanonicalSkills, ['ec2', 'react']);
+  assert.deepEqual(result.keywordGaps, []);
+});
+
+test('computeGapAnalysis handles missing/empty resumeBullets without throwing', () => {
+  const result = computeGapAnalysis({ jdCanonicalSkills: ['docker'], resumeBullets: undefined }, skillAliases);
   assert.deepEqual(result.resumeCanonicalSkills, []);
   assert.deepEqual(result.keywordGaps, ['docker']);
 });

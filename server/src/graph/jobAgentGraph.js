@@ -195,15 +195,28 @@ async function normalizeSkillsNode(state) {
 // Recomputes resumeCanonicalSkills from the current resumeBullets on every run
 // (not just the first pass) so a bullet added mid-flow (e.g. via the
 // suggest-missing-skills flow) is reflected in keywordGaps after a retry.
-export function gapAnalysisNode(state) {
-  const resumeCanonicalSkills = [
-    ...new Set([
-      ...(state.resumeBullets || []).flatMap((bullet) => bullet.canonicalSkills || []),
-      ...(state.projectCanonicalSkills || []),
-    ]),
+//
+// Each bullet's stored canonicalSkills value was frozen at upload time —
+// possibly before that same upload's own alias-learning step had taught the
+// dictionary the mapping it needed (see resumes.js step 5a) — so it can't be
+// trusted as-is. It's run back through the CURRENT alias dictionary here,
+// exactly like normalizeSkillsNode already does for the JD side, instead of
+// being read verbatim. canonicalizeSkill is idempotent (re-resolving an
+// already-correct id just returns it unchanged), so this can only ever turn
+// a stale false "missing" into a correct "present," never the reverse.
+export function computeGapAnalysis(state, aliases) {
+  const rawResumeSkills = [
+    ...(state.resumeBullets || []).flatMap((bullet) => bullet.canonicalSkills || []),
+    ...(state.projectCanonicalSkills || []),
   ];
+  const resumeCanonicalSkills = normalizeSkills(rawResumeSkills, aliases || {});
   const keywordGaps = gapAnalysis(state.jdCanonicalSkills, resumeCanonicalSkills);
   return { resumeCanonicalSkills, keywordGaps };
+}
+
+async function gapAnalysisNode(state) {
+  const { aliases } = await getSkillDictionaryForUser(state.userId);
+  return computeGapAnalysis(state, aliases);
 }
 
 // Node 4 (section 5a)
@@ -444,7 +457,12 @@ async function coverLetterGenerationNode(state) {
   const coverLetterText = await generateCoverLetter({
     jdText: state.jdText,
     companyName: state.companyName,
-    resumeTitle: state.resumeTitle,
+    // The resolved title for THIS application/JD, never the master resume's
+    // own unrelated tagline — same expression atsScoreAndRecruiterNode
+    // already uses below. state.resumeTitle alone was the bug: it named the
+    // candidate's current resume title as "the position" in the letter,
+    // which is only ever the right answer by coincidence.
+    resumeTitle: state.tailoredTitle?.finalText || state.resumeTitle,
     tailoredBullets: state.tailoredBullets.filter((bullet) => !bullet.rejected),
     tailoredSummary: state.tailoredSummary,
     matchedSkills: state.matchedSkills,

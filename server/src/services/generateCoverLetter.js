@@ -3,7 +3,10 @@ import { ChatOpenAI } from '@langchain/openai';
 import { z } from 'zod';
 import GenerationCache from '../models/GenerationCache.js';
 
-export const COVER_LETTER_PROMPT_VERSION = 'cover-letter-v1';
+// Bumped for this fix: resumeTitle is now part of computeInputHash below, so
+// an application resumed from before this fix (whose cache row was keyed
+// without it) can't be matched by the new hash and silently reused.
+export const COVER_LETTER_PROMPT_VERSION = 'cover-letter-v2';
 const COVER_LETTER_MODEL = 'gpt-4o';
 
 const coverLetterSchema = z.object({
@@ -21,9 +24,10 @@ const model = new ChatOpenAI({ model: COVER_LETTER_MODEL, temperature: 0 }).with
   strict: true,
 });
 
-function computeInputHash({ jdText, tailoredBullets, tailoredSummary, matchedSkills, retryNotes }) {
+function computeInputHash({ jdText, resumeTitle, tailoredBullets, tailoredSummary, matchedSkills, retryNotes }) {
   const payload = JSON.stringify({
     jdText,
+    resumeTitle: resumeTitle || '',
     tailoredBullets: [...tailoredBullets]
       .map((bullet) => ({ bulletId: bullet.bulletId, finalText: bullet.finalText }))
       .sort((a, b) => a.bulletId.localeCompare(b.bulletId)),
@@ -50,7 +54,7 @@ export async function generateCoverLetter({
   resumeVersion,
   retryNotes = '',
 }) {
-  const inputHash = computeInputHash({ jdText, tailoredBullets, tailoredSummary, matchedSkills, retryNotes });
+  const inputHash = computeInputHash({ jdText, resumeTitle, tailoredBullets, tailoredSummary, matchedSkills, retryNotes });
 
   const cached = await GenerationCache.findOne({
     applicationId,
