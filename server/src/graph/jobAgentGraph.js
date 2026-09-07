@@ -13,7 +13,8 @@ import { tailorContent } from '../services/tailorContent.js';
 import { suggestResumeTitle } from '../services/suggestResumeTitle.js';
 import { rephraseIntensity } from '../services/rephraseIntensity.js';
 import { verifyBullet, verifySummary, trustHumanEdit, extractClaimedSkills } from '../services/deterministicVerification.js';
-import { getSkillDictionaryForUser } from '../services/skillAliasesStore.js';
+import { getSkillDictionaryForUser, addSkillAliasEntriesForUser } from '../services/skillAliasesStore.js';
+import { matchUnresolvedSkillsToKnown } from '../services/generateSkillAliases.js';
 import { generateCoverLetter } from '../services/generateCoverLetter.js';
 import { styleLinting } from '../services/styleLinting.js';
 import { atsScoreAndRecruiter, shouldRetryAutomatically, buildAutoRetryNotes } from '../services/atsScoreAndRecruiter.js';
@@ -172,6 +173,11 @@ const JobAgentState = new StateSchema({
   recruiterFeedback: z.string().optional(),
   retryCount: z.number().optional().default(() => 0),
   retryDecision: z.enum(['retry', 'end']).optional(),
+  // Set true after gapAnalysisNode has made its one attempt (per application)
+  // to teach the dictionary from this JD's own unresolved terms — see
+  // matchUnresolvedSkillsToKnown() below. Prevents re-asking the same
+  // already-answered question on every retry.
+  jdAliasLearningAttempted: z.boolean().optional().default(() => false),
 });
 
 // Node 1 (section 4)
@@ -214,9 +220,53 @@ export function computeGapAnalysis(state, aliases) {
   return { resumeCanonicalSkills, keywordGaps };
 }
 
+// Pure and exported for testing: substitutes each matched unresolved term in
+// jdCanonicalSkills with the existing resume skill id it was confirmed to be
+// a spelling of, deduplicating the result.
+export function applyResolvedSkillMatches(jdCanonicalSkills, matches) {
+  const matchedTerms = new Map((matches || []).map((match) => [match.term, match.matchesCanonicalId]));
+  return [...new Set((jdCanonicalSkills || []).map((skill) => matchedTerms.get(skill) ?? skill))];
+}
+
+// The dictionary only ever grows from resume-side text at upload time — a JD
+// that spells a skill the resume already has, but with a different everyday
+// spelling ("ReactJS" against a resume that only ever says "React"), has no
+// alias to close the gap with, so it shows up as a false "missing" skill
+// with no path to ever being fixed. This runs once per application (guarded
+// by jdAliasLearningAttempted so a retry doesn't re-ask an already-answered
+// question): for any of THIS pass's keywordGaps, check whether it's
+// truthfully just a different spelling of something already confirmed on
+// the resume — via matchUnresolvedSkillsToKnown's deliberately narrow,
+// closed-choice comparison, not the open-ended grouping resume uploads use.
+// A confirmed match is persisted as a real alias (same
+// addSkillAliasEntriesForUser used at upload time, and the same
+// never-overwrite-a-conflicting-alias safety net in mergeAliasEntries), then
+// this pass's own gaps are recomputed immediately so the current
+// application benefits right away, not just future ones.
 async function gapAnalysisNode(state) {
   const { aliases } = await getSkillDictionaryForUser(state.userId);
-  return computeGapAnalysis(state, aliases);
+  const firstPass = computeGapAnalysis(state, aliases);
+
+  if (state.jdAliasLearningAttempted || firstPass.keywordGaps.length === 0) {
+    return firstPass;
+  }
+
+  const matches = await matchUnresolvedSkillsToKnown(firstPass.keywordGaps, firstPass.resumeCanonicalSkills);
+  if (matches.length === 0) {
+    return { ...firstPass, jdAliasLearningAttempted: true };
+  }
+
+  console.log(
+    `[gapAnalysis] taught ${matches.length} JD-only spelling(s) — applicationId=${state.applicationId} — ${matches.map((m) => `${m.term}->${m.matchesCanonicalId}`).join(', ')}`
+  );
+  const groups = matches.map((match) => ({ canonicalId: match.matchesCanonicalId, aliases: [match.term] }));
+  await addSkillAliasEntriesForUser(state.userId, groups);
+
+  const { aliases: updatedAliases } = await getSkillDictionaryForUser(state.userId);
+  const updatedJdCanonicalSkills = applyResolvedSkillMatches(state.jdCanonicalSkills, matches);
+  const secondPass = computeGapAnalysis({ ...state, jdCanonicalSkills: updatedJdCanonicalSkills }, updatedAliases);
+
+  return { ...secondPass, jdCanonicalSkills: updatedJdCanonicalSkills, jdAliasLearningAttempted: true };
 }
 
 // Node 4 (section 5a)

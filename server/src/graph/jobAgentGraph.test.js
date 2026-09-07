@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import {
   computeGapAnalysis,
+  applyResolvedSkillMatches,
   mergeHumanEditedBullets,
   ensureRequiredBulletIncluded,
   ensureEveryEmployerRepresented,
@@ -87,6 +88,30 @@ test('computeGapAnalysis handles missing/empty resumeBullets without throwing', 
   const result = computeGapAnalysis({ jdCanonicalSkills: ['docker'], resumeBullets: undefined }, skillAliases);
   assert.deepEqual(result.resumeCanonicalSkills, []);
   assert.deepEqual(result.keywordGaps, ['docker']);
+});
+
+test('applyResolvedSkillMatches substitutes a matched unresolved term with its confirmed resume skill id', () => {
+  const result = applyResolvedSkillMatches(['typescript', 'reactjs', 'nodejs'], [
+    { term: 'reactjs', matchesCanonicalId: 'react' },
+    { term: 'nodejs', matchesCanonicalId: 'node.js' },
+  ]);
+  assert.deepEqual(new Set(result), new Set(['typescript', 'react', 'node.js']));
+});
+
+test('applyResolvedSkillMatches leaves an unmatched term untouched', () => {
+  const result = applyResolvedSkillMatches(['typescript', 'python'], [{ term: 'reactjs', matchesCanonicalId: 'react' }]);
+  assert.deepEqual(result, ['typescript', 'python']);
+});
+
+test('applyResolvedSkillMatches deduplicates when a substitution collides with an existing entry', () => {
+  const result = applyResolvedSkillMatches(['react', 'reactjs'], [{ term: 'reactjs', matchesCanonicalId: 'react' }]);
+  assert.deepEqual(result, ['react']);
+});
+
+test('applyResolvedSkillMatches handles no matches / empty input without throwing', () => {
+  assert.deepEqual(applyResolvedSkillMatches(['typescript'], []), ['typescript']);
+  assert.deepEqual(applyResolvedSkillMatches([], [{ term: 'reactjs', matchesCanonicalId: 'react' }]), []);
+  assert.deepEqual(applyResolvedSkillMatches(undefined, undefined), []);
 });
 
 test('mergeHumanEditedBullets preserves a human edit whose sourceBulletId is still present, and drops one that is no longer present', () => {
