@@ -126,11 +126,21 @@ export function verifySummary({ generatedText, matchedSkills, selectedBullets, y
       ...extractClaimedSkills(bullet.text || '', matchers, skillAliases),
     ]),
   ]);
+  // The summary is required to phrase this as "5+ years" (tailorContent.js's
+  // SUMMARY_RULES: "round down... phrase it like '5+ years'") — the "+" is
+  // part of the mandated format, not an unsupported claim, so the floored
+  // figure's own "+" form must be explicitly allowed. Without this, the
+  // exact phrasing the summary is told to use gets extracted as its own
+  // numeric token ("5+") that never matches a plain "5"/"6" in the allowlist,
+  // and only passes by accident if some unrelated bullet's text happens to
+  // also contain the literal substring "5+".
+  const flooredYears = Math.floor(yearsOfExperience);
   const allowedNumericText = [
     (selectedBullets || []).map((bullet) => bullet.text).join(' '),
     String(yearsOfExperience),
-    String(Math.floor(yearsOfExperience)),
+    String(flooredYears),
     String(Math.ceil(yearsOfExperience)),
+    `${flooredYears}+`,
   ].join(' ');
 
   return buildResult(generatedText, [...allowedSkills], allowedNumericText, matchers, skillAliases);

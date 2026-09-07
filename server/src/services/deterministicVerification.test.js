@@ -163,6 +163,64 @@ test('verifySummary never flags a job-title/soft-skill phrase as a fabricated cl
   assert.deepEqual(result.fabricatedSkills, []);
 });
 
+// Regression: node 5's summary is required to phrase years of experience as
+// "5+ years" (see tailorContent.js's SUMMARY_RULES), but the numeric
+// allowlist only ever contained the plain "5"/"6" forms, not "5+" — so the
+// mandated, correct phrasing was extracted as its own token and flagged as a
+// fabricated metric. A real application ("Durlston") reproduced this exactly:
+// a summary that correctly said "5+ years" was flagged unsupportedClaim.
+// Deliberately no bullet here contains the literal substring "5+", so this
+// only passes because the fix explicitly allows the floored "+" form — not
+// by the same coincidence that let a second real application ("Diligent")
+// pass only because an unrelated bullet happened to also contain "5+".
+test('verifySummary does not flag the mandated "N+ years" phrasing as a fabricated metric', () => {
+  const result = verifySummary(
+    {
+      generatedText: 'Full Stack Engineer with 5+ years of experience building React applications.',
+      matchedSkills: ['react'],
+      selectedBullets: [{ text: 'Built applications with React.', canonicalSkills: ['react'] }],
+      yearsOfExperience: 5,
+    },
+    matchers,
+    skillAliases
+  );
+
+  assert.equal(result.passed, true);
+  assert.deepEqual(result.fabricatedMetrics, []);
+});
+
+test('verifySummary allows "N+ years" using the FLOORED figure for a fractional yearsOfExperience, not the raw decimal or the ceiling', () => {
+  const result = verifySummary(
+    {
+      generatedText: 'Full Stack Engineer with 5+ years of experience building React applications.',
+      matchedSkills: ['react'],
+      selectedBullets: [{ text: 'Built applications with React.', canonicalSkills: ['react'] }],
+      yearsOfExperience: 5.7,
+    },
+    matchers,
+    skillAliases
+  );
+
+  assert.equal(result.passed, true);
+  assert.deepEqual(result.fabricatedMetrics, []);
+});
+
+test('verifySummary still flags a genuinely fabricated metric unrelated to years of experience', () => {
+  const result = verifySummary(
+    {
+      generatedText: 'Full Stack Engineer with 5+ years of experience, increasing revenue by 50%.',
+      matchedSkills: ['react'],
+      selectedBullets: [{ text: 'Built applications with React.', canonicalSkills: ['react'] }],
+      yearsOfExperience: 5,
+    },
+    matchers,
+    skillAliases
+  );
+
+  assert.equal(result.passed, false);
+  assert.deepEqual(result.fabricatedMetrics, ['50%']);
+});
+
 test('verifyBullet never flags a job-title/soft-skill phrase as a fabricated claim', () => {
   const sourceBullet = { text: 'Worked on the frontend and backend of the platform.', canonicalSkills: [] };
   const result = verifyBullet(
