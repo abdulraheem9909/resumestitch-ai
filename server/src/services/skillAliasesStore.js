@@ -1,4 +1,5 @@
 import SkillAliasDictionary from '../models/SkillAliasDictionary.js';
+import { proposeSkillAliasGroups } from './generateSkillAliases.js';
 
 // Exported for reuse by verifiedSkills.js, which needs the same escaping to
 // check a skill's own literal wording against text, separate from (and in
@@ -128,4 +129,50 @@ export async function addSkillAliasEntriesForUser(userId, proposedGroups, newTer
 
   await SkillAliasDictionary.findOneAndUpdate({ userId }, { aliases: mergedDict }, { upsert: true });
   return addedEntries;
+}
+
+/**
+ * Pure — no I/O. Given the dictionary as it currently stands and a list of
+ * raw skill terms a tagging pass just found, returns only the ones that
+ * aren't already known under either spelling (a dictionary key or a
+ * canonical id some key already points to) — lowercased/deduped/trimmed.
+ * Extracted from what was previously inline, upload-route-only logic (see
+ * growSkillDictionaryFromTerms below) so it's independently testable and
+ * reusable everywhere a tagging pass produces candidate skills.
+ */
+export function filterNewSkillTerms(currentAliases, candidateSkills) {
+  const known = new Set(
+    Object.entries(currentAliases || {}).flatMap(([alias, canonicalId]) => [alias.toLowerCase(), canonicalId.toLowerCase()])
+  );
+  return [...new Set((candidateSkills || []).map((skill) => (skill || '').trim().toLowerCase()).filter(Boolean))].filter(
+    (term) => !known.has(term)
+  );
+}
+
+/**
+ * Impure orchestrator — the one shared "teach the dictionary" step every
+ * place that extracts skills from new text should call, not just resume
+ * upload. Found live: a genuinely new skill typed anywhere else (an in-app
+ * master-resume bullet edit, a hand-edited application bullet/summary, an
+ * accepted skill-gap suggestion) was invisible to Re-check, the skill
+ * badges, and skill frequency — not because those checks are broken, but
+ * because nothing had ever taught the dictionary the word existed in the
+ * first place. This composes only already-working pieces
+ * (proposeSkillAliasGroups + addSkillAliasEntriesForUser, both unchanged)
+ * behind one call, with its own try/catch so a growth failure (a flaky AI
+ * call, a rate limit) can never block whatever save triggered it — the same
+ * "never fails the parent action" guarantee step 5b already had, now
+ * available to every caller instead of duplicated per call site.
+ */
+export async function growSkillDictionaryFromTerms(userId, currentAliases, candidateSkills) {
+  const newTerms = filterNewSkillTerms(currentAliases, candidateSkills);
+  if (newTerms.length === 0) return [];
+
+  try {
+    const { groups } = await proposeSkillAliasGroups(newTerms);
+    return await addSkillAliasEntriesForUser(userId, groups, newTerms);
+  } catch (err) {
+    console.error('Skill-alias generation failed (caller unaffected):', err);
+    return [];
+  }
 }

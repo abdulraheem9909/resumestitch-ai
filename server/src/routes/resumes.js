@@ -11,8 +11,7 @@ import { extractContactInfo } from "../services/extractContactInfo.js";
 import { tagBullet } from "../services/tagBullet.js";
 import { canonicalizeSkill } from "../services/canonicalizeSkill.js";
 import { computeVerifiedSkills } from "../services/verifiedSkills.js";
-import { getSkillDictionaryForUser, addSkillAliasEntriesForUser } from "../services/skillAliasesStore.js";
-import { proposeSkillAliasGroups } from "../services/generateSkillAliases.js";
+import { getSkillDictionaryForUser, growSkillDictionaryFromTerms } from "../services/skillAliasesStore.js";
 import { buildResumeDocxBuffer } from "../services/exportResumeDocx.js";
 import { convertDocxBufferToPdf } from "../services/convertDocxToPdf.js";
 import { buildExportFilename } from "../services/buildExportFilename.js";
@@ -291,22 +290,7 @@ router.post("/", upload.single("file"), async (req, res) => {
       ...taggedProjects.flatMap((project) => project.skills),
       ...finalSkills,
     ];
-    const known = new Set(
-      Object.entries(skillAliases).flatMap(([alias, canonicalId]) => [alias.toLowerCase(), canonicalId.toLowerCase()])
-    );
-    const newTerms = [...new Set(candidateSkills.map((skill) => (skill || "").trim().toLowerCase()).filter(Boolean))].filter(
-      (term) => !known.has(term)
-    );
-
-    let newSkillAliasesAdded = [];
-    if (newTerms.length > 0) {
-      try {
-        const { groups } = await proposeSkillAliasGroups(newTerms);
-        newSkillAliasesAdded = await addSkillAliasEntriesForUser(req.user.id, groups, newTerms);
-      } catch (err) {
-        console.error("Skill-alias generation failed (upload still succeeds):", err);
-      }
-    }
+    const newSkillAliasesAdded = await growSkillDictionaryFromTerms(req.user.id, skillAliases, candidateSkills);
 
     // Step 6 — save
     const masterResume = await MasterResume.create({
@@ -605,6 +589,7 @@ router.post("/:id/bullets", async (req, res) => {
     const { skills, metrics } = await tagBullet(text);
     const { aliases: addBulletSkillAliases } = await getSkillDictionaryForUser(req.user.id);
     const canonicalSkills = skills.map((s) => canonicalizeSkill(s, addBulletSkillAliases));
+    await growSkillDictionaryFromTerms(req.user.id, addBulletSkillAliases, skills);
 
     // A manually added bullet always appends after everything already on
     // this resume, never at the front — see the `order` field's own comment.
@@ -656,6 +641,7 @@ router.patch("/bullets/:id", async (req, res) => {
 
     const { skills, metrics } = await tagBullet(text);
     const { aliases: editBulletSkillAliases } = await getSkillDictionaryForUser(req.user.id);
+    await growSkillDictionaryFromTerms(req.user.id, editBulletSkillAliases, skills);
 
     bullet.text = text;
     bullet.skills = skills;

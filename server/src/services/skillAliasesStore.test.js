@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeAliasEntries, ensureAllTermsCovered } from './skillAliasesStore.js';
+import { mergeAliasEntries, ensureAllTermsCovered, filterNewSkillTerms } from './skillAliasesStore.js';
 
 test('mergeAliasEntries adds every alias from a genuinely new group', () => {
   const current = { react: 'react' };
@@ -112,4 +112,25 @@ test('mergeAliasEntries applies the same canonicalId redirect across two groups 
     ['flutter sdk', 'flutter'],
     ['dart ui toolkit', 'flutter'],
   ]);
+});
+
+test('filterNewSkillTerms excludes a term already known as a dictionary key or as a canonical id some key points to', () => {
+  const aliases = { nodejs: 'node.js', 'node.js': 'node.js' };
+  const result = filterNewSkillTerms(aliases, ['NodeJS', 'node.js', 'Vercel']);
+  assert.deepEqual(result, ['vercel']);
+});
+
+test('filterNewSkillTerms lowercases, trims, and dedupes candidate skills', () => {
+  const result = filterNewSkillTerms({}, ['  Vercel ', 'vercel', 'VERCEL', 'Test Driven Development']);
+  assert.deepEqual(result, ['vercel', 'test driven development']);
+});
+
+test('filterNewSkillTerms drops blank/whitespace-only candidates', () => {
+  const result = filterNewSkillTerms({}, ['', '   ', 'Vercel']);
+  assert.deepEqual(result, ['vercel']);
+});
+
+test('filterNewSkillTerms handles empty/missing input without throwing', () => {
+  assert.deepEqual(filterNewSkillTerms({}, []), []);
+  assert.deepEqual(filterNewSkillTerms(undefined, undefined), []);
 });

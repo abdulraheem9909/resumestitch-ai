@@ -24,7 +24,7 @@ import { buildExportFilename } from '../services/buildExportFilename.js';
 import { getJobAgentGraph, getCheckpointer } from '../graph/graphInstance.js';
 import GenerationCache from '../models/GenerationCache.js';
 import { authenticate } from '../middleware/authenticate.js';
-import { getSkillDictionaryForUser } from '../services/skillAliasesStore.js';
+import { getSkillDictionaryForUser, growSkillDictionaryFromTerms } from '../services/skillAliasesStore.js';
 
 const router = Router();
 router.use(authenticate);
@@ -864,6 +864,20 @@ router.patch('/:id/bullets/:bulletId', async (req, res) => {
       application.tailoredSummary?.finalText,
       ...(resume?.projects || []).map((project) => project.description),
     ];
+    // A hand-edited bullet is trusted outright — no fabrication check runs
+    // on it (trustHumanEdit) — but a genuinely new skill word typed into it
+    // still needs teaching to the dictionary, the same way an upload or an
+    // in-app master-resume bullet edit already does; otherwise nothing that
+    // depends on the dictionary (Re-check, skill frequency, the badges just
+    // below) can ever recognize it, no matter how literally it's written.
+    // Done before the read just below so this same response already
+    // reflects the newly-taught word — no separate Re-check/reload needed.
+    if (hasText) {
+      const { aliases: preGrowthAliases } = await getSkillDictionaryForUser(req.user.id);
+      const { skills: handEditedSkills } = await tagBullet(text);
+      await growSkillDictionaryFromTerms(req.user.id, preGrowthAliases, handEditedSkills);
+    }
+
     const { aliases: bulletSkillAliases, matchers: bulletSkillMatchers } = await getSkillDictionaryForUser(req.user.id);
     const { verifiedSkills, skillMatchTypes } = computeVerifiedSkills(effectiveSkills, sourceTexts, bulletSkillMatchers, bulletSkillAliases);
 
@@ -899,6 +913,13 @@ router.patch('/:id/summary', async (req, res) => {
     application.tailoredSummary.finalText = text;
     application.tailoredSummary.editSource = 'human';
     await application.save();
+
+    // Same reasoning as the hand-edited-bullet route above: the summary is
+    // trusted outright, but a genuinely new skill word typed into it still
+    // needs teaching to the dictionary so downstream checks can recognize it.
+    const { aliases: preGrowthAliases } = await getSkillDictionaryForUser(req.user.id);
+    const { skills: handEditedSkills } = await tagBullet(text);
+    await growSkillDictionaryFromTerms(req.user.id, preGrowthAliases, handEditedSkills);
 
     return res.json({ application });
   } catch (err) {
@@ -1188,6 +1209,7 @@ router.post('/:id/suggest-skills/accept', async (req, res) => {
     const { skills, metrics } = await tagBullet(bulletText);
     const { aliases: suggestSkillAliases } = await getSkillDictionaryForUser(req.user.id);
     const canonicalSkills = skills.map((s) => canonicalizeSkill(s, suggestSkillAliases));
+    await growSkillDictionaryFromTerms(req.user.id, suggestSkillAliases, skills);
     const trimmedRole = typeof role === 'string' && role.trim() ? role.trim() : undefined;
     const trimmedCompany = typeof company === 'string' && company.trim() ? company.trim() : undefined;
     const trimmedDateRange = typeof dateRange === 'string' && dateRange.trim() ? dateRange.trim() : undefined;
