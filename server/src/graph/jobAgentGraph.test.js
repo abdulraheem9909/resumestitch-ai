@@ -90,6 +90,40 @@ test('computeGapAnalysis handles missing/empty resumeBullets without throwing', 
   assert.deepEqual(result.keywordGaps, ['docker']);
 });
 
+// Real-world repro: a JD says "Tailwind CSS", which self-canonicalizes to the
+// raw, un-hyphenated "tailwind css" the moment it's first read, before the
+// dictionary has ever heard of it. The dictionary can later learn the
+// "official" canonical id "tailwind-css" for that exact phrase — e.g. via a
+// resume upload or a hand-edited bullet — but the JD's own already-computed
+// jdCanonicalSkills snapshot never finds out; it stays frozen at whatever it
+// was the moment it was first read. Without this, a resume that genuinely
+// covers "Tailwind CSS" keeps showing it as a false gap forever, because the
+// two sides are comparing different spellings of the identical concept.
+// Fixed by re-deriving the JD side from its raw `jdKeywords` against the
+// CURRENT dictionary on every call, exactly like the resume side already is.
+test('computeGapAnalysis re-derives the JD side from raw jdKeywords against the current dictionary, instead of trusting a jdCanonicalSkills snapshot frozen before the alias existed', () => {
+  const jdKeywords = { skills: ['Tailwind CSS'], tools: [] };
+  const staleJdCanonicalSkills = ['tailwind css']; // frozen before the dictionary learned the hyphenated form
+  const aliasesWithNewMapping = { 'tailwind css': 'tailwind-css', 'tailwind-css': 'tailwind-css' };
+  const resumeBullets = [{ bulletId: '1', canonicalSkills: ['tailwind-css'] }];
+
+  const result = computeGapAnalysis(
+    { jdKeywords, jdCanonicalSkills: staleJdCanonicalSkills, resumeBullets },
+    aliasesWithNewMapping
+  );
+
+  assert.deepEqual(result.jdCanonicalSkills, ['tailwind-css']);
+  assert.deepEqual(result.keywordGaps, []);
+});
+
+// Backward-compat: when jdKeywords isn't given at all (every existing test
+// above, and any state that predates this field), fall back to trusting the
+// given jdCanonicalSkills verbatim rather than throwing or returning nothing.
+test('computeGapAnalysis falls back to the given jdCanonicalSkills when jdKeywords is absent', () => {
+  const result = computeGapAnalysis({ jdCanonicalSkills: ['docker', 'git'], resumeBullets: [] }, skillAliases);
+  assert.deepEqual(result.jdCanonicalSkills, ['docker', 'git']);
+});
+
 test('applyResolvedSkillMatches substitutes a matched unresolved term with its confirmed resume skill id', () => {
   const result = applyResolvedSkillMatches(['typescript', 'reactjs', 'nodejs'], [
     { term: 'reactjs', matchesCanonicalId: 'react' },

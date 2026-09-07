@@ -11,7 +11,7 @@ import { normalizeSkills } from '../services/normalizeSkills.js';
 import { canonicalizeSkill } from '../services/canonicalizeSkill.js';
 import { tagBullet } from '../services/tagBullet.js';
 import { verifyBullet, verifySummary, trustHumanEdit } from '../services/deterministicVerification.js';
-import { gapAnalysis } from '../services/gapAnalysis.js';
+import { gapAnalysis, deriveJdCanonicalSkills } from '../services/gapAnalysis.js';
 import { computeVerifiedSkills } from '../services/verifiedSkills.js';
 import { computeSkillFrequency } from '../services/skillFrequency.js';
 import { findUnsupportedSeniorityTerms } from '../services/suggestResumeTitle.js';
@@ -155,7 +155,15 @@ async function computeHumanRecheck(application) {
     .flatMap((result) => result.claimedSkills.filter((skill) => !result.fabricatedSkills.includes(skill)));
   const verifiedSummarySkills = summaryResult.claimedSkills.filter((skill) => !summaryResult.fabricatedSkills.includes(skill));
   const effectiveSkills = [...new Set([...verifiedBulletSkills, ...verifiedSummarySkills])];
-  const humanRecheckKeywordGaps = gapAnalysis(application.jdCanonicalSkills, effectiveSkills);
+  // Re-derives the JD side from its raw jdKeywords against the CURRENT
+  // dictionary, instead of trusting application.jdCanonicalSkills verbatim —
+  // that snapshot is frozen from whenever the JD was first read, and never
+  // finds out if the dictionary later learns a different "official" spelling
+  // for the same phrase (e.g. a hand-edited bullet teaching "tailwind css"
+  // -> "tailwind-css" after the JD already self-canonicalized to the
+  // un-hyphenated form). See gapAnalysis.js/deriveJdCanonicalSkills.
+  const recheckJdCanonicalSkills = deriveJdCanonicalSkills(application.jdKeywords, application.jdCanonicalSkills, aliases);
+  const humanRecheckKeywordGaps = gapAnalysis(recheckJdCanonicalSkills, effectiveSkills);
 
   const atsResult = await atsScoreAndRecruiter({
     jdText: application.jdSnapshot,

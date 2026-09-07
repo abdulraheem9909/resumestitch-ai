@@ -5,7 +5,7 @@ import { MongoClient } from 'mongodb';
 import { z } from 'zod';
 import { extractJdKeywords } from '../services/extractJdKeywords.js';
 import { normalizeSkills } from '../services/normalizeSkills.js';
-import { gapAnalysis } from '../services/gapAnalysis.js';
+import { gapAnalysis, deriveJdCanonicalSkills } from '../services/gapAnalysis.js';
 import { roleFitGate } from '../services/roleFitGate.js';
 import { matchedSkills } from '../services/matchedSkills.js';
 import { calculateYearsOfExperience } from '../services/calculateYearsOfExperience.js';
@@ -210,14 +210,30 @@ async function normalizeSkillsNode(state) {
 // being read verbatim. canonicalizeSkill is idempotent (re-resolving an
 // already-correct id just returns it unchanged), so this can only ever turn
 // a stale false "missing" into a correct "present," never the reverse.
+//
+// The JD side gets the identical treatment now, for the identical reason:
+// `state.jdCanonicalSkills` is a snapshot frozen the moment node 1/2 first
+// ran, self-canonicalizing against whatever the dictionary looked like at
+// that instant. If the dictionary later learns a different "official"
+// spelling for the same phrase (e.g. a hand-edited bullet teaches
+// "tailwind css" -> "tailwind-css" after this JD already self-canonicalized
+// to the un-hyphenated "tailwind css"), the frozen snapshot never finds out —
+// so it's re-derived here from the JD's own raw `jdKeywords` (skills+tools,
+// already saved on the application/state regardless) against the CURRENT
+// dictionary every time, exactly mirroring the resume side. Falls back to
+// trusting the given `jdCanonicalSkills` verbatim when `jdKeywords` isn't
+// present (older state shapes, or a caller that only has the canonicalized
+// form on hand) rather than requiring every caller to supply it.
 export function computeGapAnalysis(state, aliases) {
+  const jdCanonicalSkills = deriveJdCanonicalSkills(state.jdKeywords, state.jdCanonicalSkills, aliases);
+
   const rawResumeSkills = [
     ...(state.resumeBullets || []).flatMap((bullet) => bullet.canonicalSkills || []),
     ...(state.projectCanonicalSkills || []),
   ];
   const resumeCanonicalSkills = normalizeSkills(rawResumeSkills, aliases || {});
-  const keywordGaps = gapAnalysis(state.jdCanonicalSkills, resumeCanonicalSkills);
-  return { resumeCanonicalSkills, keywordGaps };
+  const keywordGaps = gapAnalysis(jdCanonicalSkills, resumeCanonicalSkills);
+  return { jdCanonicalSkills, resumeCanonicalSkills, keywordGaps };
 }
 
 // Pure and exported for testing: substitutes each matched unresolved term in
@@ -262,11 +278,17 @@ async function gapAnalysisNode(state) {
   const groups = matches.map((match) => ({ canonicalId: match.matchesCanonicalId, aliases: [match.term] }));
   await addSkillAliasEntriesForUser(state.userId, groups);
 
+  // computeGapAnalysis now re-derives the JD side from state.jdKeywords
+  // against whatever dictionary it's given (see its own comment) — since
+  // updatedAliases already includes the alias entries just written above,
+  // simply re-running it picks up the newly-taught spelling automatically.
+  // No separate substitution step needed: applyResolvedSkillMatches existed
+  // specifically to patch a frozen jdCanonicalSkills snapshot, which no
+  // longer applies now that it's never trusted verbatim in the first place.
   const { aliases: updatedAliases } = await getSkillDictionaryForUser(state.userId);
-  const updatedJdCanonicalSkills = applyResolvedSkillMatches(state.jdCanonicalSkills, matches);
-  const secondPass = computeGapAnalysis({ ...state, jdCanonicalSkills: updatedJdCanonicalSkills }, updatedAliases);
+  const secondPass = computeGapAnalysis(state, updatedAliases);
 
-  return { ...secondPass, jdCanonicalSkills: updatedJdCanonicalSkills, jdAliasLearningAttempted: true };
+  return { ...secondPass, jdAliasLearningAttempted: true };
 }
 
 // Node 4 (section 5a)

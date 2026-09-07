@@ -682,6 +682,12 @@ export default function Approval() {
                 applicationId={applicationId}
                 jdCanonicalSkills={application.jdCanonicalSkills}
                 keywordGaps={effectiveKeywordGaps}
+                // Changes on both save paths that can affect this card's
+                // result: a bullet/summary edit (which replaces `application`
+                // wholesale, changing `updatedAt`) and Re-check (which only
+                // merges its own humanRecheck* fields in, never touching
+                // `updatedAt` — so that alone isn't enough on its own).
+                refreshKey={`${application.updatedAt}:${(application.humanRecheckKeywordGaps || []).join(",")}`}
               />
 
               {/* Suggest missing skills — sits right above the decision

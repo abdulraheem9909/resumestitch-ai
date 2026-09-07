@@ -6,13 +6,19 @@ import { SkillMatchBar } from "./SkillMatchBar.jsx";
 
 // Purely informational, non-blocking — same pattern as
 // SearchabilityCheckCard: open by default (still collapsible), fetched on
-// mount and again on every manual reopen, never gates approval/export,
-// never writes anything. GET /:id/skill-frequency counts each JD-requested
-// canonical skill's occurrences in the JD text versus the current tailored
-// resume text. Hosts the always-visible skill-match bar above its own
-// collapsible detail table — the aggregate count sits right above the
-// per-skill breakdown behind it.
-export function SkillFrequencyCard({ applicationId, jdCanonicalSkills, keywordGaps }) {
+// mount, again on every manual reopen, and again whenever `refreshKey`
+// changes (the application's own `updatedAt`, which every bullet/summary
+// edit and Re-check already touch) — never gates approval/export, never
+// writes anything. Without this, editing a bullet or clicking Re-check
+// updated the skill-match bar and the "skills the job wants" list (both fed
+// by the same `keywordGaps` prop, which the parent already refreshes) but
+// left this card's own GET /:id/skill-frequency result stale until the page
+// was fully reloaded, since its fetch only ever ran once on mount. GET
+// /:id/skill-frequency counts each JD-requested canonical skill's
+// occurrences in the JD text versus the current tailored resume text. Hosts
+// the always-visible skill-match bar above its own collapsible detail table
+// — the aggregate count sits right above the per-skill breakdown behind it.
+export function SkillFrequencyCard({ applicationId, jdCanonicalSkills, keywordGaps, refreshKey }) {
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -36,7 +42,7 @@ export function SkillFrequencyCard({ applicationId, jdCanonicalSkills, keywordGa
   useEffect(() => {
     if (open) runCheck();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [refreshKey]);
 
   function toggle() {
     const next = !open;
