@@ -112,5 +112,9 @@ const applicationSchema = new mongoose.Schema(
 );
 
 applicationSchema.index({ masterResumeId: 1, jdTextHash: 1 }, { unique: true });
+// Support the applications-list route's per-user query + default sort, and
+// the status filter / the hasApprovedApplications exists() check it also runs.
+applicationSchema.index({ userId: 1, updatedAt: -1 });
+applicationSchema.index({ userId: 1, status: 1 });
 
 export default mongoose.model('Application', applicationSchema, 'applications');

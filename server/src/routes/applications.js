@@ -188,11 +188,129 @@ async function computeHumanRecheck(application) {
   };
 }
 
-// For the Applications list page — every application, most recently active first.
+// For the Applications list page. Server-side pagination + search/filter/sort —
+// the client used to fetch every application and do all of this in-memory,
+// which doesn't scale with a growing history. `effectiveAtsScore`/`atsTier`
+// mirror the client's own currentAtsScore()/scoreTier() fallback logic
+// exactly; `statusRank` reproduces the exact alphabetical order of the
+// client's *display labels* (STATUS_LABELS in Applications.jsx), not the raw
+// enum, so sorting by the Status column keeps behaving the way it always has.
 router.get('/', async (req, res) => {
   try {
-    const applications = await Application.find({ userId: req.user.id }).sort({ updatedAt: -1 });
-    return res.json({ applications });
+    // aggregate() doesn't auto-cast like find() does — must wrap explicitly,
+    // or the $match below silently matches nothing.
+    const userId = new mongoose.Types.ObjectId(req.user.id);
+
+    const ALLOWED_SORT_KEYS = ['companyName', 'jobTitle', 'status', 'atsScore', 'updatedAt'];
+    const SORT_FIELD_MAP = {
+      companyName: 'companyName',
+      jobTitle: 'jobTitle',
+      status: 'statusRank',
+      atsScore: 'effectiveAtsScore',
+      updatedAt: 'updatedAt',
+    };
+    const STATUS_ENUM = Application.schema.path('status').enumValues;
+
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 20));
+    const sortKey = ALLOWED_SORT_KEYS.includes(req.query.sortKey) ? req.query.sortKey : 'updatedAt';
+    const sortDir = req.query.sortDir === 'asc' ? 1 : -1;
+    const search = String(req.query.search || '').trim();
+    const status = STATUS_ENUM.includes(req.query.status) ? req.query.status : null;
+    const ats = ['strong', 'weak', 'unknown'].includes(req.query.ats) ? req.query.ats : null;
+    const coverLetter = ['yes', 'no'].includes(req.query.coverLetter) ? req.query.coverLetter : null;
+    const resume = req.query.resume && req.query.resume !== 'all' ? String(req.query.resume) : null;
+
+    const match = { userId };
+    if (status) match.status = status;
+    if (coverLetter === 'yes') match.coverLetterRequested = true;
+    if (coverLetter === 'no') match.coverLetterRequested = { $ne: true };
+    if (resume) match.masterResumeId = resume;
+    if (search) {
+      const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      match.$or = [
+        { companyName: { $regex: escaped, $options: 'i' } },
+        { jobTitle: { $regex: escaped, $options: 'i' } },
+      ];
+    }
+
+    const pipeline = [
+      { $match: match },
+      {
+        $addFields: {
+          effectiveAtsScore: { $ifNull: ['$humanRecheckAtsScore', '$atsScore'] },
+        },
+      },
+      {
+        $addFields: {
+          atsTier: {
+            $switch: {
+              branches: [
+                { case: { $eq: ['$effectiveAtsScore', null] }, then: 'unknown' },
+                { case: { $gte: ['$effectiveAtsScore', 70] }, then: 'strong' },
+              ],
+              default: 'weak',
+            },
+          },
+          // Mirrors STATUS_LABELS' alphabetical order in Applications.jsx:
+          // "Approved" < "In review" < "Processing" < "Role mismatch", with
+          // the two labelless enum values (logged/queued) ranked after.
+          statusRank: {
+            $switch: {
+              branches: [
+                { case: { $eq: ['$status', 'approved'] }, then: 0 },
+                { case: { $eq: ['$status', 'pending_approval'] }, then: 1 },
+                { case: { $eq: ['$status', 'logged'] }, then: 2 },
+                { case: { $eq: ['$status', 'in_progress'] }, then: 3 },
+                { case: { $eq: ['$status', 'queued'] }, then: 4 },
+                { case: { $eq: ['$status', 'role_mismatch'] }, then: 5 },
+              ],
+              default: 6,
+            },
+          },
+        },
+      },
+      ...(ats ? [{ $match: { atsTier: ats } }] : []),
+      {
+        $facet: {
+          data: [
+            // _id tiebreak keeps pagination stable when many rows tie on the sort key.
+            { $sort: { [SORT_FIELD_MAP[sortKey]]: sortDir, _id: 1 } },
+            { $skip: (page - 1) * pageSize },
+            { $limit: pageSize },
+            {
+              $project: {
+                companyName: 1,
+                jobTitle: 1,
+                status: 1,
+                updatedAt: 1,
+                atsScore: 1,
+                humanRecheckAtsScore: 1,
+                coverLetterRequested: 1,
+                masterResumeId: 1,
+              },
+            },
+          ],
+          totalCount: [{ $count: 'count' }],
+        },
+      },
+    ];
+
+    const [[facetResult], hasApprovedApplications] = await Promise.all([
+      // strength: 2 = case-insensitive compare, matching localeCompare()'s
+      // current client-side behavior for the companyName/jobTitle sorts.
+      Application.aggregate(pipeline).collation({ locale: 'en', strength: 2 }),
+      Application.exists({ userId, status: 'approved' }),
+    ]);
+    const { data = [], totalCount = [] } = facetResult || {};
+
+    return res.json({
+      applications: data,
+      total: totalCount[0]?.count || 0,
+      page,
+      pageSize,
+      hasApprovedApplications: !!hasApprovedApplications,
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to list applications.' });

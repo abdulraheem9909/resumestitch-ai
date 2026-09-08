@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronDown,
@@ -38,6 +38,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+const PAGE_SIZE = 20;
 
 const COLUMNS = [
   { key: "companyName", label: "Company", align: "left" },
@@ -116,11 +118,15 @@ function currentAtsScore(application) {
 
 export default function Applications() {
   const [applications, setApplications] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [hasApprovedApplications, setHasApprovedApplications] = useState(false);
   const [masterResumes, setMasterResumes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sort, setSort] = useState({ key: "updatedAt", direction: "desc" });
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [atsFilter, setAtsFilter] = useState("all");
   const [coverLetterFilter, setCoverLetterFilter] = useState("all");
@@ -132,76 +138,78 @@ export default function Applications() {
 
   const navigate = useNavigate();
 
+  // The master-resumes list is only ever used to populate the resume-filter
+  // dropdown's options — fetched once, independent of the paginated
+  // applications query below.
   useEffect(() => {
-    async function loadApplications() {
+    async function loadMasterResumes() {
+      try {
+        const res = await apiFetch(RESUMES_API);
+        const data = await res.json();
+        // Non-fatal if this fails — the resume filter just won't have
+        // labels to offer, everything else on the page still works.
+        if (res.ok) setMasterResumes(data.masterResumes || []);
+      } catch {
+        // Same non-fatal reasoning as above.
+      }
+    }
+    loadMasterResumes();
+  }, []);
+
+  const fetchApplications = useCallback(
+    async (signal) => {
       setLoading(true);
       setError("");
       try {
-        const [applicationsRes, resumesRes] = await Promise.all([
-          apiFetch(APPLICATIONS_API),
-          apiFetch(RESUMES_API),
-        ]);
-        const data = await applicationsRes.json();
-        if (!applicationsRes.ok) throw new Error(data.error || "Couldn't load your applications.");
-        const resumesData = await resumesRes.json();
+        const params = new URLSearchParams({
+          page: String(page),
+          pageSize: String(PAGE_SIZE),
+          sortKey: sort.key,
+          sortDir: sort.direction,
+        });
+        if (debouncedSearch) params.set("search", debouncedSearch);
+        if (statusFilter !== "all") params.set("status", statusFilter);
+        if (atsFilter !== "all") params.set("ats", atsFilter);
+        if (coverLetterFilter !== "all") params.set("coverLetter", coverLetterFilter);
+        if (resumeFilter !== "all") params.set("resume", resumeFilter);
+
+        const res = await apiFetch(`${APPLICATIONS_API}?${params}`, { signal });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Couldn't load your applications.");
         setApplications(data.applications);
-        // Non-fatal if this one fails — the resume filter just won't have
-        // labels to offer, everything else on the page still works.
-        if (resumesRes.ok) setMasterResumes(resumesData.masterResumes || []);
+        setTotal(data.total);
+        setHasApprovedApplications(data.hasApprovedApplications);
       } catch (err) {
-        setError(err.message);
+        if (err.name !== "AbortError") setError(err.message);
       } finally {
         setLoading(false);
       }
-    }
-    loadApplications();
-  }, []);
+    },
+    [page, sort, debouncedSearch, statusFilter, atsFilter, coverLetterFilter, resumeFilter]
+  );
+
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchApplications(controller.signal);
+    return () => controller.abort();
+  }, [fetchApplications]);
+
+  // Debounced separately from the other filters so every keystroke doesn't
+  // fire its own request — settles 300ms after typing stops.
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(timeout);
+  }, [search]);
 
   function handleSort(key) {
     setSort((prev) =>
       prev.key === key ? { key, direction: prev.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" }
     );
+    setPage(1);
   }
-
-  const filteredApplications = useMemo(() => {
-    const query = search.trim().toLowerCase();
-    return applications.filter((application) => {
-      if (query) {
-        const haystack = `${application.companyName} ${application.jobTitle || ""}`.toLowerCase();
-        if (!haystack.includes(query)) return false;
-      }
-      if (statusFilter !== "all" && application.status !== statusFilter) return false;
-      if (atsFilter !== "all" && scoreTier(currentAtsScore(application)) !== atsFilter) return false;
-      if (coverLetterFilter === "yes" && !application.coverLetterRequested) return false;
-      if (coverLetterFilter === "no" && application.coverLetterRequested) return false;
-      if (resumeFilter !== "all" && application.masterResumeId !== resumeFilter) return false;
-      return true;
-    });
-  }, [applications, search, statusFilter, atsFilter, coverLetterFilter, resumeFilter]);
-
-  // The spreadsheet export only ever includes approved applications (see
-  // GET /export/tracker.xlsx) — with none, it would silently download a
-  // spreadsheet with just a header row and no data.
-  const hasApprovedApplications = applications.some((application) => application.status === "approved");
-
-  const sortedApplications = useMemo(() => {
-    const factor = sort.direction === "asc" ? 1 : -1;
-    return [...filteredApplications].sort((a, b) => {
-      if (sort.key === "companyName") {
-        return a.companyName.localeCompare(b.companyName) * factor;
-      }
-      if (sort.key === "jobTitle") {
-        return (a.jobTitle || "").localeCompare(b.jobTitle || "") * factor;
-      }
-      if (sort.key === "status") {
-        return statusLabel(a.status).localeCompare(statusLabel(b.status)) * factor;
-      }
-      if (sort.key === "atsScore") {
-        return ((currentAtsScore(a) ?? -1) - (currentAtsScore(b) ?? -1)) * factor;
-      }
-      return (new Date(a.updatedAt ?? 0) - new Date(b.updatedAt ?? 0)) * factor;
-    });
-  }, [filteredApplications, sort]);
 
   async function deleteApplication() {
     if (!deleteTarget) return;
@@ -213,8 +221,14 @@ export default function Applications() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Couldn't delete this application.");
 
-      setApplications((prev) => prev.filter((application) => application._id !== deleteTarget._id));
       setDeleteTarget(null);
+      // Deleting the last row on a page beyond the first falls back a page;
+      // otherwise just re-fetch the same page fresh.
+      if (applications.length === 1 && page > 1) {
+        setPage((prev) => prev - 1);
+      } else {
+        fetchApplications();
+      }
     } catch (err) {
       setDeleteError(err.message);
     } finally {
@@ -231,14 +245,18 @@ export default function Applications() {
 
   function clearFilters() {
     setSearch("");
+    setDebouncedSearch("");
     setStatusFilter("all");
     setAtsFilter("all");
     setCoverLetterFilter("all");
     setResumeFilter("all");
+    setPage(1);
   }
 
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
   return (
-    <section className="mx-auto w-full max-w-5xl">
+    <section className="mx-auto flex h-full w-full max-w-5xl flex-col">
       <div className="sticky top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
         <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Applications
@@ -271,7 +289,7 @@ export default function Applications() {
           status, and the score it landed. Click a row to pick up right where you left off.
         </p>
 
-        {applications.length > 0 && (
+        {(total > 0 || hasActiveFilters) && (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -285,7 +303,13 @@ export default function Applications() {
                 className="pl-9"
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select
+              value={statusFilter}
+              onValueChange={(value) => {
+                setStatusFilter(value);
+                setPage(1);
+              }}
+            >
               <SelectTrigger className="w-full sm:w-40">
                 <SelectValue placeholder="Status" />
               </SelectTrigger>
@@ -296,7 +320,13 @@ export default function Applications() {
                 <SelectItem value="role_mismatch">Role mismatch</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={atsFilter} onValueChange={setAtsFilter}>
+            <Select
+              value={atsFilter}
+              onValueChange={(value) => {
+                setAtsFilter(value);
+                setPage(1);
+              }}
+            >
               <SelectTrigger className="w-full sm:w-44">
                 <SelectValue placeholder="ATS score" />
               </SelectTrigger>
@@ -307,7 +337,13 @@ export default function Applications() {
                 <SelectItem value="unknown">Unscored</SelectItem>
               </SelectContent>
             </Select>
-            <Select value={coverLetterFilter} onValueChange={setCoverLetterFilter}>
+            <Select
+              value={coverLetterFilter}
+              onValueChange={(value) => {
+                setCoverLetterFilter(value);
+                setPage(1);
+              }}
+            >
               <SelectTrigger className="w-full sm:w-52">
                 <SelectValue placeholder="Cover letter" />
               </SelectTrigger>
@@ -318,7 +354,13 @@ export default function Applications() {
               </SelectContent>
             </Select>
             {masterResumes.length > 1 && (
-              <Select value={resumeFilter} onValueChange={setResumeFilter}>
+              <Select
+                value={resumeFilter}
+                onValueChange={(value) => {
+                  setResumeFilter(value);
+                  setPage(1);
+                }}
+              >
                 <SelectTrigger className="w-full sm:w-48">
                   <SelectValue placeholder="Resume" />
                 </SelectTrigger>
@@ -343,7 +385,7 @@ export default function Applications() {
       )}
       {loading && <LoadingState message="Loading your applications…" />}
 
-      {!loading && applications.length === 0 && !error && (
+      {!loading && total === 0 && !error && !hasActiveFilters && (
         <EmptyState
           icon={Inbox}
           title="No applications yet"
@@ -356,7 +398,7 @@ export default function Applications() {
         />
       )}
 
-      {!loading && applications.length > 0 && sortedApplications.length === 0 && (
+      {!loading && total === 0 && !error && hasActiveFilters && (
         <EmptyState
           icon={SearchX}
           title="No applications match your filters"
@@ -369,10 +411,10 @@ export default function Applications() {
         />
       )}
 
-      {!loading && sortedApplications.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
+      {!loading && applications.length > 0 && (
+        <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-card shadow-card">
           <table className="w-full min-w-[720px] border-collapse text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-card">
               <tr className="border-b border-border">
                 {COLUMNS.map((column) => (
                   <SortableHeader key={column.key} column={column} sort={sort} onSort={handleSort} />
@@ -381,7 +423,7 @@ export default function Applications() {
               </tr>
             </thead>
             <tbody>
-              {sortedApplications.map((application) => {
+              {applications.map((application) => {
                 const score = currentAtsScore(application);
                 const tier = scoreTier(score);
                 return (
@@ -450,6 +492,30 @@ export default function Applications() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {!loading && total > 0 && (
+        <div className="mt-4 flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} of {total}
+          </p>
+          <div className="flex items-center gap-3">
+            <Button variant="secondary" size="sm" disabled={page <= 1} onClick={() => setPage((prev) => prev - 1)}>
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Page {page} of {totalPages}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={page >= totalPages}
+              onClick={() => setPage((prev) => prev + 1)}
+            >
+              Next
+            </Button>
+          </div>
         </div>
       )}
 

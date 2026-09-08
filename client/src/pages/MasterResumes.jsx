@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { FileText, Pencil, Plus, Trash2 } from "lucide-react";
 import { RESUMES_API } from "../lib/api.js";
@@ -42,6 +42,7 @@ export default function MasterResumes() {
   const [parsingFile, setParsingFile] = useState(false);
   const [formLabel, setFormLabel] = useState("");
   const [personalInfo, setPersonalInfo] = useState(EMPTY_PERSONAL_INFO);
+  const fileInputRef = useRef(null);
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
@@ -106,6 +107,22 @@ export default function MasterResumes() {
       setParsingFile(false);
     }
   }
+
+  // The dialog's form state lives here in the page component, which never
+  // unmounts — closing the dialog without submitting leaves whatever was
+  // picked/pre-filled sitting there for next time, since nothing else ever
+  // resets it. This gives the user an explicit way to start over.
+  function clearPrefilledFields() {
+    setFile(null);
+    setFormLabel("");
+    setPersonalInfo(EMPTY_PERSONAL_INFO);
+    setUploadError("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  const hasPrefilledData = Boolean(
+    file || formLabel.trim() || Object.values(personalInfo).some((value) => value.trim())
+  );
 
   async function uploadResume() {
     if (!file || !formLabel.trim() || !isPersonalInfoValid(personalInfo)) return;
@@ -304,6 +321,7 @@ export default function MasterResumes() {
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="resume-file">Resume file (.pdf or .docx)</Label>
                 <input
+                  ref={fileInputRef}
                   id="resume-file"
                   type="file"
                   accept=".pdf,.docx"
@@ -355,6 +373,15 @@ export default function MasterResumes() {
               </div>
 
               <DialogFooter>
+                {hasPrefilledData && (
+                  <button
+                    type="button"
+                    onClick={clearPrefilledFields}
+                    className="mr-auto text-sm font-medium text-primary underline underline-offset-4 hover:text-primary/80 sm:mr-0"
+                  >
+                    Clear
+                  </button>
+                )}
                 <Button
                   onClick={uploadResume}
                   disabled={parsingFile || !file || !formLabel.trim() || !isPersonalInfoValid(personalInfo)}
