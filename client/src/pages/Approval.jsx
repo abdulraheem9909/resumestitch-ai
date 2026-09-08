@@ -4,6 +4,7 @@ import { Info } from "lucide-react";
 import { APPLICATIONS_API as API_BASE, RESUMES_API } from "../lib/api.js";
 import { apiFetch } from "../lib/apiFetch.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StaleScoreToast } from "../components/approval/StaleScoreToast.jsx";
 import { ApprovalHeader } from "../components/approval/ApprovalHeader.jsx";
@@ -68,6 +69,7 @@ export default function Approval() {
   const [dirtySinceCheck, setDirtySinceCheck] = useState(false);
 
   const [rechecking, setRechecking] = useState(false);
+  const [generatingCoverLetter, setGeneratingCoverLetter] = useState(false);
   const [showOriginalFeedback, setShowOriginalFeedback] = useState(false);
 
   const [activeSuggestSkill, setActiveSuggestSkill] = useState(null);
@@ -326,6 +328,25 @@ export default function Approval() {
     }
   }
 
+  async function generateCoverLetterNow() {
+    setGeneratingCoverLetter(true);
+    setError("");
+    try {
+      const res = await apiFetch(`${API_BASE}/${applicationId}/generate-cover-letter`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Couldn't generate a cover letter for this application.");
+      setApplication((prev) => ({
+        ...prev,
+        coverLetterText: data.coverLetterText,
+        coverLetterRequested: data.coverLetterRequested,
+      }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setGeneratingCoverLetter(false);
+    }
+  }
+
   async function acceptSuggestedSkill(skill) {
     if (!suggestBulletText.trim()) return;
 
@@ -459,6 +480,7 @@ export default function Approval() {
     savingSummary ||
     savingTitle ||
     rechecking ||
+    generatingCoverLetter ||
     addingSkill ||
     savingSkills ||
     sendingRetry ||
@@ -625,8 +647,19 @@ export default function Approval() {
               )}
 
               {/* Cover letter (node 7, conditional) */}
-              {application.coverLetterRequested && (
+              {application.coverLetterRequested ? (
                 <CoverLetterCard coverLetterText={application.coverLetterText} />
+              ) : (
+                application.status === "approved" && (
+                  <div className="flex flex-col items-start gap-2 rounded-lg border border-dashed border-border p-4">
+                    <p className="text-sm text-muted-foreground">
+                      No cover letter was requested for this application.
+                    </p>
+                    <Button size="sm" onClick={generateCoverLetterNow} disabled={busy}>
+                      {generatingCoverLetter ? "Generating…" : "Generate cover letter"}
+                    </Button>
+                  </div>
+                )
               )}
             </div>
 

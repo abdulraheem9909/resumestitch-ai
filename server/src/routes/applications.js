@@ -18,6 +18,7 @@ import { findUnsupportedSeniorityTerms } from '../services/suggestResumeTitle.js
 import { atsScoreAndRecruiter } from '../services/atsScoreAndRecruiter.js';
 import { buildResumeDocxBuffer } from '../services/exportResumeDocx.js';
 import { buildCoverLetterDocxBuffer } from '../services/exportCoverLetterDocx.js';
+import { generateCoverLetter } from '../services/generateCoverLetter.js';
 import { buildTrackerXlsxBuffer } from '../services/exportTrackerXlsx.js';
 import { convertDocxBufferToPdf } from '../services/convertDocxToPdf.js';
 import { buildExportFilename } from '../services/buildExportFilename.js';
@@ -1160,6 +1161,57 @@ router.post('/:id/recheck', async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to re-check application.' });
+  }
+});
+
+// Lets an already-approved application get a cover letter it wasn't
+// originally requested at submission time — scoped to `approved` only,
+// since bullets/summary/title editing is already disabled by then, so the
+// inputs a newly-generated letter draws from are guaranteed stable. Calls
+// the same generateCoverLetter() service node 7 uses directly (no graph
+// node/edge involved), the same way computeHumanRecheck above calls
+// verifyBullet/atsScoreAndRecruiter directly. matchedSkills isn't persisted
+// on the Application document — read fresh from the still-live LangGraph
+// checkpoint, exactly like computeHumanRecheck already does post-approval.
+router.post('/:id/generate-cover-letter', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+
+  try {
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+    if (application.status !== 'approved') {
+      return res.status(400).json({ error: 'Only an approved application can generate a cover letter this way.' });
+    }
+
+    const graph = getJobAgentGraph();
+    const snapshot = await graph.getState({ configurable: { thread_id: application._id.toString() } });
+    const { matchedSkills = [] } = snapshot.values || {};
+
+    const coverLetterText = await generateCoverLetter({
+      jdText: application.jdSnapshot,
+      companyName: application.companyName,
+      resumeTitle: application.tailoredTitle?.finalText,
+      tailoredBullets: application.tailoredBullets.filter((bullet) => !bullet.rejected),
+      tailoredSummary: application.tailoredSummary,
+      matchedSkills,
+      keywordGaps: application.keywordGaps,
+      applicationId: application._id.toString(),
+      resumeVersion: application.masterResumeId,
+    });
+
+    application.coverLetterText = coverLetterText;
+    application.coverLetterRequested = true;
+    await application.save();
+
+    return res.json({ coverLetterText, coverLetterRequested: true });
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to generate a cover letter for this application.' });
   }
 });
 
