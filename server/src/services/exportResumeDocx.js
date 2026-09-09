@@ -1,10 +1,72 @@
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType } from 'docx';
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, TabStopType, Tab, ExternalHyperlink } from 'docx';
+
+function toAbsoluteUrl(value) {
+  return /^https?:\/\//i.test(value) ? value : `https://${value}`;
+}
+
+// Email/LinkedIn/portfolio previously rendered as plain text that only
+// happened to look like a URL — nothing declared them as actual hyperlinks,
+// so nothing was clickable in either the .docx or the converted PDF. A real
+// hyperlink needs its own relationship (ExternalHyperlink), not just
+// URL-shaped text. Location/phone stay plain text — there's nothing to link.
+//
+// Styled to look identical to the surrounding text (no color, no underline)
+// — deliberately not the usual blue-underline convention.
+//
+// LinkedIn's displayed text is its own full https:// URL, not the bare
+// stored value ("linkedin.com/in/...") — this app's PDF export currently
+// has no real embedded hyperlink annotations at all (a separate, already-
+// documented LibreOffice conversion limitation), so the only way a link is
+// clickable in the PDF today is if the viewer auto-detects URL/email-shaped
+// TEXT on its own. Found live: email and portfolio (whose displayed text is
+// already a full https:// URL) were clickable this way in a browser PDF
+// viewer; a bare "linkedin.com/in/..." with no protocol in the visible text
+// wasn't reliably auto-detected. Matching portfolio's own already-prefixed
+// display form closes that gap.
+function buildContactLineChildren(personalInfo) {
+  const parts = [];
+  if (personalInfo.location) parts.push({ text: personalInfo.location });
+  if (personalInfo.phone) parts.push({ text: personalInfo.phone });
+  if (personalInfo.email) parts.push({ text: personalInfo.email, link: `mailto:${personalInfo.email}` });
+  if (personalInfo.linkedin) {
+    const link = toAbsoluteUrl(personalInfo.linkedin);
+    parts.push({ text: link, link });
+  }
+  if (personalInfo.portfolio) parts.push({ text: personalInfo.portfolio, link: toAbsoluteUrl(personalInfo.portfolio) });
+
+  const children = [];
+  parts.forEach((part, index) => {
+    if (index > 0) children.push(new TextRun({ text: ' · ' }));
+    if (part.link) {
+      children.push(new ExternalHyperlink({ link: part.link, children: [new TextRun({ text: part.text })] }));
+    } else {
+      children.push(new TextRun({ text: part.text }));
+    }
+  });
+  return children;
+}
 
 // A custom numbering definition, not the `bullet: { level: 0 }` shorthand:
 // that shorthand has no way to size the glyph independently of body text,
 // which is exactly why it renders "●" (BLACK CIRCLE) at full 11pt — heavier
 // than a typical resume bullet. This uses the lighter "•" (BULLET) at a
 // smaller size, with a tighter hanging indent than the shorthand's default.
+// docx's own default page margin (1440 twips = 1 inch on every side) was
+// never actually chosen for a resume specifically — it's just Word's
+// generic document default, left unset here until now. Found live,
+// comparing against a resume built with a real resume template: the extra
+// inch of unused width on both sides forces more lines to wrap than
+// necessary, and that accumulates — across dozens of bullets/entries — into
+// enough extra height to push identical content onto a 3rd, mostly-empty
+// page that a tighter, resume-appropriate margin doesn't need at all.
+const PAGE_MARGIN_TWIPS = { top: 720, bottom: 720, left: 720, right: 720 }; // 0.5in
+
+// Letter-width page (12240 twips) minus the left+right margins above —
+// where a right tab stop lands a date flush against the right margin, on
+// the same line as the entry heading it belongs to, instead of the date
+// sitting on its own separate line below.
+const RIGHT_TAB_POSITION = 12240 - PAGE_MARGIN_TWIPS.left - PAGE_MARGIN_TWIPS.right;
+
 const BULLET_NUMBERING_REFERENCE = 'resume-bullets';
 const bulletNumberingConfig = {
   reference: BULLET_NUMBERING_REFERENCE,
@@ -59,9 +121,7 @@ export function buildResumeDocxBuffer({
   volunteerWork = [],
   skills = [],
 }) {
-  const contactLine = [personalInfo.location, personalInfo.phone, personalInfo.email, personalInfo.linkedin, personalInfo.portfolio]
-    .filter(Boolean)
-    .join(' · ');
+  const contactLineChildren = buildContactLineChildren(personalInfo);
 
   const groups = groupBulletsByRole(tailoredBullets, originalBulletsById);
 
@@ -71,12 +131,27 @@ export function buildResumeDocxBuffer({
     }),
   ];
 
+  if (contactLineChildren.length > 0) {
+    children.push(new Paragraph({ children: contactLineChildren }));
+  }
+
+  // After the contact block, not before it, matching Heading2's size/weight/
+  // spacing (13pt, bold, real before/after spacing) inline — but explicitly
+  // NOT its blue color, since referencing the actual Heading2 *style* here
+  // made the personal title indistinguishable from a real section label.
+  // Black keeps it reading as "who you are," equal in visual weight to
+  // SUMMARY/EXPERIENCE below it without being mistaken for one of them.
+  // Found live: plain bold body text (11pt, no spacing of its own) sat
+  // squeezed between the contact line and "SUMMARY" — it read as an
+  // afterthought, not a heading.
   const effectiveTitle = tailoredTitle?.finalText || personalInfo.title;
   if (effectiveTitle) {
-    children.push(new Paragraph({ text: effectiveTitle }));
-  }
-  if (contactLine) {
-    children.push(new Paragraph({ text: contactLine }));
+    children.push(
+      new Paragraph({
+        spacing: { before: 200, after: 80 },
+        children: [new TextRun({ text: effectiveTitle, bold: true, size: 26 })],
+      })
+    );
   }
 
   children.push(new Paragraph({ text: 'SUMMARY', heading: HeadingLevel.HEADING_2 }));
@@ -89,9 +164,26 @@ export function buildResumeDocxBuffer({
     // a blank line, so it doesn't read as a formatting glitch in the
     // exported file.
     const heading = [group.company, group.role].filter(Boolean).join(' — ') || 'Additional Experience';
-    children.push(new Paragraph({ text: heading, heading: HeadingLevel.HEADING_3 }));
     if (group.dateRange) {
-      children.push(new Paragraph({ children: [new TextRun({ text: group.dateRange, italics: true })] }));
+      // Heading + date share one line (a right tab stop lands the date at
+      // the right margin) instead of the date sitting on its own separate
+      // line below — more scannable, and less vertical space per entry.
+      // Not using HeadingLevel.HEADING_3 here since that style can't also
+      // carry a mid-paragraph tab stop — the bold run below matches
+      // Heading3's own (now colorless) run styling directly.
+      children.push(
+        new Paragraph({
+          tabStops: [{ type: TabStopType.RIGHT, position: RIGHT_TAB_POSITION }],
+          spacing: { before: 120, after: 40 },
+          children: [
+            new TextRun({ text: heading, bold: true }),
+            new TextRun({ children: [new Tab()] }),
+            new TextRun({ text: group.dateRange, italics: true }),
+          ],
+        })
+      );
+    } else {
+      children.push(new Paragraph({ text: heading, heading: HeadingLevel.HEADING_3 }));
     }
     for (const bullet of group.bullets) {
       children.push(
@@ -185,21 +277,35 @@ export function buildResumeDocxBuffer({
         // heading1 isn't used anywhere in this document today, but it's kept
         // bold/consistent with heading2/heading3 rather than left at docx's
         // own unbolded built-in default, in case it's ever reached for.
+        // Each heading level repeats `font: 'Calibri'` explicitly rather than
+        // relying on inheriting it from docDefaults above — found live: this
+        // document has no fontScheme/theme part, and LibreOffice doesn't
+        // reliably fall through to docDefaults for a style's own run without
+        // one. A real converted PDF showed every heading rendered in
+        // LibreOffice's generic "Liberation Sans" fallback instead of
+        // Carlito, the Calibri substitute the rest of the body correctly used.
         heading1: {
-          run: { bold: true, color: '2E74B5', size: 32 },
+          run: { font: 'Calibri', bold: true, color: '2E74B5', size: 32 },
           paragraph: { spacing: { before: 200, after: 80 } },
         },
         heading2: {
-          run: { bold: true, color: '2E74B5', size: 26 },
+          run: { font: 'Calibri', bold: true, color: '2E74B5', size: 26 },
           paragraph: { spacing: { before: 200, after: 80 } },
         },
+        // No color and no size bump, unlike heading1/2 above — found live,
+        // comparing against a real resume template: coloring/enlarging
+        // every single entry-level heading (one per job, degree, project,
+        // certification, volunteer role) reads as a much "heavier"/busier
+        // page than reserving color for just the top-level section labels
+        // (SUMMARY/EXPERIENCE/...) and keeping entry headers plain bold
+        // black, the same weight as body text.
         heading3: {
-          run: { bold: true, color: '1F4D78', size: 24 },
+          run: { font: 'Calibri', bold: true },
           paragraph: { spacing: { before: 120, after: 40 } },
         },
       },
     },
-    sections: [{ children }],
+    sections: [{ properties: { page: { margin: PAGE_MARGIN_TWIPS } }, children }],
   });
   return Packer.toBuffer(doc);
 }

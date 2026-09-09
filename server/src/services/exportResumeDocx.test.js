@@ -84,6 +84,98 @@ test('buildResumeDocxBuffer declares an explicit default font and bolds every he
   }
 });
 
+// Found live: docDefaults declares Calibri, but this document has no
+// fontScheme/theme part, and LibreOffice doesn't reliably fall back to
+// docDefaults for a paragraph style's own run properties without one — a
+// real converted PDF showed every heading rendered in LibreOffice's own
+// generic "Liberation Sans" default instead of Carlito (the Calibri
+// substitute the rest of the body correctly used). Each heading level must
+// declare its font explicitly, not rely on inheriting the document default.
+test('buildResumeDocxBuffer declares an explicit font on every heading level too, not just docDefaults', async () => {
+  const buffer = await buildResumeDocxBuffer(buildFixture());
+  const zip = await JSZip.loadAsync(buffer);
+  const stylesXml = await zip.file('word/styles.xml').async('string');
+
+  for (const styleId of ['Heading1', 'Heading2', 'Heading3']) {
+    const block = stylesXml.match(new RegExp(`<w:style w:type="paragraph" w:styleId="${styleId}">.*?</w:style>`, 's'))?.[0];
+    assert.ok(/<w:rFonts\b[^>]*w:ascii="Calibri"/.test(block), `${styleId} should explicitly declare Calibri, not rely on inheriting docDefaults`);
+  }
+});
+
+// Real-world repro, comparing against a resume built with a real resume
+// template: every entry-level heading (job header, degree, project,
+// certification, volunteer role) was bold AND colored AND a size bump over
+// body text — repeated once per entry, that reads as a much "heavier" page
+// than a template that reserves color for just the top-level section labels
+// (SUMMARY/EXPERIENCE/EDUCATION/...) and keeps entry headers plain bold
+// black. Heading3 (used for every entry) should stay bold (already asserted
+// above) but drop the color and the size bump.
+test('buildResumeDocxBuffer keeps entry-level headings (Heading3) bold but plain black, not colored', async () => {
+  const buffer = await buildResumeDocxBuffer(buildFixture());
+  const zip = await JSZip.loadAsync(buffer);
+  const stylesXml = await zip.file('word/styles.xml').async('string');
+
+  const block = stylesXml.match(/<w:style w:type="paragraph" w:styleId="Heading3">.*?<\/w:style>/s)?.[0];
+  assert.ok(block, 'Heading3 should exist in styles.xml');
+  assert.ok(/<w:b\/?>/.test(block), 'Heading3 should still be bold');
+  assert.ok(!/<w:color\b/.test(block), 'Heading3 should no longer declare a color — entry headers should read as plain black, not blue');
+});
+
+// Real-world repro: the job header ("Company — Role") and its date sat on
+// two separate paragraphs (the date italicized on its own line below) —
+// a real resume template puts the date on the SAME line, right-aligned,
+// which is both more scannable and takes less vertical space per entry.
+test('buildResumeDocxBuffer right-aligns a job\'s date on the same line as its header, via a tab stop, not a separate line below', async () => {
+  const buffer = await buildResumeDocxBuffer(buildFixture());
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file('word/document.xml').async('string');
+
+  const heading = 'Acme Corp — Software Engineer';
+  const dateRange = '01/2022 - Present';
+  // Both the heading text and its date must appear inside the SAME <w:p>...</w:p>
+  // block, with a right tab stop, rather than in two separate paragraphs.
+  const paragraphs = documentXml.match(/<w:p\b.*?<\/w:p>/gs) || [];
+  const combined = paragraphs.find((p) => p.includes(heading) && p.includes(dateRange));
+  assert.ok(combined, 'the job header and its date should be in the same paragraph');
+  assert.ok(/<w:tab w:val="right"/.test(combined), 'that paragraph should declare a right tab stop for the date');
+  assert.ok(/<w:r><w:tab\/><\/w:r>/.test(combined), 'the run between the header and the date should be a real <w:tab/> element, not a literal tab character in a text node');
+});
+
+// Real-world repro: the title ("Software Engineer") rendered as plain,
+// unstyled body text directly under the name, before the contact line —
+// easy to overlook. A real resume template gives it real emphasis and
+// places it after the contact block, functioning as a header for the
+// summary that follows.
+test('buildResumeDocxBuffer renders the title in bold, positioned after the contact line', async () => {
+  const fixture = buildFixture();
+  const buffer = await buildResumeDocxBuffer(fixture);
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file('word/document.xml').async('string');
+
+  const titleParagraph = (documentXml.match(/<w:p\b.*?<\/w:p>/gs) || []).find((p) =>
+    p.includes(fixture.tailoredTitle.finalText)
+  );
+  assert.ok(titleParagraph, 'a paragraph containing the title should exist');
+  // Found live: a title styled as plain bold body text (11pt, same size as
+  // everything around it) sat squeezed between the contact line and
+  // "SUMMARY" (which jumps straight to bold-blue-13pt) — it read as a
+  // visual afterthought, not a heading. Give it the same SIZE/WEIGHT as the
+  // other top-level headings (bold, 13pt, real spacing) but deliberately
+  // NOT their blue color — found live again: using the literal Heading2
+  // style (color included) made the personal title indistinguishable from
+  // an actual section label; black keeps it reading as "identity", not
+  // "structure", while still carrying equal visual weight.
+  assert.ok(/<w:b\/?>/.test(titleParagraph), 'the title should be bold');
+  assert.ok(/<w:sz w:val="26"\/>/.test(titleParagraph), 'the title should be the same 13pt size as the other top-level headings');
+  assert.ok(!/<w:color\b/.test(titleParagraph), 'the title should stay plain black, not inherit the blue heading color');
+
+  const { value: text } = await mammoth.extractRawText({ buffer });
+  const contactIndex = text.indexOf(fixture.personalInfo.phone);
+  const titleIndex = text.indexOf(fixture.tailoredTitle.finalText);
+  assert.ok(contactIndex >= 0 && titleIndex >= 0, 'both the contact info and title should appear in the extracted text');
+  assert.ok(contactIndex < titleIndex, 'the contact line should appear before the title, not after');
+});
+
 test('buildResumeDocxBuffer\'s bullets actually render with a small "•" glyph, not the heavy "●" default', async () => {
   // The docx package always emits an unused, built-in "●" numbering
   // definition regardless of what's configured — checking numbering.xml
@@ -207,3 +299,82 @@ test(
     }
   }
 );
+
+// Real-world repro: email, LinkedIn, and portfolio in the contact line were
+// plain text that only happened to look like a URL — nothing in the file
+// declared them as actual hyperlinks, so nothing was clickable in either
+// the .docx or the converted PDF. A real hyperlink needs its own relationship
+// (registered in document.xml.rels), not just URL-shaped text.
+test('buildResumeDocxBuffer makes email, LinkedIn, and portfolio real clickable hyperlinks', async () => {
+  const fixture = buildFixture({
+    personalInfo: {
+      fullName: 'Jane Doe',
+      title: 'Software Engineer',
+      location: 'Manchester, UK',
+      phone: '+447700900123',
+      email: 'jane.doe@example.com',
+      linkedin: 'linkedin.com/in/janedoe',
+      portfolio: 'https://janedoe.dev',
+    },
+  });
+  const buffer = await buildResumeDocxBuffer(fixture);
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file('word/document.xml').async('string');
+  const relsXml = await zip.file('word/_rels/document.xml.rels').async('string');
+
+  const hyperlinkIds = [...documentXml.matchAll(/<w:hyperlink[^>]*r:id="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(hyperlinkIds.length, 3, 'email, LinkedIn, and portfolio should each render as a real <w:hyperlink>');
+
+  const relTargets = hyperlinkIds.map((id) => {
+    const rel = relsXml.match(new RegExp(`<Relationship Id="${id}"[^>]*Target="([^"]*)"`));
+    return rel?.[1];
+  });
+  assert.ok(relTargets.includes('mailto:jane.doe@example.com'), 'email should link to a mailto: target');
+  assert.ok(relTargets.includes('https://linkedin.com/in/janedoe'), 'LinkedIn should link to an https:// target even though the stored value has no protocol');
+  assert.ok(relTargets.includes('https://janedoe.dev'), 'portfolio should link to its own https:// target unchanged');
+
+  // Phone and location are plain contact details, not links — must stay
+  // plain text, not accidentally wrapped in a hyperlink too.
+  assert.equal(hyperlinkIds.length, [...relsXml.matchAll(/TargetMode="External"/g)].length);
+});
+
+// Requested styling: no blue color, no underline — the link should read as
+// plain text, indistinguishable in appearance from the rest of the contact
+// line, while still being a real, clickable <w:hyperlink> underneath.
+test('buildResumeDocxBuffer styles hyperlinks as plain text — no color, no underline', async () => {
+  const buffer = await buildResumeDocxBuffer(buildFixture());
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file('word/document.xml').async('string');
+
+  const hyperlinkBlocks = documentXml.match(/<w:hyperlink\b.*?<\/w:hyperlink>/gs) || [];
+  assert.ok(hyperlinkBlocks.length > 0, 'at least one hyperlink should exist to check styling on');
+  for (const block of hyperlinkBlocks) {
+    assert.ok(!/<w:color\b/.test(block), 'a hyperlink run should not declare a color');
+    assert.ok(!/<w:u\b/.test(block), 'a hyperlink run should not declare an underline');
+  }
+});
+
+// Real-world repro: this app's exported PDF currently has no real embedded
+// hyperlink annotations at all (a separate, already-documented LibreOffice
+// conversion limitation) — the only way a link is clickable in the PDF
+// today is if the PDF VIEWER auto-detects URL/email-shaped text on its own.
+// A bare "linkedin.com/in/..." (no protocol in the visible text) isn't
+// reliably auto-detected the way "https://janedoe.dev" or an email address
+// already is — found live: email and portfolio were clickable in a browser
+// PDF viewer, LinkedIn wasn't. Displaying the LinkedIn text with the same
+// https:// prefix its own link target already uses closes that gap.
+test('buildResumeDocxBuffer displays the LinkedIn link with an https:// prefix, matching its own target, so PDF viewers can auto-detect it too', async () => {
+  const fixture = buildFixture({
+    personalInfo: {
+      fullName: 'Jane Doe',
+      title: 'Software Engineer',
+      location: 'Manchester, UK',
+      phone: '+447700900123',
+      email: 'jane.doe@example.com',
+      linkedin: 'linkedin.com/in/janedoe',
+      portfolio: '',
+    },
+  });
+  const { value: text } = await mammoth.extractRawText({ buffer: await buildResumeDocxBuffer(fixture) });
+  assert.ok(text.includes('https://linkedin.com/in/janedoe'), 'the displayed LinkedIn text should include the https:// prefix');
+});
