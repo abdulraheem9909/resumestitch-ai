@@ -61,11 +61,23 @@ function buildContactLineChildren(personalInfo) {
 // page that a tighter, resume-appropriate margin doesn't need at all.
 const PAGE_MARGIN_TWIPS = { top: 720, bottom: 720, left: 720, right: 720 }; // 0.5in
 
-// Letter-width page (12240 twips) minus the left+right margins above —
-// where a right tab stop lands a date flush against the right margin, on
-// the same line as the entry heading it belongs to, instead of the date
-// sitting on its own separate line below.
-const RIGHT_TAB_POSITION = 12240 - PAGE_MARGIN_TWIPS.left - PAGE_MARGIN_TWIPS.right;
+// Explicit A4 (11906 x 16838 twips) — matches the TealHQ resume this export
+// was benchmarked against, and matches what LibreOffice/Word already assume
+// when a page size isn't declared at all, so declaring it here doesn't
+// change existing output. Found live: the right-tab date position below had
+// been computed against an assumed Letter width (12240 twips) even though
+// this document actually renders at A4 (11906 twips) — a 334-twip (0.23in)
+// gap that pushed every job's date past the true right margin, into the
+// blank margin space. Declaring the size explicitly, and deriving the tab
+// position from this same constant, means the two can never independently
+// drift apart again.
+const PAGE_SIZE_TWIPS = { width: 11906, height: 16838 };
+
+// The printable text width (page width minus both margins) — where a right
+// tab stop lands a date flush against the right margin, on the same line as
+// the entry heading it belongs to, instead of the date sitting on its own
+// separate line below.
+const RIGHT_TAB_POSITION = PAGE_SIZE_TWIPS.width - PAGE_MARGIN_TWIPS.left - PAGE_MARGIN_TWIPS.right;
 
 const BULLET_NUMBERING_REFERENCE = 'resume-bullets';
 const bulletNumberingConfig = {
@@ -162,29 +174,54 @@ export function buildResumeDocxBuffer({
     // A bullet added with no role/company attached (e.g. an unassigned
     // suggest-missing-skills addition) still gets a real heading rather than
     // a blank line, so it doesn't read as a formatting glitch in the
-    // exported file.
-    const heading = [group.company, group.role].filter(Boolean).join(' — ') || 'Additional Experience';
+    // exported file. Role leads (it's what a reviewer scans for first), with
+    // Company as a real fallback only when there's no role to show at all —
+    // matching a real resume template (TealHQ): Role on top, larger; Company
+    // on its own line directly below, smaller. Found live, comparing against
+    // that template: the two previously ran together on one "Company — Role"
+    // line, with no visual hierarchy between them at all.
+    const primaryHeading = group.role || group.company || 'Additional Experience';
+    const secondaryHeading = group.role && group.company ? group.company : null;
+
     if (group.dateRange) {
       // Heading + date share one line (a right tab stop lands the date at
       // the right margin) instead of the date sitting on its own separate
       // line below — more scannable, and less vertical space per entry.
       // Not using HeadingLevel.HEADING_3 here since that style can't also
       // carry a mid-paragraph tab stop — the bold run below matches
-      // Heading3's own (now colorless) run styling directly.
+      // Heading3's own (colorless, 12pt) run styling directly.
       children.push(
         new Paragraph({
           tabStops: [{ type: TabStopType.RIGHT, position: RIGHT_TAB_POSITION }],
-          spacing: { before: 120, after: 40 },
+          spacing: { before: 120, after: secondaryHeading ? 0 : 40 },
           children: [
-            new TextRun({ text: heading, bold: true }),
+            new TextRun({ text: primaryHeading, bold: true, size: 24 }),
             new TextRun({ children: [new Tab()] }),
             new TextRun({ text: group.dateRange, italics: true }),
           ],
         })
       );
     } else {
-      children.push(new Paragraph({ text: heading, heading: HeadingLevel.HEADING_3 }));
+      children.push(
+        new Paragraph({
+          spacing: { before: 120, after: secondaryHeading ? 0 : 40 },
+          children: [new TextRun({ text: primaryHeading, bold: true, size: 24 })],
+        })
+      );
     }
+
+    if (secondaryHeading) {
+      // 10pt — smaller than both the 11pt body text and the 12pt role above
+      // it, so Company reads as clearly secondary information, not a second
+      // equally-weighted heading.
+      children.push(
+        new Paragraph({
+          spacing: { after: 40 },
+          children: [new TextRun({ text: secondaryHeading, italics: true, size: 20 })],
+        })
+      );
+    }
+
     for (const bullet of group.bullets) {
       children.push(
         new Paragraph({ text: bullet.finalText, numbering: { reference: BULLET_NUMBERING_REFERENCE, level: 0 } })
@@ -292,20 +329,21 @@ export function buildResumeDocxBuffer({
           run: { font: 'Calibri', bold: true, color: '2E74B5', size: 26 },
           paragraph: { spacing: { before: 200, after: 80 } },
         },
-        // No color and no size bump, unlike heading1/2 above — found live,
-        // comparing against a real resume template: coloring/enlarging
-        // every single entry-level heading (one per job, degree, project,
-        // certification, volunteer role) reads as a much "heavier"/busier
-        // page than reserving color for just the top-level section labels
-        // (SUMMARY/EXPERIENCE/...) and keeping entry headers plain bold
-        // black, the same weight as body text.
+        // No color, unlike heading1/2 above — found live, comparing against
+        // a real resume template: coloring every single entry-level heading
+        // (one per job, degree, project, certification, volunteer role)
+        // reads as a much "heavier"/busier page than reserving color for
+        // just the top-level section labels (SUMMARY/EXPERIENCE/...).
+        // Size is bumped one point above body text (11pt) so an entry
+        // header still reads as a heading at a glance, while staying a
+        // point below the section labels (13pt) it's nested under.
         heading3: {
-          run: { font: 'Calibri', bold: true },
+          run: { font: 'Calibri', bold: true, size: 24 },
           paragraph: { spacing: { before: 120, after: 40 } },
         },
       },
     },
-    sections: [{ properties: { page: { margin: PAGE_MARGIN_TWIPS } }, children }],
+    sections: [{ properties: { page: { size: PAGE_SIZE_TWIPS, margin: PAGE_MARGIN_TWIPS } }, children }],
   });
   return Packer.toBuffer(doc);
 }

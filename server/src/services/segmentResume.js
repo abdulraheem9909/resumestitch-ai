@@ -229,7 +229,23 @@ export function segmentResume(rawText) {
         // contained "Company — Role" header on their own, trust that instead.
         const splitLooksLikeATitle = split && (JOB_TITLE_KEYWORDS.test(split.role) || JOB_TITLE_KEYWORDS.test(split.company));
         const bufferedSplit = headerBuffer.length ? trySplitHeaderLine(headerBuffer[headerBuffer.length - 1]) : null;
-        if (split && !splitLooksLikeATitle && bufferedSplit) {
+        // A genuine 3-part header (role / company / location) with only 2
+        // lines above the date: the role sits alone on its own line, then
+        // "Company • Location" shares the date's line. A buffered line that
+        // doesn't itself split at all (unlike bufferedSplit above, which
+        // needs a "Company — Role" pair on one line) is still a stronger
+        // signal of being the real role than a same-line split that only
+        // coincidentally "looks like a title" — found live: "Independent
+        // Developer" contains the keyword "Developer", which wrongly won
+        // out over a genuinely buffered "Fullstack & AI Engineer" one line
+        // above. Checked first, ahead of splitLooksLikeATitle, since that
+        // heuristic is exactly what gets fooled here.
+        const singleBufferedLine =
+          headerBuffer.length === 1 && !trySplitHeaderLine(headerBuffer[0]) ? headerBuffer[0] : null;
+        if (split && singleBufferedLine) {
+          currentRole = singleBufferedLine;
+          currentCompany = split.role;
+        } else if (split && !splitLooksLikeATitle && bufferedSplit) {
           const resolved = pickRoleAndCompany(bufferedSplit.role, bufferedSplit.company);
           currentRole = resolved.role;
           currentCompany = resolved.company;

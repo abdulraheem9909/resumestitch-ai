@@ -119,26 +119,74 @@ test('buildResumeDocxBuffer keeps entry-level headings (Heading3) bold but plain
   assert.ok(block, 'Heading3 should exist in styles.xml');
   assert.ok(/<w:b\/?>/.test(block), 'Heading3 should still be bold');
   assert.ok(!/<w:color\b/.test(block), 'Heading3 should no longer declare a color — entry headers should read as plain black, not blue');
+  // 1pt bigger than the 11pt body text, but smaller than the 13pt top-level
+  // section headings — sits visually between the two, per request.
+  assert.ok(/<w:sz w:val="24"\/>/.test(block), 'Heading3 should be 12pt (24 half-points) — 1pt above body, 1pt below the 13pt section headings');
 });
 
-// Real-world repro: the job header ("Company — Role") and its date sat on
-// two separate paragraphs (the date italicized on its own line below) —
-// a real resume template puts the date on the SAME line, right-aligned,
-// which is both more scannable and takes less vertical space per entry.
-test('buildResumeDocxBuffer right-aligns a job\'s date on the same line as its header, via a tab stop, not a separate line below', async () => {
+// Real-world repro: the job header used to read "Company — Role" as one
+// combined line — a real resume template (TealHQ) instead puts the Role on
+// its own top line (larger, paired with the date) and the Company on its
+// own line directly below it, smaller — a clearer visual hierarchy than one
+// run-on line, and consistent with how Education already separates
+// degree/institution.
+test('buildResumeDocxBuffer puts an entry\'s Role on top (larger, with the date) and Company below it (smaller), not run together on one line', async () => {
   const buffer = await buildResumeDocxBuffer(buildFixture());
   const zip = await JSZip.loadAsync(buffer);
   const documentXml = await zip.file('word/document.xml').async('string');
 
-  const heading = 'Acme Corp — Software Engineer';
+  const role = 'Software Engineer';
+  const company = 'Acme Corp';
   const dateRange = '01/2022 - Present';
-  // Both the heading text and its date must appear inside the SAME <w:p>...</w:p>
-  // block, with a right tab stop, rather than in two separate paragraphs.
   const paragraphs = documentXml.match(/<w:p\b.*?<\/w:p>/gs) || [];
-  const combined = paragraphs.find((p) => p.includes(heading) && p.includes(dateRange));
-  assert.ok(combined, 'the job header and its date should be in the same paragraph');
-  assert.ok(/<w:tab w:val="right"/.test(combined), 'that paragraph should declare a right tab stop for the date');
-  assert.ok(/<w:r><w:tab\/><\/w:r>/.test(combined), 'the run between the header and the date should be a real <w:tab/> element, not a literal tab character in a text node');
+
+  const roleIndex = paragraphs.findIndex((p) => p.includes(role) && p.includes(dateRange));
+  assert.ok(roleIndex >= 0, 'a paragraph combining the role and the date should exist');
+  const roleParagraph = paragraphs[roleIndex];
+  assert.ok(!roleParagraph.includes(company), 'the role/date line should not also contain the company name');
+  assert.ok(/<w:tab w:val="right"/.test(roleParagraph), 'the role/date paragraph should declare a right tab stop for the date');
+  assert.ok(/<w:r><w:tab\/><\/w:r>/.test(roleParagraph), 'the run between the role and the date should be a real <w:tab/> element, not a literal tab character in a text node');
+  assert.ok(/<w:sz w:val="24"\/>/.test(roleParagraph), 'the role should be 12pt — 1pt larger than body text, matching Heading3');
+
+  const companyParagraph = paragraphs[roleIndex + 1];
+  assert.ok(companyParagraph?.includes(company), 'the very next paragraph after the role should be the company name');
+  assert.ok(/<w:sz w:val="20"\/>/.test(companyParagraph), 'the company name should be 10pt — smaller than both the 11pt body text and the 12pt role');
+});
+
+// The right-tab-stop position that lands a date flush against the page's
+// right margin is only correct if it's actually derived from the page's own
+// declared width — found live: it had been hardcoded against an assumed
+// Letter-width (12240 twips) page, but this document's own declared page
+// size is really A4 (11906 twips, matching the reference TealHQ resume it
+// was benchmarked against) since nothing had ever declared a size
+// explicitly. That ~334-twip (0.23in) gap pushed every job's date past the
+// true right margin, into the blank margin space. This test locks the
+// invariant generally — tab position + right margin must never exceed the
+// page's own declared width — so the two can't independently drift again
+// regardless of which absolute page size is chosen later.
+test('buildResumeDocxBuffer\'s right-aligned date tab stop lands exactly at the page\'s own declared right margin, not past it', async () => {
+  const buffer = await buildResumeDocxBuffer(buildFixture());
+  const zip = await JSZip.loadAsync(buffer);
+  const documentXml = await zip.file('word/document.xml').async('string');
+
+  const pgSz = documentXml.match(/<w:pgSz w:w="(\d+)"/);
+  const pgMarTag = documentXml.match(/<w:pgMar\b[^/]*\/>/)?.[0];
+  const tabPos = documentXml.match(/<w:tab w:val="right" w:pos="(\d+)"\/>/);
+
+  assert.ok(pgSz, 'document should declare an explicit page width');
+  assert.ok(pgMarTag, 'document should declare page margins');
+  assert.ok(tabPos, 'document should declare a right tab stop position');
+
+  const pageWidth = Number(pgSz[1]);
+  const leftMargin = Number(pgMarTag.match(/w:left="(\d+)"/)?.[1]);
+  const rightMargin = Number(pgMarTag.match(/w:right="(\d+)"/)?.[1]);
+  const tabPosition = Number(tabPos[1]);
+
+  assert.equal(
+    tabPosition,
+    pageWidth - leftMargin - rightMargin,
+    'the right tab stop should land exactly at the printable text width (page width minus both margins), derived from the page\'s own declared size'
+  );
 });
 
 // Real-world repro: the title ("Software Engineer") rendered as plain,

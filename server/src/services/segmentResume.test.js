@@ -300,6 +300,31 @@ test('prefers a self-contained "Company — Role" header buffered above over spl
   assert.equal(bullets[0].company, 'Auxillium Services');
 });
 
+// Real-world repro: a genuine 3-part header (role / company / location) with
+// only 2 lines above the date — role alone on its own line, then
+// "Company • Location" sharing the date's line. The buffered role
+// ("Fullstack & AI Engineer") was silently discarded because the SAME-LINE
+// split ("Independent Developer" / "Remote") happened to "look like a job
+// title" too — "Independent Developer" contains the keyword "Developer",
+// fooling the same heuristic that correctly protects the test above (there,
+// "Manchester"/"UK" don't look like a title, so the buffered header wins).
+// A buffered line that doesn't itself split at all is a stronger signal of
+// being the real role than a coincidental keyword match on the date line.
+test('prefers a role buffered alone on its own line over a same-line split that only coincidentally looks like a title', () => {
+  const rawText = [
+    'Fullstack & AI Engineer',
+    'Independent Developer • Remote \t10/2025 - Present',
+    '• Shipped things.',
+  ].join('\n');
+
+  const bullets = segmentResume(rawText);
+
+  assert.equal(bullets.length, 1);
+  assert.equal(bullets[0].role, 'Fullstack & AI Engineer');
+  assert.equal(bullets[0].company, 'Independent Developer');
+  assert.equal(bullets[0].dateRange, '10/2025 - Present');
+});
+
 // resumes.js uses this count as a rough proxy for "how many jobs should
 // exist," to decide whether to run the AI recovery pass. Found live: an
 // education section with its own multiple dated entries inflated this count
