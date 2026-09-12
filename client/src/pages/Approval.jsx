@@ -48,6 +48,12 @@ export default function Approval() {
   const [roleFitReason, setRoleFitReason] = useState("");
   const [verifiedSkills, setVerifiedSkills] = useState([]);
   const [skillMatchTypes, setSkillMatchTypes] = useState({});
+  // Live, non-persisted (same pattern as verifiedSkills above) — computed
+  // fresh on every load from this application's own tailored bullets +
+  // summary + Projects, so it's correct and stable from the first page
+  // view instead of showing node 3's different-scoped snapshot until a
+  // manual Re-check happens to run. See computeCurrentCoverage (server).
+  const [currentKeywordGaps, setCurrentKeywordGaps] = useState([]);
   // Skills a literal-text scan found in the current tailored text but that
   // aren't a recognized dictionary entry yet — live/non-persisted, only
   // populated after Re-check runs (same as humanRecheckKeywordGaps itself).
@@ -134,6 +140,7 @@ export default function Approval() {
       setVerifiedSkills(data.verifiedSkills || []);
       setSkillMatchTypes(data.skillMatchTypes || {});
       setTitleSeniorityWarning(data.titleSeniorityWarning || []);
+      setCurrentKeywordGaps(data.currentKeywordGaps || []);
       setDirtySinceCheck(false);
     } catch (err) {
       setError(err.message);
@@ -190,13 +197,17 @@ export default function Approval() {
     () => groupTailoredBulletsByEmployer(application?.tailoredBullets || [], originalsById),
     [application?.tailoredBullets, originalsById]
   );
-  // Falls back to the original AI-time gap list until a re-check has run —
-  // once it has, the re-check's live view (which credits anything your
-  // current edits actually cover) is the accurate one to show and act on.
-  const effectiveKeywordGaps = useMemo(
-    () => application?.humanRecheckKeywordGaps ?? application?.keywordGaps ?? [],
-    [application?.humanRecheckKeywordGaps, application?.keywordGaps]
-  );
+  // Always currentKeywordGaps (live, from GET /:id — see computeCurrentCoverage
+  // on the server) rather than falling back to node 3's original keywordGaps
+  // snapshot. That snapshot scores against the master resume as a whole
+  // (bullets + Projects) while this application's actual tailored output —
+  // and Skill Frequency below — only ever reflect bullets + summary + Projects;
+  // falling back to it made "Skills Matched" silently change the moment a
+  // manual Re-check happened to run, purely from a scope mismatch, not any
+  // real change to the resume. humanRecheckKeywordGaps itself still exists,
+  // paired with humanRecheckAtsScore/Flags as the "you explicitly re-scored"
+  // bundle — just no longer what drives this display.
+  const effectiveKeywordGaps = currentKeywordGaps;
 
   function startEditingBullet(bullet) {
     setEditingBulletId(bullet.bulletId);
@@ -329,6 +340,11 @@ export default function Approval() {
         humanRecheckRecruiterFeedback: data.humanRecheckRecruiterFeedback,
         humanRecheckKeywordGaps: data.humanRecheckKeywordGaps,
       }));
+      // humanRecheckKeywordGaps here is the same, freshly-recomputed value
+      // effectiveKeywordGaps displays (currentKeywordGaps) — sync it so an
+      // edit made since the last full page load is reflected immediately,
+      // not just after a reload.
+      setCurrentKeywordGaps(data.humanRecheckKeywordGaps || []);
       setUnconfirmedSkillMatches(data.unconfirmedSkillMatches || []);
       setDirtySinceCheck(false);
     } catch (err) {
@@ -352,6 +368,7 @@ export default function Approval() {
       humanRecheckRecruiterFeedback: data.humanRecheckRecruiterFeedback,
       humanRecheckKeywordGaps: data.humanRecheckKeywordGaps,
     }));
+    setCurrentKeywordGaps(data.humanRecheckKeywordGaps || []);
     setUnconfirmedSkillMatches(data.unconfirmedSkillMatches || []);
     setDirtySinceCheck(false);
   }
