@@ -7,6 +7,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { StaleScoreToast } from "../components/approval/StaleScoreToast.jsx";
+import { UnconfirmedSkillsToast } from "../components/approval/UnconfirmedSkillsToast.jsx";
+import { ToastStack } from "../components/approval/ToastStack.jsx";
 import { ApprovalHeader } from "../components/approval/ApprovalHeader.jsx";
 import { JobDetailsPanel } from "../components/approval/JobDetailsPanel.jsx";
 import { CandidateInfoCard } from "../components/approval/CandidateInfoCard.jsx";
@@ -23,6 +25,7 @@ import { AtsScoreSummary } from "../components/approval/AtsScoreSummary.jsx";
 import { AtsFeedbackCard } from "../components/approval/AtsFeedbackCard.jsx";
 import { CoverLetterCard } from "../components/approval/CoverLetterCard.jsx";
 import { SuggestSkillsCard } from "../components/approval/SuggestSkillsCard.jsx";
+import { UnconfirmedSkillMatchesCard } from "../components/approval/UnconfirmedSkillMatchesCard.jsx";
 import { SearchabilityCheckCard } from "../components/approval/SearchabilityCheckCard.jsx";
 import { SkillFrequencyCard } from "../components/approval/SkillFrequencyCard.jsx";
 import { ApprovalActions } from "../components/approval/ApprovalActions.jsx";
@@ -45,6 +48,11 @@ export default function Approval() {
   const [roleFitReason, setRoleFitReason] = useState("");
   const [verifiedSkills, setVerifiedSkills] = useState([]);
   const [skillMatchTypes, setSkillMatchTypes] = useState({});
+  // Skills a literal-text scan found in the current tailored text but that
+  // aren't a recognized dictionary entry yet — live/non-persisted, only
+  // populated after Re-check runs (same as humanRecheckKeywordGaps itself).
+  const [unconfirmedSkillMatches, setUnconfirmedSkillMatches] = useState([]);
+  const [pendingSkillAction, setPendingSkillAction] = useState(null);
   const [skillInput, setSkillInput] = useState("");
   const [savingSkills, setSavingSkills] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -92,6 +100,7 @@ export default function Approval() {
   const summaryTextareaRef = useRef(null);
   const bulletTextareaRef = useRef(null);
   const suggestTextareaRef = useRef(null);
+  const unconfirmedSkillsRef = useRef(null);
 
   useEffect(() => {
     if (editingSummary) summaryTextareaRef.current?.focus({ preventScroll: true });
@@ -320,11 +329,64 @@ export default function Approval() {
         humanRecheckRecruiterFeedback: data.humanRecheckRecruiterFeedback,
         humanRecheckKeywordGaps: data.humanRecheckKeywordGaps,
       }));
+      setUnconfirmedSkillMatches(data.unconfirmedSkillMatches || []);
       setDirtySinceCheck(false);
     } catch (err) {
       setError(err.message);
     } finally {
       setRechecking(false);
+    }
+  }
+
+  // Shared by confirm/dismiss below — both routes re-run computeHumanRecheck
+  // server-side and return the identical shape /recheck does, so every panel
+  // (Skills Matched, Skills Gap, Skill Frequency) updates immediately with no
+  // separate manual Re-check click needed.
+  async function applySkillActionResult(res) {
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Couldn't update this skill.");
+    setApplication((prev) => ({
+      ...prev,
+      humanRecheckAtsScore: data.humanRecheckAtsScore,
+      humanRecheckAtsFlags: data.humanRecheckAtsFlags,
+      humanRecheckRecruiterFeedback: data.humanRecheckRecruiterFeedback,
+      humanRecheckKeywordGaps: data.humanRecheckKeywordGaps,
+    }));
+    setUnconfirmedSkillMatches(data.unconfirmedSkillMatches || []);
+    setDirtySinceCheck(false);
+  }
+
+  async function confirmSkillMatch(skill) {
+    setPendingSkillAction(skill);
+    setError("");
+    try {
+      const res = await apiFetch(`${API_BASE}/${applicationId}/skills/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skill }),
+      });
+      await applySkillActionResult(res);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPendingSkillAction(null);
+    }
+  }
+
+  async function dismissSkillMatch(skill) {
+    setPendingSkillAction(skill);
+    setError("");
+    try {
+      const res = await apiFetch(`${API_BASE}/${applicationId}/skills/dismiss`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skill }),
+      });
+      await applySkillActionResult(res);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setPendingSkillAction(null);
     }
   }
 
@@ -513,9 +575,17 @@ export default function Approval() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      {application && dirtySinceCheck && application.status !== "approved" && (
-        <StaleScoreToast rechecking={rechecking} busy={busy} onRecheck={runRecheck} />
-      )}
+      <ToastStack>
+        {application && dirtySinceCheck && application.status !== "approved" && (
+          <StaleScoreToast rechecking={rechecking} busy={busy} onRecheck={runRecheck} />
+        )}
+        {application && unconfirmedSkillMatches.length > 0 && application.status !== "approved" && (
+          <UnconfirmedSkillsToast
+            count={unconfirmedSkillMatches.length}
+            onReview={() => unconfirmedSkillsRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}
+          />
+        )}
+      </ToastStack>
 
       <ApprovalHeader
         application={application}
@@ -722,6 +792,28 @@ export default function Approval() {
                 // `updatedAt` — so that alone isn't enough on its own).
                 refreshKey={`${application.updatedAt}:${(application.humanRecheckKeywordGaps || []).join(",")}`}
               />
+
+              {/* Found in your resume, not yet a recognized skill — a
+                  lighter, one-click alternative to Suggest Missing Skills
+                  below: no bullet-writing/retry involved, just Add (teach
+                  the dictionary permanently, for every future application
+                  too) or Ignore (remembered for just this application, so
+                  it stops resurfacing here without hiding it from a
+                  different JD later). Only ever populated right after
+                  Re-check runs. The wrapping div is scrolled to from the
+                  UnconfirmedSkillsToast's "Review" button, since this card
+                  is easy to miss scrolling past inline on a long page. */}
+              {unconfirmedSkillMatches.length > 0 && application.status !== "approved" && (
+                <div ref={unconfirmedSkillsRef}>
+                  <UnconfirmedSkillMatchesCard
+                    unconfirmedSkillMatches={unconfirmedSkillMatches}
+                    pendingSkillAction={pendingSkillAction}
+                    busy={busy}
+                    onConfirm={confirmSkillMatch}
+                    onDismiss={dismissSkillMatch}
+                  />
+                </div>
+              )}
 
               {/* Suggest missing skills — sits right above the decision
                   (send back / approve) it's meant to inform. */}
