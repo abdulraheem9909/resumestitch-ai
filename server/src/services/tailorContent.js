@@ -5,10 +5,12 @@ import GenerationCache from '../models/GenerationCache.js';
 import { rephraseIntensity } from './rephraseIntensity.js';
 import { findSummaryStyleViolations } from './summaryStyleCheck.js';
 
-// Bumped for this fix: same inputs could previously return a cached summary
-// generated before the style-violation regeneration step existed below, so
-// the old cache key must not be reused.
-export const TAILOR_PROMPT_VERSION = 'tailor-v12';
+// Bumped for this fix: skill selection for the summary now comes from a
+// separate, pre-ranked `summarySkills` input (rankSummarySkills.js) instead
+// of the model freely choosing 2-3 out of the full matched-skills list, and
+// the named count moved from 2-3 to 3-4 — same inputs under the old prompt
+// would produce a stale, differently-scoped summary if reused from cache.
+export const TAILOR_PROMPT_VERSION = 'tailor-v13';
 const TAILOR_MODEL = 'gpt-4o';
 
 // Single source of truth for the tailoredSummary rules — reused verbatim by both
@@ -17,14 +19,24 @@ const TAILOR_MODEL = 'gpt-4o';
 // duplicated by hand in both places and had already drifted out of sync after
 // several rounds of edits (e.g. "must" vs "should" read specific) — this is the
 // only copy now, so there is nothing left to drift.
+//
+// Named skills now come from the given `summary_skills` input, not a free
+// choice among the full matched-skills list — found live: left unconstrained,
+// the model picked generic full-stack skills (React/TypeScript/AWS) over
+// genuinely more central, differentiating ones (LangChain/LangGraph, on a
+// GenAI-focused posting) with nothing anchoring what "matters most" meant
+// for that specific JD. rankSummarySkills.js now makes that judgment as its
+// own small, closed-choice call, so this prompt only ever has to phrase
+// skills it's already been handed, never select among a larger set.
 const SUMMARY_RULES =
   '2-4 sentences (roughly 40-80 words), built ONLY from the given title, the bullets NOT rejected above, ' +
-  'the given matched-skills list, and the given years-of-experience figure. Never introduce a skill, tool, ' +
+  'the given summary skills, and the given years-of-experience figure. Never introduce a skill, tool, ' +
   'employer, or figure absent from those four inputs. State the years-of-experience figure naturally ' +
   "— round down to a whole number and phrase it like '5+ years', never a raw decimal like '5.7 years'. " +
   'Structure: open with the given title, used verbatim — do not rephrase, invent, or infer a different ' +
-  'role name — plus the years-of-experience figure; name only 2-3 of the matched skills that matter ' +
-  'most for this specific job description, not the full list. This summary is a fast, 6-second pitch ' +
+  'role name — plus the years-of-experience figure; name every skill in the given summary skills list ' +
+  '(there will usually be 3-4 of them — name all that are given, never a skill from outside that list, ' +
+  'and never fewer than were given). This summary is a fast, 6-second pitch ' +
   "that earns a look at the bullets below it — it is NOT a second place to relist accomplishments the " +
   'reader is about to see again. Do not state any achievement metric, percentage, or figure anywhere ' +
   'in the summary at all — every accomplishment number already lives in a bullet below, so restating ' +
@@ -93,7 +105,7 @@ const summaryOnlyModel = new ChatOpenAI({ model: TAILOR_MODEL, temperature: 0 })
 // summary, naming the exact violation found so the correction is targeted
 // rather than another blind attempt. One retry only: this is a style/quality
 // backstop, not a fabrication risk, so it isn't worth an unbounded loop.
-async function regenerateSummary({ title, matchedSkills, yearsOfExperience, keptBulletTexts, violations }) {
+async function regenerateSummary({ title, summarySkills, yearsOfExperience, keptBulletTexts, violations }) {
   const result = await summaryOnlyModel.invoke([
     {
       role: 'system',
@@ -108,7 +120,7 @@ async function regenerateSummary({ title, matchedSkills, yearsOfExperience, kept
       content:
         `<title>\n${title}\n</title>\n\n` +
         `<kept_bullets>\n${keptBulletTexts.join('\n')}\n</kept_bullets>\n\n` +
-        `<matched_skills>\n${matchedSkills.join(', ')}\n</matched_skills>\n\n` +
+        `<summary_skills>\n${summarySkills.join(', ')}\n</summary_skills>\n\n` +
         `<years_of_experience>\n${yearsOfExperience}\n</years_of_experience>`,
     },
   ]);
@@ -124,7 +136,7 @@ function formatCandidateBullets(resumeBullets) {
     .join('\n\n');
 }
 
-function computeInputHash({ jdText, resumeBullets, matchedSkills, yearsOfExperience, title, retryNotes }) {
+function computeInputHash({ jdText, resumeBullets, matchedSkills, summarySkills, yearsOfExperience, title, retryNotes }) {
   const payload = JSON.stringify({
     jdText,
     resumeBullets: resumeBullets.map((bullet) => ({
@@ -134,6 +146,7 @@ function computeInputHash({ jdText, resumeBullets, matchedSkills, yearsOfExperie
       company: bullet.company,
     })),
     matchedSkills: [...matchedSkills].sort(),
+    summarySkills: [...summarySkills].sort(),
     yearsOfExperience,
     title: title || '',
     retryNotes,
@@ -196,13 +209,14 @@ export async function tailorContent({
   jdText,
   resumeBullets,
   matchedSkills,
+  summarySkills,
   yearsOfExperience,
   title,
   applicationId,
   resumeVersion,
   retryNotes = '',
 }) {
-  const inputHash = computeInputHash({ jdText, resumeBullets, matchedSkills, yearsOfExperience, title, retryNotes });
+  const inputHash = computeInputHash({ jdText, resumeBullets, matchedSkills, summarySkills, yearsOfExperience, title, retryNotes });
 
   const cached = await GenerationCache.findOne({
     applicationId,
@@ -251,6 +265,7 @@ export async function tailorContent({
         `<title>\n${title}\n</title>\n\n` +
         `<candidate_bullets>\n${formatCandidateBullets(resumeBullets)}\n</candidate_bullets>\n\n` +
         `<matched_skills>\n${matchedSkills.join(', ')}\n</matched_skills>\n\n` +
+        `<summary_skills>\n${summarySkills.join(', ')}\n</summary_skills>\n\n` +
         `<years_of_experience>\n${yearsOfExperience}\n</years_of_experience>` +
         (retryNotes ? `\n\n<human_feedback>\n${retryNotes}\n</human_feedback>` : ''),
     },
@@ -265,7 +280,7 @@ export async function tailorContent({
       `[tailorContent] summary style violation (${styleViolations.join(', ')}) — applicationId=${applicationId} — regenerating summary once.`
     );
     const keptBulletTexts = tailoredBullets.filter((bullet) => !bullet.rejected).map((bullet) => bullet.finalText);
-    summaryText = await regenerateSummary({ title, matchedSkills, yearsOfExperience, keptBulletTexts, violations: styleViolations });
+    summaryText = await regenerateSummary({ title, summarySkills, yearsOfExperience, keptBulletTexts, violations: styleViolations });
     const remainingViolations = findSummaryStyleViolations(summaryText);
     if (remainingViolations.length > 0) {
       console.warn(

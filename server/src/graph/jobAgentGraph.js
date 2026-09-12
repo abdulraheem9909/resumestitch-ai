@@ -10,6 +10,7 @@ import { roleFitGate } from '../services/roleFitGate.js';
 import { matchedSkills } from '../services/matchedSkills.js';
 import { calculateYearsOfExperience } from '../services/calculateYearsOfExperience.js';
 import { tailorContent } from '../services/tailorContent.js';
+import { rankSummarySkills } from '../services/rankSummarySkills.js';
 import { suggestResumeTitle } from '../services/suggestResumeTitle.js';
 import { rephraseIntensity } from '../services/rephraseIntensity.js';
 import { verifyBullet, verifySummary, trustHumanEdit, extractClaimedSkills } from '../services/deterministicVerification.js';
@@ -446,6 +447,18 @@ async function tailorContentNode(state) {
 
   const { aliases, matchers } = await getSkillDictionaryForUser(state.userId);
   const matched = matchedSkills(state.jdCanonicalSkills, state.resumeCanonicalSkills);
+  // Which of the matched skills are actually central to THIS posting — a
+  // narrow, closed-choice re-ranking (rankSummarySkills.js), not a free
+  // choice the summary-writing call makes on its own. `matched` itself stays
+  // the full, untouched set returned below — verifySummary/ATS scoring/
+  // computeCurrentCoverage all still need the complete set for fabrication
+  // checking, not just the ones highlighted in the summary.
+  const summarySkills = await rankSummarySkills({
+    jdText: state.jdText,
+    matchedSkills: matched,
+    applicationId: state.applicationId,
+    resumeVersion: state.masterResumeId,
+  });
   const yearsOfExperience = calculateYearsOfExperience(state.resumeBullets);
 
   // Deterministic, not an LLM output — see suggestResumeTitle.js. Computed
@@ -462,6 +475,7 @@ async function tailorContentNode(state) {
     jdText: state.jdText,
     resumeBullets: state.resumeBullets,
     matchedSkills: matched,
+    summarySkills,
     yearsOfExperience,
     title: tailoredTitle.finalText,
     applicationId: state.applicationId,
