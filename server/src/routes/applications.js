@@ -25,7 +25,12 @@ import { buildExportFilename } from '../services/buildExportFilename.js';
 import { getJobAgentGraph, getCheckpointer } from '../graph/graphInstance.js';
 import GenerationCache from '../models/GenerationCache.js';
 import { authenticate } from '../middleware/authenticate.js';
-import { getSkillDictionaryForUser, growSkillDictionaryFromTerms } from '../services/skillAliasesStore.js';
+import {
+  getSkillDictionaryForUser,
+  growSkillDictionaryFromTerms,
+  findUnconfirmedLiteralSkillMatches,
+  confirmSkillTerm,
+} from '../services/skillAliasesStore.js';
 
 const router = Router();
 router.use(authenticate);
@@ -166,6 +171,26 @@ async function computeHumanRecheck(application) {
   const recheckJdCanonicalSkills = deriveJdCanonicalSkills(application.jdKeywords, application.jdCanonicalSkills, aliases);
   const humanRecheckKeywordGaps = gapAnalysis(recheckJdCanonicalSkills, effectiveSkills);
 
+  // Display-only, never persisted (same "compute live" pattern as
+  // verifiedSkills/skillMatchTypes) — a skill still showing as a gap above
+  // might genuinely be written in the text anyway, just under a phrase the
+  // dictionary hasn't learned yet (see findUnconfirmedLiteralSkillMatches).
+  // Scoped to exactly this gap list, never a blind scan, and excludes
+  // anything dismissed on THIS application specifically — deliberately
+  // per-application (application.dismissedSkills), not per-user: a literal
+  // match being noise on one JD says nothing about whether the same skill is
+  // a genuine, deliberate claim on a different JD.
+  const activeBulletTexts = application.tailoredBullets
+    .filter((bullet) => !bullet.rejected)
+    .map((bullet) => bullet.finalText);
+  const unconfirmedSkillMatches = findUnconfirmedLiteralSkillMatches(
+    humanRecheckKeywordGaps,
+    matchers,
+    aliases,
+    application.dismissedSkills,
+    [...activeBulletTexts, application.tailoredSummary?.finalText]
+  );
+
   const atsResult = await atsScoreAndRecruiter({
     jdText: application.jdSnapshot,
     tailoredBullets: application.tailoredBullets.filter((bullet) => !bullet.rejected),
@@ -186,6 +211,7 @@ async function computeHumanRecheck(application) {
     humanRecheckAtsFlags: [...bulletFlags, ...summaryFlags, ...atsResult.atsFlags],
     humanRecheckRecruiterFeedback: atsResult.recruiterFeedback,
     humanRecheckKeywordGaps,
+    unconfirmedSkillMatches,
   };
 }
 
@@ -1161,6 +1187,79 @@ router.post('/:id/recheck', async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Failed to re-check application.' });
+  }
+});
+
+// The human-confirmed half of findUnconfirmedLiteralSkillMatches
+// (skillAliasesStore.js) — a literal match is only ever surfaced, never
+// auto-credited; this is what happens when the human clicks "Add." Teaches
+// the term to this user's dictionary permanently (self-mapped, same safe
+// pattern ensureAllTermsCovered already uses), then re-runs Re-check so
+// every panel reflects it immediately, same as computeHumanRecheck's other
+// callers.
+router.post('/:id/skills/confirm', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+  const { skill } = req.body;
+  if (typeof skill !== 'string' || !skill.trim()) {
+    return res.status(400).json({ error: 'skill is required.' });
+  }
+
+  try {
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+
+    await confirmSkillTerm(req.user.id, skill);
+
+    const result = await computeHumanRecheck(application);
+    Object.assign(application, result);
+    await application.save();
+
+    return res.json(result);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to confirm skill.' });
+  }
+});
+
+// The "no, ignore it" counterpart — remembers the dismissal permanently, but
+// scoped to THIS application only (application.dismissedSkills), not the
+// user's shared dictionary: a literal match being noise on one JD says
+// nothing about whether the same skill is a genuine, deliberate claim on a
+// different JD, so a dismissal must never leak across applications. Within
+// one application, though, it does stick — the same ignored match won't keep
+// resurfacing on every future Re-check of this application.
+router.post('/:id/skills/dismiss', async (req, res) => {
+  const { id } = req.params;
+  if (!mongoose.isValidObjectId(id)) {
+    return res.status(400).json({ error: 'Invalid application id.' });
+  }
+  const { skill } = req.body;
+  if (typeof skill !== 'string' || !skill.trim()) {
+    return res.status(400).json({ error: 'skill is required.' });
+  }
+
+  try {
+    const application = await Application.findOne({ _id: id, userId: req.user.id });
+    if (!application) {
+      return res.status(404).json({ error: 'Application not found.' });
+    }
+
+    const term = skill.trim().toLowerCase();
+    application.dismissedSkills = [...new Set([...(application.dismissedSkills || []), term])];
+
+    const result = await computeHumanRecheck(application);
+    Object.assign(application, result);
+    await application.save();
+
+    return res.json(result);
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({ error: 'Failed to dismiss skill.' });
   }
 });
 

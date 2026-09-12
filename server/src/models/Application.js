@@ -81,6 +81,12 @@ const applicationSchema = new mongoose.Schema(
     humanRecheckAtsFlags: { type: [String], default: undefined },
     humanRecheckRecruiterFeedback: { type: String, default: null },
     humanRecheckKeywordGaps: { type: [String], default: undefined },
+    // Skills the human said "no, that's not really a match" for on THIS
+    // application specifically — deliberately per-application, not per-user:
+    // a literal-text match being noise on one JD says nothing about whether
+    // the same skill is a genuine, deliberate claim on a different JD. See
+    // findUnconfirmedLiteralSkillMatches (skillAliasesStore.js).
+    dismissedSkills: { type: [String], default: [] },
     // Per-application override of the master resume's skills list — display
     // only, never fed into gap analysis/ATS scoring. Falls back to the master
     // resume's live skills when unset (see GET /:id and the docx export route).

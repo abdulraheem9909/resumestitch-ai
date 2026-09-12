@@ -1,11 +1,23 @@
 import SkillAliasDictionary from '../models/SkillAliasDictionary.js';
 import { proposeSkillAliasGroups } from './generateSkillAliases.js';
+import { canonicalizeSkill } from './canonicalizeSkill.js';
 
 // Exported for reuse by verifiedSkills.js, which needs the same escaping to
 // check a skill's own literal wording against text, separate from (and in
 // addition to) the alias-based matching this module does.
 export function escapeRegex(term) {
   return term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// Same regex construction buildSkillMatchers uses (word-boundary,
+// case-insensitive, internal whitespace collapsed to \s+) — for searching a
+// single term's own literal wording directly, when there's no dictionary
+// entry to build a real matcher from at all. Shared by skillFrequency.js
+// (falls back to this when a requested skill has no dictionary entry) and
+// findUnconfirmedLiteralSkillMatches below (same situation, different
+// caller) — one implementation, not two that can quietly drift apart.
+export function buildLiteralMatcher(term) {
+  return { term, regex: new RegExp(`\\b${escapeRegex(term).replace(/\s+/g, '\\s+')}\\b`, 'gi') };
 }
 
 // Longer terms first, so a multi-word term matches before a shorter
@@ -175,4 +187,68 @@ export async function growSkillDictionaryFromTerms(userId, currentAliases, candi
     console.error('Skill-alias generation failed (caller unaffected):', err);
     return [];
   }
+}
+
+/**
+ * Pure — no I/O. `extractClaimedSkills` (deterministicVerification.js) only
+ * ever recognizes a skill that already has a dictionary entry — no fallback.
+ * Found live: a JD requires "System Design," the resume bullet literally
+ * contains those words, but tagBullet's LLM call tagged the same sentence as
+ * "System Architecture" instead, so the dictionary never learned "system
+ * design" as its own term — Skill Match/Skills Gap kept it listed as
+ * missing even though it's right there in the text.
+ *
+ * Deliberately narrow: only checked against `candidateSkills` (the current
+ * JD's own gap list), never a blind scan for arbitrary text — a generic
+ * single word could otherwise false-match an unrelated sentence. For each
+ * skill with no real matcher (the same "does any matcher canonicalize to
+ * this skill" check skillFrequency.js already uses) and not already in
+ * `dismissedSkills`, builds a literal matcher (buildLiteralMatcher, shared
+ * with skillFrequency.js) and tests it against the joined `sourceTexts`.
+ * Deliberately does NOT auto-teach the dictionary — a hit here is surfaced
+ * to the human as "found, not yet confirmed" (see confirmSkillTerm), not
+ * silently credited, matching this app's "you approve everything" principle
+ * rather than letting a literal-text coincidence self-certify a claim.
+ *
+ * `dismissedSkills` is deliberately the CALLER's concern, not this module's —
+ * it's `application.dismissedSkills` (per-application), not anything stored
+ * on the shared per-user dictionary. A literal match being noise on one JD
+ * says nothing about whether the same skill is a genuine, deliberate claim
+ * on a different JD, so dismissing it must never leak across applications.
+ */
+export function findUnconfirmedLiteralSkillMatches(candidateSkills, matchers, skillAliases, dismissedSkills, sourceTexts) {
+  const dismissed = new Set(dismissedSkills || []);
+  const text = (sourceTexts || []).filter(Boolean).join('\n');
+  if (!text) return [];
+
+  return (candidateSkills || []).filter((skill) => {
+    if (dismissed.has(skill)) return false;
+    const hasRealMatcher = (matchers || []).some(({ term }) => canonicalizeSkill(term, skillAliases || {}) === skill);
+    if (hasRealMatcher) return false;
+
+    const { regex } = buildLiteralMatcher(skill);
+    return regex.test(text);
+  });
+}
+
+/**
+ * Impure — the human-confirmed counterpart to the fallback above. Self-maps
+ * `skill -> skill` into this user's dictionary, the same safe pattern
+ * `ensureAllTermsCovered` already uses (never overwrites an existing
+ * mapping — only adds when the term isn't already a key). Called only after
+ * a human clicks "Add" on a literal match findUnconfirmedLiteralSkillMatches
+ * surfaced; from then on the term is a normal dictionary entry, recognized
+ * by extractClaimedSkills like anything else, no fallback needed.
+ */
+export async function confirmSkillTerm(userId, skill) {
+  const term = (skill || '').trim().toLowerCase();
+  if (!term) return { aliases: (await getSkillDictionaryForUser(userId)).aliases };
+
+  const doc = await SkillAliasDictionary.findOne({ userId });
+  const currentDict = doc?.aliases || {};
+  if (currentDict[term] !== undefined) return { aliases: currentDict };
+
+  const aliases = { ...currentDict, [term]: term };
+  await SkillAliasDictionary.findOneAndUpdate({ userId }, { aliases }, { upsert: true });
+  return { aliases };
 }

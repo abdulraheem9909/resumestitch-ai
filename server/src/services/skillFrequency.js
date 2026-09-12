@@ -1,14 +1,5 @@
 import { canonicalizeSkill } from './canonicalizeSkill.js';
-import { escapeRegex } from './skillAliasesStore.js';
-
-// Same regex construction the store's matchers/matchesLiterally() already
-// use (word-boundary, case-insensitive, internal whitespace collapsed to
-// \s+) — used only as a fallback when a requested canonical skill has no
-// entry at all in the alias dictionary (neither a key nor a value), so it
-// can still be searched for via its own literal wording.
-function buildLiteralMatcher(term) {
-  return { term, regex: new RegExp(`\\b${escapeRegex(term).replace(/\s+/g, '\\s+')}\\b`, 'gi') };
-}
+import { buildLiteralMatcher } from './skillAliasesStore.js';
 
 // Counts non-overlapping mentions of one canonical skill (across all of its
 // own aliases) in one text. A skill can have aliases where one is a

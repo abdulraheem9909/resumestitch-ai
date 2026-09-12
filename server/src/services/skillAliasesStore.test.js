@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mergeAliasEntries, ensureAllTermsCovered, filterNewSkillTerms } from './skillAliasesStore.js';
+import {
+  mergeAliasEntries,
+  ensureAllTermsCovered,
+  filterNewSkillTerms,
+  buildSkillMatchers,
+  findUnconfirmedLiteralSkillMatches,
+} from './skillAliasesStore.js';
 
 test('mergeAliasEntries adds every alias from a genuinely new group', () => {
   const current = { react: 'react' };
@@ -133,4 +139,52 @@ test('filterNewSkillTerms drops blank/whitespace-only candidates', () => {
 test('filterNewSkillTerms handles empty/missing input without throwing', () => {
   assert.deepEqual(filterNewSkillTerms({}, []), []);
   assert.deepEqual(filterNewSkillTerms(undefined, undefined), []);
+});
+
+// Reproduces the real "System Design" bug: the JD requires it, the resume
+// bullet literally contains the words, but the dictionary never learned
+// "system design" as its own term (tagBullet's LLM call extracted "System
+// Architecture" from the same sentence instead) — so extractClaimedSkills
+// (dictionary-only, no fallback) walks right past it. This is the narrow,
+// JD-scoped literal fallback that surfaces it as "found, not yet confirmed"
+// instead of leaving it silently missing.
+test('findUnconfirmedLiteralSkillMatches finds a JD-required skill with no dictionary entry, literally written in the resume text', () => {
+  const aliases = { 'system architecture': 'system-architecture' };
+  const matchers = buildSkillMatchers(aliases);
+  const result = findUnconfirmedLiteralSkillMatches(
+    ['system design'],
+    matchers,
+    aliases,
+    [],
+    ['Led the system design and architecture for an executive-level SaaS planner.']
+  );
+  assert.deepEqual(result, ['system design']);
+});
+
+test('findUnconfirmedLiteralSkillMatches ignores a skill that already has a real dictionary matcher', () => {
+  const aliases = { react: 'react', reactjs: 'react' };
+  const matchers = buildSkillMatchers(aliases);
+  const result = findUnconfirmedLiteralSkillMatches(['react'], matchers, aliases, [], ['Built dashboards with React.']);
+  assert.deepEqual(result, []);
+});
+
+test('findUnconfirmedLiteralSkillMatches ignores a skill the user already dismissed, even though the literal text is there', () => {
+  const result = findUnconfirmedLiteralSkillMatches(
+    ['system design'],
+    [],
+    {},
+    ['system design'],
+    ['Led the system design and architecture for an executive-level SaaS planner.']
+  );
+  assert.deepEqual(result, []);
+});
+
+test('findUnconfirmedLiteralSkillMatches does not surface a skill whose literal wording never actually appears in the text', () => {
+  const result = findUnconfirmedLiteralSkillMatches(['load testing'], [], {}, [], ['Led the system design for a SaaS planner.']);
+  assert.deepEqual(result, []);
+});
+
+test('findUnconfirmedLiteralSkillMatches handles empty/missing input without throwing', () => {
+  assert.deepEqual(findUnconfirmedLiteralSkillMatches([], [], {}, [], []), []);
+  assert.deepEqual(findUnconfirmedLiteralSkillMatches(undefined, undefined, undefined, undefined, undefined), []);
 });
