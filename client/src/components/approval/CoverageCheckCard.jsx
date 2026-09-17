@@ -29,7 +29,7 @@ export function CoverageCheckCard({ application, bulletGroups }) {
   const percent = (count, total) => (total === 0 ? 0 : Math.round((count / total) * 100));
 
   return (
-    <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+    <div className="mb-4 md:mb-6 rounded-lg border border-border bg-card p-4 md:p-5 shadow-card">
       <div className="mb-4 flex items-center gap-1.5">
         <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">Coverage check</p>
         <InfoTooltip text="Checks that tailoring didn't drop anything by mistake. Every past employer still has at least one bullet, and this shows how many bullets are being exported." />

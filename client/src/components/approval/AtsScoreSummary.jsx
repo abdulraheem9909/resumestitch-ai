@@ -11,7 +11,7 @@ import { InfoTooltip } from "./InfoTooltip.jsx";
 // only which component renders which part of the original ATS score card.
 export function AtsScoreSummary({ currentAtsScore, currentAtsFlags }) {
   return (
-    <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+    <div className="mb-4 md:mb-6 rounded-lg border border-border bg-card p-4 md:p-5 shadow-card">
       <div className="mb-3 flex items-center gap-1.5">
         <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">ATS score</p>
         <InfoTooltip text="A score from 0 to 100 showing how well this resume matches the job description. It's only a guide. A low score never blocks approval." />

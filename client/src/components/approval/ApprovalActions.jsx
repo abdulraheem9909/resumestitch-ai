@@ -15,7 +15,7 @@ export function ApprovalActions({
   onApprove,
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-5 shadow-card">
+    <div className="rounded-lg border border-border bg-card p-4 md:p-5 shadow-card">
       <p className="mb-2 text-xs font-medium text-muted-foreground">Send back with notes</p>
       <Textarea
         value={retryNotes}

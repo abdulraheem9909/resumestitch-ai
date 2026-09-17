@@ -22,7 +22,7 @@ export function AtsFeedbackCard({
   const canRecheck = application.status !== "approved";
 
   return (
-    <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+    <div className="mb-4 md:mb-6 rounded-lg border border-border bg-card p-4 md:p-5 shadow-card">
       <div className="mb-3 flex items-center justify-between gap-4">
         <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">Recruiter feedback</p>
         {canRecheck && (

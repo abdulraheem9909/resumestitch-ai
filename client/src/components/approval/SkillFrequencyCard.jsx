@@ -51,7 +51,7 @@ export function SkillFrequencyCard({ applicationId, jdCanonicalSkills, keywordGa
   }
 
   return (
-    <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+    <div className="mb-4 md:mb-6 rounded-lg border border-border bg-card p-4 md:p-5 shadow-card">
       {jdCanonicalSkills?.length > 0 && (
         <div className="mb-4 border-b border-border pb-4">
           <SkillMatchBar jdCanonicalSkills={jdCanonicalSkills} keywordGaps={keywordGaps} />

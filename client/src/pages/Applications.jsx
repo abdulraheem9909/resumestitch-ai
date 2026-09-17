@@ -276,7 +276,7 @@ export default function Applications() {
   return (
     <section className="mx-auto flex w-full max-w-5xl flex-col md:h-full">
       {downloadingTracker && <DownloadOverlay message="Building your spreadsheet…" />}
-      <div className="sticky top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
+      <div className="md:sticky md:top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
         <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Applications
         </p>

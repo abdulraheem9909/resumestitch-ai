@@ -16,7 +16,7 @@ export function TailoredSummaryCard({
   onCancel,
 }) {
   return (
-    <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+    <div className="mb-4 md:mb-6 rounded-lg border border-border bg-card p-4 md:p-5 shadow-card">
       <h3 className="mb-3 font-display text-lg font-semibold text-foreground">Summary</h3>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>

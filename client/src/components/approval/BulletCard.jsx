@@ -18,7 +18,7 @@ export function BulletCard({ bullet, original, verification, applicationStatus, 
 
   return (
     <li
-      className={`rounded-lg border border-border bg-card p-5 shadow-card${bullet.rejected ? " opacity-60" : ""}`}
+      className={`rounded-lg border border-border bg-card p-4 md:p-5 shadow-card${bullet.rejected ? " opacity-60" : ""}`}
     >
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div>

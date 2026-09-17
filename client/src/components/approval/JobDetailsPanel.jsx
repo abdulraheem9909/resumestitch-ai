@@ -6,7 +6,7 @@ export function JobDetailsPanel({ application }) {
   const safeReferenceUrl = /^https?:\/\//i.test(application?.referenceUrl || "") ? application.referenceUrl : null;
 
   return (
-    <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+    <div className="mb-4 md:mb-6 rounded-lg border border-border bg-card p-4 md:p-5 shadow-card">
       <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Job Details</p>
       <h2 className="font-display text-lg font-semibold text-foreground">{application.companyName}</h2>
       <p className="mb-4 text-sm text-muted-foreground">{application.jobTitle}</p>

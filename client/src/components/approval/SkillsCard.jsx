@@ -44,7 +44,7 @@ export function SkillsCard({
   const percent = (count, total) => (total === 0 ? 0 : Math.round((count / total) * 100));
 
   return (
-    <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+    <div className="mb-4 md:mb-6 rounded-lg border border-border bg-card p-4 md:p-5 shadow-card">
       <h3 className="mb-1 font-display text-lg font-semibold text-foreground">
         Skills <span className="font-normal text-muted-foreground">({totalSkills})</span>
       </h3>

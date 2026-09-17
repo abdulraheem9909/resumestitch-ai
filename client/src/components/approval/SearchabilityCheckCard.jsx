@@ -45,7 +45,7 @@ export function SearchabilityCheckCard({ applicationId }) {
   }
 
   return (
-    <div className="mb-6 rounded-lg border border-border bg-card p-5 shadow-card">
+    <div className="mb-4 md:mb-6 rounded-lg border border-border bg-card p-4 md:p-5 shadow-card">
       <button type="button" className="flex w-full cursor-pointer items-center justify-between text-left" onClick={toggle}>
         <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">Searchability check</p>
         <span className="text-xs font-medium text-muted-foreground">{open ? "▾" : "▸"}</span>
