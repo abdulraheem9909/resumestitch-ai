@@ -6,6 +6,7 @@ import { apiFetch } from "../lib/apiFetch.js";
 import { downloadFile } from "../lib/downloadFile.js";
 import { isPersonalInfoValid } from "../lib/personalInfo.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
+import { DownloadOverlay } from "../components/DownloadOverlay.jsx";
 import { EditableEntryList } from "../components/EditableEntryList.jsx";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -117,6 +118,7 @@ export default function ResumeDetail() {
 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
   useEffect(() => {
@@ -256,8 +258,24 @@ export default function ResumeDetail() {
 
   const experience = groupBulletsByRole(bullets);
 
+  // The export route rebuilds the .docx/.pdf fresh on every request, so
+  // this can take a moment — the overlay/disabled button are the only
+  // sign a click landed.
+  async function handleDownload(url, filename) {
+    setDownloading(true);
+    setError("");
+    try {
+      await downloadFile(url, filename);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   return (
     <section className="mx-auto w-full max-w-5xl">
+      {downloading && <DownloadOverlay />}
       <div className="sticky top-0 z-10 bg-background pb-10  pt-7 md:pt-10 px=1 md:px-2" >
         <Breadcrumbs
           backTo="/resumes"
@@ -290,16 +308,22 @@ export default function ResumeDetail() {
               <div className="flex items-center gap-2">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button size="sm" variant="outline">
+                    <Button size="sm" variant="outline" disabled={downloading}>
                       <Download className="size-4" /> Download
                       <ChevronDown className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="min-w-48">
-                    <DropdownMenuItem onClick={() => downloadFile(`${RESUMES_API}/${id}/export/resume.docx`, "resume.docx")}>
+                    <DropdownMenuItem
+                      disabled={downloading}
+                      onClick={() => handleDownload(`${RESUMES_API}/${id}/export/resume.docx`, "resume.docx")}
+                    >
                       Word (.docx)
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => downloadFile(`${RESUMES_API}/${id}/export/resume.pdf`, "resume.pdf")}>
+                    <DropdownMenuItem
+                      disabled={downloading}
+                      onClick={() => handleDownload(`${RESUMES_API}/${id}/export/resume.pdf`, "resume.pdf")}
+                    >
                       PDF (.pdf)
                     </DropdownMenuItem>
                   </DropdownMenuContent>

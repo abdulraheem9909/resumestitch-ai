@@ -16,6 +16,7 @@ import {
 import { APPLICATIONS_API, RESUMES_API } from "../lib/api.js";
 import { apiFetch } from "../lib/apiFetch.js";
 import { downloadFile } from "../lib/downloadFile.js";
+import { DownloadOverlay } from "../components/DownloadOverlay.jsx";
 import { EmptyState } from "../components/EmptyState.jsx";
 import { LoadingState } from "../components/LoadingState.jsx";
 import { cn } from "@/lib/utils.js";
@@ -136,6 +137,8 @@ export default function Applications() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
+  const [downloadingTracker, setDownloadingTracker] = useState(false);
+
   const navigate = useNavigate();
 
   // The master-resumes list is only ever used to populate the resume-filter
@@ -236,6 +239,21 @@ export default function Applications() {
     }
   }
 
+  // The tracker route rebuilds the spreadsheet from every approved
+  // application fresh on each request, so this can take a moment on a slow
+  // host — the overlay/disabled button are the only sign a click landed.
+  async function handleExportTracker() {
+    setDownloadingTracker(true);
+    setError("");
+    try {
+      await downloadFile(`${APPLICATIONS_API}/export/tracker.xlsx`, "tracker.xlsx");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setDownloadingTracker(false);
+    }
+  }
+
   const hasActiveFilters =
     search.trim() ||
     statusFilter !== "all" ||
@@ -256,7 +274,8 @@ export default function Applications() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   return (
-    <section className="mx-auto flex h-full w-full max-w-5xl flex-col">
+    <section className="mx-auto flex w-full max-w-5xl flex-col md:h-full">
+      {downloadingTracker && <DownloadOverlay message="Building your spreadsheet…" />}
       <div className="sticky top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
         <p className="mb-2.5 font-mono text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Applications
@@ -267,11 +286,7 @@ export default function Applications() {
           </h1>
           <div className="flex flex-wrap gap-2">
             {hasApprovedApplications ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => downloadFile(`${APPLICATIONS_API}/export/tracker.xlsx`, "tracker.xlsx")}
-              >
+              <Button size="sm" variant="outline" disabled={downloadingTracker} onClick={handleExportTracker}>
                 <Download className="size-4" /> Export as spreadsheet
               </Button>
             ) : (
@@ -412,7 +427,7 @@ export default function Applications() {
       )}
 
       {!loading && applications.length > 0 && (
-        <div className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-card shadow-card">
+        <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card md:min-h-0 md:flex-1 md:overflow-auto">
           <table className="w-full min-w-[720px] border-collapse text-sm">
             <thead className="sticky top-0 z-10 bg-card">
               <tr className="border-b border-border">
