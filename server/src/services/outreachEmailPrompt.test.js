@@ -149,3 +149,13 @@ test('the system message explicitly bans a placeholder name when no resume is li
   const [system] = buildOutreachEmailMessages(BASE);
   assert.ok(system.content.toLowerCase().includes('no placeholder'));
 });
+
+// Found live, against a real user's real resume: the model cited "a legal
+// document assistant" instead of naming the actual project
+// ("SolicitorSense AI") given in <candidate_background> — generic
+// paraphrase instead of the real, specific thing.
+test('the system message requires naming a cited project exactly, not paraphrasing it', () => {
+  const [system] = buildOutreachEmailMessages(BASE);
+  assert.ok(system.content.toLowerCase().includes('exact') && system.content.toLowerCase().includes('name'));
+  assert.ok(system.content.toLowerCase().includes('paraphrase'));
+});

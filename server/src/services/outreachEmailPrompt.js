@@ -69,7 +69,9 @@ export function buildOutreachEmailMessages({ goal, referralRole, companyName, co
         "they're reaching out. No filler phrases (\"results-driven\", \"proven track record\"), no first-person " +
         'pronoun in the subject line. Greet the contact by their first name only. Mention one or two concrete, ' +
         'specific accomplishments woven naturally into a sentence — never a bulleted list or a resume recap; ' +
-        'one compelling detail beats full coverage, since the attached CV carries the rest. If company notes ' +
+        'one compelling detail beats full coverage, since the attached CV carries the rest. When citing a ' +
+        "project, use its exact given name verbatim (e.g. \"SolicitorSense AI\") — never a generic paraphrase " +
+        'of what it does instead of naming it. If company notes ' +
         'are given, weave in one genuine specific from them rather than giving "why this company" its own ' +
         'paragraph. State the ask directly and specifically — never a vague phrase. End with one brief, ' +
         'confident closing line, then a sign-off ("Best," or "Kind regards,") followed by the candidate\'s ' +
