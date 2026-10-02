@@ -14,6 +14,7 @@ import Applications from './pages/Applications.jsx'
 import Approval from './pages/Approval.jsx'
 import Profile from './pages/Profile.jsx'
 import OutreachTracker from './pages/OutreachTracker.jsx'
+import OutreachCompanyDetail from './pages/OutreachCompanyDetail.jsx'
 
 function App() {
   return (
@@ -39,6 +40,7 @@ function App() {
                     <Route path="/resumes/:id" element={<ResumeDetail />} />
                     <Route path="/resumes/:id/bullets" element={<ResumeBullets />} />
                     <Route path="/outreach" element={<OutreachTracker />} />
+                    <Route path="/outreach/:id" element={<OutreachCompanyDetail />} />
                     <Route path="/profile" element={<Profile />} />
                   </Routes>
                 </main>

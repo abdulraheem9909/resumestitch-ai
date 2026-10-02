@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { Building2, ExternalLink, Mail, Pencil, Plus, Search, SearchX, Trash2 } from "lucide-react";
-import { OUTREACH_API, RESUMES_API } from "../lib/api.js";
+import { useNavigate } from "react-router-dom";
+import { Building2, ExternalLink, Pencil, Plus, Search, SearchX, Trash2 } from "lucide-react";
+import { OUTREACH_API } from "../lib/api.js";
 import { apiFetch } from "../lib/apiFetch.js";
 import { EmptyState } from "../components/EmptyState.jsx";
 import { LoadingState } from "../components/LoadingState.jsx";
-import { ContactsFieldArray } from "../components/ContactsFieldArray.jsx";
 import { cn } from "@/lib/utils.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -20,22 +19,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const RESPONSE_OPTIONS = ["No reply", "Replied", "Interview", "Offer", "Rejected"];
 
-const EMPTY_FORM = {
-  companyName: "",
-  location: "",
-  websiteUrl: "",
-  notes: "",
-  applied: false,
-  response: "No reply",
-  contacts: [],
-  masterResumeId: "",
-};
+const EMPTY_CREATE_FORM = { companyName: "", location: "" };
 
 // Response overrides applied — checked first. "No reply" (the default) is
 // deliberately absent from this map so it falls through to the applied
@@ -82,6 +70,7 @@ function safeWebsiteUrl(websiteUrl) {
 }
 
 export default function OutreachTracker() {
+  const navigate = useNavigate();
   const [companies, setCompanies] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -91,139 +80,14 @@ export default function OutreachTracker() {
   const [appliedFilter, setAppliedFilter] = useState("all");
   const [responseFilter, setResponseFilter] = useState("all");
 
-  const [formOpen, setFormOpen] = useState(false);
-  const [formTarget, setFormTarget] = useState(null);
-  const [form, setForm] = useState(EMPTY_FORM);
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createForm, setCreateForm] = useState(EMPTY_CREATE_FORM);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState("");
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
-
-  const [masterResumes, setMasterResumes] = useState([]);
-  const [activeTab, setActiveTab] = useState("companies");
-  const [selectedContactKeys, setSelectedContactKeys] = useState(new Set());
-  const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
-  const [generateGoal, setGenerateGoal] = useState("speculative");
-  const [referralRole, setReferralRole] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [generateError, setGenerateError] = useState("");
-  const [drafts, setDrafts] = useState([]); // [{ key, companyName, contactName, subject, body, copied, error }]
-
-  const allContacts = companies.flatMap((company) =>
-    (company.contacts || []).map((contact) => ({
-      key: `${company._id}:${contact._id}`,
-      companyId: company._id,
-      companyName: company.companyName,
-      contactId: contact._id,
-      name: contact.name,
-      role: contact.role,
-      category: contact.category || "Other",
-    }))
-  );
-
-  // Every company save (saveCompany, via POST or PATCH) strips and
-  // re-creates contact _ids server-side (normalizeOutreachCompanyPayload),
-  // so a key built from a stale _id can silently stop resolving to any
-  // live contact. Prune selectedContactKeys down to whatever's still
-  // actually present whenever companies changes, so a save never leaves a
-  // phantom selection behind. Only updates state when the set actually
-  // shrinks, so this can't loop.
-  useEffect(() => {
-    const live = new Set(allContacts.map((c) => c.key));
-    setSelectedContactKeys((prev) => {
-      const next = new Set([...prev].filter((k) => live.has(k)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [companies]);
-
-  function toggleContact(key) {
-    setSelectedContactKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
-
-  // Sequential, not Promise.all — deliberate: avoids bursting several LLM
-  // calls at once for what's meant to be a manual, reviewed-as-you-go
-  // action, and means one failing contact doesn't abort the rest.
-  async function generateEmails() {
-    if (generateGoal === "referral" && !referralRole.trim()) {
-      setGenerateError("Enter which role this referral is for.");
-      return;
-    }
-    setGenerating(true);
-    setGenerateError("");
-
-    const targets = allContacts.filter((contact) => selectedContactKeys.has(contact.key));
-    if (targets.length === 0) {
-      setGenerateError("Those contacts are no longer available — reselect them and try again.");
-      setGenerating(false);
-      return;
-    }
-    const results = [];
-    for (const contact of targets) {
-      try {
-        const res = await apiFetch(`${OUTREACH_API}/${contact.companyId}/contacts/${contact.contactId}/generate-email`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ goal: generateGoal, referralRole: referralRole.trim() }),
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || "Couldn't generate this email.");
-        results.push({
-          key: contact.key,
-          companyName: contact.companyName,
-          contactName: contact.name,
-          subject: data.subject,
-          body: data.body,
-          copied: false,
-          error: "",
-        });
-      } catch (err) {
-        results.push({
-          key: contact.key,
-          companyName: contact.companyName,
-          contactName: contact.name,
-          subject: "",
-          body: "",
-          copied: false,
-          error: err.message,
-        });
-      }
-    }
-
-    setDrafts(results);
-    setGenerating(false);
-    setGenerateDialogOpen(false);
-  }
-
-  function updateDraft(key, field, value) {
-    setDrafts((prev) => prev.map((draft) => (draft.key === key ? { ...draft, [field]: value, copied: false } : draft)));
-  }
-
-  async function copyDraft(key) {
-    const draft = drafts.find((d) => d.key === key);
-    if (!draft) return;
-    await navigator.clipboard.writeText(`Subject: ${draft.subject}\n\n${draft.body}`);
-    setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, copied: true } : d)));
-  }
-
-  useEffect(() => {
-    async function loadMasterResumes() {
-      try {
-        const res = await apiFetch(RESUMES_API);
-        const data = await res.json();
-        if (res.ok) setMasterResumes(data.masterResumes || []);
-      } catch {
-        // Non-fatal — the resume-link dropdown just won't have options.
-      }
-    }
-    loadMasterResumes();
-  }, []);
 
   const fetchCompanies = useCallback(
     async (signal) => {
@@ -260,55 +124,33 @@ export default function OutreachTracker() {
   }, [search]);
 
   function openCreate() {
-    setFormTarget(null);
-    setForm(EMPTY_FORM);
-    setSaveError("");
-    setFormOpen(true);
+    setCreateForm(EMPTY_CREATE_FORM);
+    setCreateError("");
+    setCreateOpen(true);
   }
 
-  function openEdit(company) {
-    setFormTarget(company);
-    setForm({
-      companyName: company.companyName,
-      location: company.location || "",
-      websiteUrl: company.websiteUrl || "",
-      notes: company.notes || "",
-      applied: company.applied,
-      response: company.response,
-      masterResumeId: company.masterResumeId || "",
-      contacts: (company.contacts || []).map((contact) => ({
-        _id: contact._id,
-        name: contact.name,
-        role: contact.role || "",
-        email: contact.email || "",
-        category: contact.category || "Other",
-        categoryTouched: true,
-      })),
-    });
-    setSaveError("");
-    setFormOpen(true);
-  }
-
-  async function saveCompany() {
-    setSaving(true);
-    setSaveError("");
+  // Deliberately minimal — just enough to create the record. Everything
+  // else (contacts, resume link, notes, applied/response, generation) is
+  // edited on the company's own detail page, the same split Master Resumes
+  // uses between its "Upload" dialog and the resume's own page.
+  async function createCompany() {
+    setCreating(true);
+    setCreateError("");
     try {
-      const url = formTarget ? `${OUTREACH_API}/${formTarget._id}` : OUTREACH_API;
-      const method = formTarget ? "PATCH" : "POST";
-      const res = await apiFetch(url, {
-        method,
+      const res = await apiFetch(OUTREACH_API, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(createForm),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't save this company.");
+      if (!res.ok) throw new Error(data.error || "Couldn't create this company.");
 
-      setFormOpen(false);
-      fetchCompanies();
+      setCreateOpen(false);
+      navigate(`/outreach/${data.company._id}`);
     } catch (err) {
-      setSaveError(err.message);
+      setCreateError(err.message);
     } finally {
-      setSaving(false);
+      setCreating(false);
     }
   }
 
@@ -330,7 +172,6 @@ export default function OutreachTracker() {
     }
   }
 
-  const canSave = form.companyName.trim() && form.contacts.every((contact) => contact.name.trim());
   const hasActiveFilters = search.trim() || appliedFilter !== "all" || responseFilter !== "all";
 
   function clearFilters() {
@@ -355,18 +196,10 @@ export default function OutreachTracker() {
           </Button>
         </div>
         <p className="mb-5 max-w-prose text-sm text-muted-foreground md:text-base">
-          Every company you've emailed directly — who you talked to, whether you applied, and what
-          they said back.
+          Click a company to manage its contacts, link a resume, and generate outreach emails.
         </p>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-5">
-          <TabsList>
-            <TabsTrigger value="companies">Companies</TabsTrigger>
-            <TabsTrigger value="contacts">Contacts ({allContacts.length})</TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        {activeTab === "companies" && (companies.length > 0 || hasActiveFilters) && (
+        {(companies.length > 0 || hasActiveFilters) && (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -407,14 +240,14 @@ export default function OutreachTracker() {
         )}
       </div>
 
-      {activeTab === "companies" && error && (
+      {error && (
         <Alert variant="destructive" className="mb-5">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {activeTab === "companies" && loading && <LoadingState message="Loading your outreach list…" />}
+      {loading && <LoadingState message="Loading your outreach list…" />}
 
-      {activeTab === "companies" && !loading && companies.length === 0 && !error && !hasActiveFilters && (
+      {!loading && companies.length === 0 && !error && !hasActiveFilters && (
         <EmptyState
           icon={Building2}
           title="No companies yet"
@@ -427,7 +260,7 @@ export default function OutreachTracker() {
         />
       )}
 
-      {activeTab === "companies" && !loading && companies.length === 0 && !error && hasActiveFilters && (
+      {!loading && companies.length === 0 && !error && hasActiveFilters && (
         <EmptyState
           icon={SearchX}
           title="No companies match your filters"
@@ -440,7 +273,7 @@ export default function OutreachTracker() {
         />
       )}
 
-      {activeTab === "companies" && !loading && companies.length > 0 && (
+      {!loading && companies.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card md:min-h-0 md:flex-1 md:overflow-auto">
           <table className="w-full min-w-[820px] border-collapse text-sm">
             <thead className="sticky top-0 z-10 bg-card">
@@ -472,11 +305,11 @@ export default function OutreachTracker() {
                   key={company._id}
                   role="button"
                   tabIndex={0}
-                  onClick={() => openEdit(company)}
+                  onClick={() => navigate(`/outreach/${company._id}`)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter" || event.key === " ") {
                       event.preventDefault();
-                      openEdit(company);
+                      navigate(`/outreach/${company._id}`);
                     }
                   }}
                   className={cn(
@@ -524,9 +357,10 @@ export default function OutreachTracker() {
                         type="button"
                         variant="ghost"
                         size="icon-sm"
+                        aria-label={`Edit ${company.companyName}`}
                         onClick={(event) => {
                           event.stopPropagation();
-                          openEdit(company);
+                          navigate(`/outreach/${company._id}`);
                         }}
                       >
                         <Pencil className="size-4" />
@@ -536,6 +370,7 @@ export default function OutreachTracker() {
                         variant="ghost"
                         size="icon-sm"
                         className="text-muted-foreground hover:text-destructive"
+                        aria-label={`Delete ${company.companyName}`}
                         onClick={(event) => {
                           event.stopPropagation();
                           setDeleteTarget(company);
@@ -552,178 +387,46 @@ export default function OutreachTracker() {
         </div>
       )}
 
-      {activeTab === "contacts" && allContacts.length > 0 && (
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-sm text-muted-foreground">
-            {selectedContactKeys.size} selected
-          </p>
-          <Button size="sm" disabled={selectedContactKeys.size === 0} onClick={() => setGenerateDialogOpen(true)}>
-            <Mail className="size-4" /> Generate emails
-          </Button>
-        </div>
-      )}
-
-      {activeTab === "contacts" && hasActiveFilters && (
-        <p className="mb-3 text-sm text-muted-foreground">
-          Filtered by your Companies tab search/filters.{" "}
-          <button type="button" className="underline hover:text-foreground" onClick={clearFilters}>
-            Clear filters
-          </button>
-        </p>
-      )}
-
-      {activeTab === "contacts" && (
-        <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
-          {allContacts.length === 0 ? (
-            <EmptyState
-              icon={Mail}
-              title="No contacts yet"
-              description="Add a contact to one of your companies first, then come back here to generate outreach emails."
-            />
-          ) : (
-            <table className="w-full min-w-[720px] border-collapse text-sm">
-              <thead className="sticky top-0 z-10 bg-card">
-                <tr className="border-b border-border">
-                  <th scope="col" className="w-10 py-3 pl-4" aria-hidden="true" />
-                  <th scope="col" className="py-3 pl-2 text-left font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">Name</th>
-                  <th scope="col" className="py-3 pl-4 text-left font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">Role</th>
-                  <th scope="col" className="py-3 pl-4 text-left font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">Category</th>
-                  <th scope="col" className="py-3 pl-4 text-left font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">Company</th>
-                </tr>
-              </thead>
-              <tbody>
-                {allContacts.map((contact) => (
-                  <tr key={contact.key} className="border-b border-border last:border-0">
-                    <td className="py-3 pl-4">
-                      <Checkbox
-                        checked={selectedContactKeys.has(contact.key)}
-                        onCheckedChange={() => toggleContact(contact.key)}
-                        aria-label={`Select ${contact.name}`}
-                      />
-                    </td>
-                    <td className="py-3 pl-2 font-medium text-foreground">{contact.name}</td>
-                    <td className="py-3 pl-4 text-foreground">{contact.role || <span className="text-muted-foreground">—</span>}</td>
-                    <td className="py-3 pl-4 text-foreground">{contact.category}</td>
-                    <td className="py-3 pl-4 text-foreground">{contact.companyName}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
-
-      <Dialog open={formOpen} onOpenChange={(open) => !saving && setFormOpen(open)}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
+      <Dialog open={createOpen} onOpenChange={(open) => !creating && setCreateOpen(open)}>
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle>{formTarget ? `Edit ${formTarget.companyName}` : "Add a company"}</DialogTitle>
+            <DialogTitle>Add a company</DialogTitle>
             <DialogDescription>
-              Track a company you emailed directly — who you talked to, and where it stands.
+              Just the basics for now — add contacts, notes, and everything else from the company's own page.
             </DialogDescription>
           </DialogHeader>
 
-          {saveError && (
+          {createError && (
             <Alert variant="destructive">
-              <AlertDescription>{saveError}</AlertDescription>
+              <AlertDescription>{createError}</AlertDescription>
             </Alert>
           )}
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="oc-companyName">Company name</Label>
+            <Label htmlFor="oc-create-companyName">Company name</Label>
             <Input
-              id="oc-companyName"
-              value={form.companyName}
-              onChange={(event) => setForm((prev) => ({ ...prev, companyName: event.target.value }))}
+              id="oc-create-companyName"
+              value={createForm.companyName}
+              onChange={(event) => setCreateForm((prev) => ({ ...prev, companyName: event.target.value }))}
+              autoFocus
             />
           </div>
 
           <div className="flex flex-col gap-1.5">
-            <Label htmlFor="oc-location">Location</Label>
+            <Label htmlFor="oc-create-location">Location</Label>
             <Input
-              id="oc-location"
-              value={form.location}
-              onChange={(event) => setForm((prev) => ({ ...prev, location: event.target.value }))}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="oc-websiteUrl">Website (optional, never fetched)</Label>
-            <Input
-              id="oc-websiteUrl"
-              value={form.websiteUrl}
-              onChange={(event) => setForm((prev) => ({ ...prev, websiteUrl: event.target.value }))}
-              placeholder="https://…"
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label>Resume (optional, used for AI email generation)</Label>
-            <Select
-              value={form.masterResumeId || "none"}
-              onValueChange={(value) => setForm((prev) => ({ ...prev, masterResumeId: value === "none" ? "" : value }))}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="No resume linked" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">No resume linked</SelectItem>
-                {masterResumes.map((resume) => (
-                  <SelectItem key={resume._id} value={resume._id}>
-                    {resume.label || resume.personalInfo?.fullName}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Checkbox
-              id="oc-applied"
-              checked={form.applied}
-              onCheckedChange={(checked) => setForm((prev) => ({ ...prev, applied: checked === true }))}
-            />
-            <Label htmlFor="oc-applied" className="font-normal">
-              Applied
-            </Label>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <Label>Response</Label>
-            <Select value={form.response} onValueChange={(value) => setForm((prev) => ({ ...prev, response: value }))}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RESPONSE_OPTIONS.map((option) => (
-                  <SelectItem key={option} value={option}>
-                    {option}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <ContactsFieldArray
-            contacts={form.contacts}
-            onChange={(contacts) => setForm((prev) => ({ ...prev, contacts }))}
-          />
-
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="oc-notes">Notes</Label>
-            <Textarea
-              id="oc-notes"
-              rows={4}
-              value={form.notes}
-              onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
+              id="oc-create-location"
+              value={createForm.location}
+              onChange={(event) => setCreateForm((prev) => ({ ...prev, location: event.target.value }))}
             />
           </div>
 
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setFormOpen(false)} disabled={saving}>
+            <Button variant="ghost" onClick={() => setCreateOpen(false)} disabled={creating}>
               Cancel
             </Button>
-            <Button onClick={saveCompany} disabled={saving || !canSave}>
-              {saving ? "Saving…" : formTarget ? "Save changes" : "Add company"}
+            <Button onClick={createCompany} disabled={creating || !createForm.companyName.trim()}>
+              {creating ? "Adding…" : "Add company"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -755,97 +458,6 @@ export default function OutreachTracker() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <Dialog open={generateDialogOpen} onOpenChange={(open) => !generating && setGenerateDialogOpen(open)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Generate {selectedContactKeys.size} email{selectedContactKeys.size === 1 ? "" : "s"}</DialogTitle>
-            <DialogDescription>
-              Drafts only — nothing is sent. You'll review and copy each one yourself.
-            </DialogDescription>
-          </DialogHeader>
-
-          {generateError && (
-            <Alert variant="destructive">
-              <AlertDescription>{generateError}</AlertDescription>
-            </Alert>
-          )}
-
-          <div className="flex flex-col gap-1.5">
-            <Label>Goal</Label>
-            <Select value={generateGoal} onValueChange={setGenerateGoal}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="speculative">Speculative — ask about a role, or to be kept in mind</SelectItem>
-                <SelectItem value="referral">Referral — ask about a role already applied to elsewhere</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          {generateGoal === "referral" && (
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="referral-role">Which role</Label>
-              <Input
-                id="referral-role"
-                value={referralRole}
-                onChange={(event) => setReferralRole(event.target.value)}
-                placeholder="e.g. the Backend Engineer position"
-              />
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setGenerateDialogOpen(false)} disabled={generating}>
-              Cancel
-            </Button>
-            <Button onClick={generateEmails} disabled={generating}>
-              {generating ? "Generating…" : "Generate"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {drafts.length > 0 && (
-        <div className="mt-6 flex flex-col gap-4">
-          <div className="flex items-center justify-between">
-            <h2 className="font-display text-lg font-semibold text-foreground">Generated drafts</h2>
-            <Button variant="ghost" size="sm" onClick={() => setDrafts([])}>
-              Clear
-            </Button>
-          </div>
-          {drafts.map((draft) => (
-            <div key={draft.key} className="rounded-lg border border-border bg-card p-4 shadow-card">
-              <p className="mb-2 text-sm font-medium text-foreground">
-                {draft.contactName} <span className="text-muted-foreground">· {draft.companyName}</span>
-              </p>
-              {draft.error ? (
-                <Alert variant="destructive">
-                  <AlertDescription>{draft.error}</AlertDescription>
-                </Alert>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <Input
-                    value={draft.subject}
-                    onChange={(event) => updateDraft(draft.key, "subject", event.target.value)}
-                    aria-label={`Subject for ${draft.contactName}`}
-                  />
-                  <Textarea
-                    rows={6}
-                    value={draft.body}
-                    onChange={(event) => updateDraft(draft.key, "body", event.target.value)}
-                    aria-label={`Body for ${draft.contactName}`}
-                  />
-                  <Button size="sm" variant="outline" className="w-fit" onClick={() => copyDraft(draft.key)}>
-                    {draft.copied ? "Copied!" : "Copy"}
-                  </Button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </section>
   );
 }
