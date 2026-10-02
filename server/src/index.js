@@ -7,6 +7,7 @@ import { initJobAgentGraph } from './graph/graphInstance.js';
 import authRouter from './routes/auth.js';
 import resumesRouter from './routes/resumes.js';
 import applicationsRouter from './routes/applications.js';
+import outreachRouter from './routes/outreach.js';
 
 // A missing/guessable JWT secret is a silent security hole, not just a
 // broken feature — fail loudly instead of the "warn and continue" style
@@ -40,6 +41,7 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', authRouter);
 app.use('/api/resumes', resumesRouter);
 app.use('/api/applications', applicationsRouter);
+app.use('/api/outreach', outreachRouter);
 
 // Catches body-parser/multer failures (an oversized JSON body, an oversized
 // file upload, malformed JSON) before Express's default HTML error page

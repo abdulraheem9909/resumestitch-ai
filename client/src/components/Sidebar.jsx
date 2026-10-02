@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
-import { Briefcase, Files, LogOut, Menu, Moon, Sun, User as UserIcon } from "lucide-react";
+import { Briefcase, Files, LogOut, Menu, Moon, Send, Sun, User as UserIcon } from "lucide-react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -19,6 +19,7 @@ import { Avatar } from "./Avatar.jsx";
 const NAV_ITEMS = [
   { to: "/applications", label: "Applications", icon: Briefcase, end: false },
   { to: "/resumes", label: "Master Resumes", icon: Files, end: false },
+  { to: "/outreach", label: "Outreach Tracker", icon: Send, end: false },
 ];
 
 function NavLinks({ onNavigate }) {
