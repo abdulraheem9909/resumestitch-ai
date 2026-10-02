@@ -4,6 +4,7 @@ import {
   validateOutreachCompany,
   normalizeOutreachCompanyPayload,
   OUTREACH_RESPONSE_ENUM,
+  CONTACT_CATEGORY_ENUM,
 } from './validateOutreachCompany.js';
 
 test('rejects a payload missing companyName', () => {
@@ -91,7 +92,7 @@ test('normalizeOutreachCompanyPayload trims strings and drops unknown contact fi
     contacts: [{ _id: 'x', name: ' Jo ', extra: 'nope' }],
   });
   assert.equal(result.companyName, 'Acme');
-  assert.deepEqual(result.contacts, [{ name: 'Jo', role: '', email: '' }]);
+  assert.deepEqual(result.contacts, [{ name: 'Jo', role: '', email: '', category: 'Other' }]);
 });
 
 test('accepts a payload with no websiteUrl at all', () => {
@@ -118,4 +119,59 @@ test('normalizeOutreachCompanyPayload defaults response to "No reply" when missi
     normalizeOutreachCompanyPayload({ companyName: 'Acme', response: 'Ghosted' }).response,
     'No reply'
   );
+});
+
+test('accepts a payload with no masterResumeId at all', () => {
+  const { valid } = validateOutreachCompany({ companyName: 'Acme' });
+  assert.equal(valid, true);
+});
+
+test('rejects a non-string masterResumeId', () => {
+  const { valid, errors } = validateOutreachCompany({ companyName: 'Acme', masterResumeId: 42 });
+  assert.equal(valid, false);
+  assert.ok(errors.some((e) => e.includes('masterResumeId')));
+});
+
+test('accepts every valid contact category', () => {
+  for (const category of CONTACT_CATEGORY_ENUM) {
+    const { valid } = validateOutreachCompany({
+      companyName: 'Acme',
+      contacts: [{ name: 'Jo', category }],
+    });
+    assert.equal(valid, true, `expected category "${category}" to be valid`);
+  }
+});
+
+test('rejects an invalid contact category', () => {
+  const { valid, errors } = validateOutreachCompany({
+    companyName: 'Acme',
+    contacts: [{ name: 'Jo', category: 'Astronaut' }],
+  });
+  assert.equal(valid, false);
+  assert.ok(errors.some((e) => e.includes('category')));
+});
+
+test('normalizeOutreachCompanyPayload trims masterResumeId and defaults it to an empty string', () => {
+  assert.equal(
+    normalizeOutreachCompanyPayload({ companyName: 'Acme', masterResumeId: '  64f0a1b2c3d4e5f6a7b8c9d0  ' }).masterResumeId,
+    '64f0a1b2c3d4e5f6a7b8c9d0'
+  );
+  assert.equal(normalizeOutreachCompanyPayload({ companyName: 'Acme' }).masterResumeId, '');
+});
+
+test('normalizeOutreachCompanyPayload defaults an invalid or missing contact category to "Other"', () => {
+  const result = normalizeOutreachCompanyPayload({
+    companyName: 'Acme',
+    contacts: [{ name: 'Jo', category: 'Astronaut' }, { name: 'Ana' }],
+  });
+  assert.equal(result.contacts[0].category, 'Other');
+  assert.equal(result.contacts[1].category, 'Other');
+});
+
+test('normalizeOutreachCompanyPayload keeps a valid contact category', () => {
+  const result = normalizeOutreachCompanyPayload({
+    companyName: 'Acme',
+    contacts: [{ name: 'Jo', category: 'Leadership' }],
+  });
+  assert.equal(result.contacts[0].category, 'Leadership');
 });

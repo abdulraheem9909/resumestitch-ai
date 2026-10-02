@@ -1,4 +1,5 @@
 export const OUTREACH_RESPONSE_ENUM = ['No reply', 'Replied', 'Interview', 'Offer', 'Rejected'];
+export const CONTACT_CATEGORY_ENUM = ['Leadership', 'Talent & HR', 'Employee', 'Other'];
 
 // Deliberately permissive, not RFC 5322 — matches the "good enough to catch
 // typos" bar this repo has never needed a stricter email check for elsewhere
@@ -20,6 +21,9 @@ export function validateOutreachCompany(payload) {
   // displayed, never fetched.
   if (body.websiteUrl != null && typeof body.websiteUrl !== 'string') {
     errors.push('websiteUrl must be a string.');
+  }
+  if (body.masterResumeId != null && typeof body.masterResumeId !== 'string') {
+    errors.push('masterResumeId must be a string.');
   }
   if (body.notes != null && typeof body.notes !== 'string') {
     errors.push('notes must be a string.');
@@ -54,6 +58,9 @@ export function validateOutreachCompany(payload) {
         ) {
           errors.push(`contacts[${index}].email is not a valid email address.`);
         }
+        if (contact.category != null && !CONTACT_CATEGORY_ENUM.includes(contact.category)) {
+          errors.push(`contacts[${index}].category must be one of: ${CONTACT_CATEGORY_ENUM.join(', ')}.`);
+        }
       });
     }
   }
@@ -72,6 +79,7 @@ export function normalizeOutreachCompanyPayload(payload) {
     companyName: String(body.companyName || '').trim(),
     location: String(body.location || '').trim(),
     websiteUrl: String(body.websiteUrl || '').trim(),
+    masterResumeId: String(body.masterResumeId || '').trim(),
     notes: String(body.notes || '').trim(),
     applied: Boolean(body.applied),
     response: OUTREACH_RESPONSE_ENUM.includes(body.response) ? body.response : 'No reply',
@@ -79,6 +87,7 @@ export function normalizeOutreachCompanyPayload(payload) {
       name: String(contact?.name || '').trim(),
       role: String(contact?.role || '').trim(),
       email: String(contact?.email || '').trim(),
+      category: CONTACT_CATEGORY_ENUM.includes(contact?.category) ? contact.category : 'Other',
     })),
   };
 }

@@ -8,6 +8,22 @@ const contactSchema = new mongoose.Schema({
   name: { type: String, required: true, trim: true },
   role: { type: String, trim: true, default: '' },
   email: { type: String, trim: true, default: '' },
+  // Sets tone for a generated outreach email. Auto-guessed client-side the
+  // moment Role is typed (client/src/lib/guessContactCategory.js), always
+  // overridable — never silently trusted. See key-decisions-log.md.
+  category: {
+    type: String,
+    enum: ['Leadership', 'Talent & HR', 'Employee', 'Other'],
+    default: 'Other',
+  },
+  // Only the most recent draft — no version history, since nothing
+  // downstream (export, approval) depends on tracking every past
+  // generation the way the resume pipeline's tailoredBullets does.
+  lastGeneratedEmail: {
+    subject: { type: String },
+    body: { type: String },
+    generatedAt: { type: Date },
+  },
 });
 
 const outreachCompanySchema = new mongoose.Schema(
@@ -23,6 +39,12 @@ const outreachCompanySchema = new mongoose.Schema(
     // Application.referenceUrl (see key-decisions-log.md): just saved and
     // rendered as a clickable link client-side when it looks like a real URL.
     websiteUrl: { type: String, trim: true, default: '' },
+    // Plain string, not a Mongoose ObjectId/ref — looked up manually (with
+    // ownership checked) only when actually generating a Speculative email.
+    // Keeping it a plain string avoids a CastError when the field is an
+    // empty string (the "no resume linked" case), and keeps
+    // validateOutreachCompany.js dependency-free.
+    masterResumeId: { type: String, trim: true, default: '' },
     contacts: { type: [contactSchema], default: [] },
     notes: { type: String, default: '' },
     applied: { type: Boolean, default: false },
