@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { Building2, ExternalLink, Pencil, Plus, Search, SearchX, Trash2 } from "lucide-react";
-import { OUTREACH_API } from "../lib/api.js";
+import { Building2, ExternalLink, Mail, Pencil, Plus, Search, SearchX, Trash2 } from "lucide-react";
+import { OUTREACH_API, RESUMES_API } from "../lib/api.js";
 import { apiFetch } from "../lib/apiFetch.js";
 import { EmptyState } from "../components/EmptyState.jsx";
 import { LoadingState } from "../components/LoadingState.jsx";
@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const RESPONSE_OPTIONS = ["No reply", "Replied", "Interview", "Offer", "Rejected"];
 
@@ -33,6 +34,7 @@ const EMPTY_FORM = {
   applied: false,
   response: "No reply",
   contacts: [],
+  masterResumeId: "",
 };
 
 // Response overrides applied — checked first. "No reply" (the default) is
@@ -99,6 +101,44 @@ export default function OutreachTracker() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState("");
 
+  const [masterResumes, setMasterResumes] = useState([]);
+  const [activeTab, setActiveTab] = useState("companies");
+  const [selectedContactKeys, setSelectedContactKeys] = useState(new Set());
+
+  const allContacts = companies.flatMap((company) =>
+    (company.contacts || []).map((contact) => ({
+      key: `${company._id}:${contact._id}`,
+      companyId: company._id,
+      companyName: company.companyName,
+      contactId: contact._id,
+      name: contact.name,
+      role: contact.role,
+      category: contact.category || "Other",
+    }))
+  );
+
+  function toggleContact(key) {
+    setSelectedContactKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  useEffect(() => {
+    async function loadMasterResumes() {
+      try {
+        const res = await apiFetch(RESUMES_API);
+        const data = await res.json();
+        if (res.ok) setMasterResumes(data.masterResumes || []);
+      } catch {
+        // Non-fatal — the resume-link dropdown just won't have options.
+      }
+    }
+    loadMasterResumes();
+  }, []);
+
   const fetchCompanies = useCallback(
     async (signal) => {
       setLoading(true);
@@ -149,11 +189,14 @@ export default function OutreachTracker() {
       notes: company.notes || "",
       applied: company.applied,
       response: company.response,
+      masterResumeId: company.masterResumeId || "",
       contacts: (company.contacts || []).map((contact) => ({
         _id: contact._id,
         name: contact.name,
         role: contact.role || "",
         email: contact.email || "",
+        category: contact.category || "Other",
+        categoryTouched: true,
       })),
     });
     setSaveError("");
@@ -230,7 +273,14 @@ export default function OutreachTracker() {
           they said back.
         </p>
 
-        {(companies.length > 0 || hasActiveFilters) && (
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-5">
+          <TabsList>
+            <TabsTrigger value="companies">Companies</TabsTrigger>
+            <TabsTrigger value="contacts">Contacts ({allContacts.length})</TabsTrigger>
+          </TabsList>
+        </Tabs>
+
+        {activeTab === "companies" && (companies.length > 0 || hasActiveFilters) && (
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -271,14 +321,14 @@ export default function OutreachTracker() {
         )}
       </div>
 
-      {error && (
+      {activeTab === "companies" && error && (
         <Alert variant="destructive" className="mb-5">
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {loading && <LoadingState message="Loading your outreach list…" />}
+      {activeTab === "companies" && loading && <LoadingState message="Loading your outreach list…" />}
 
-      {!loading && companies.length === 0 && !error && !hasActiveFilters && (
+      {activeTab === "companies" && !loading && companies.length === 0 && !error && !hasActiveFilters && (
         <EmptyState
           icon={Building2}
           title="No companies yet"
@@ -291,7 +341,7 @@ export default function OutreachTracker() {
         />
       )}
 
-      {!loading && companies.length === 0 && !error && hasActiveFilters && (
+      {activeTab === "companies" && !loading && companies.length === 0 && !error && hasActiveFilters && (
         <EmptyState
           icon={SearchX}
           title="No companies match your filters"
@@ -304,7 +354,7 @@ export default function OutreachTracker() {
         />
       )}
 
-      {!loading && companies.length > 0 && (
+      {activeTab === "companies" && !loading && companies.length > 0 && (
         <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card md:min-h-0 md:flex-1 md:overflow-auto">
           <table className="w-full min-w-[820px] border-collapse text-sm">
             <thead className="sticky top-0 z-10 bg-card">
@@ -416,6 +466,47 @@ export default function OutreachTracker() {
         </div>
       )}
 
+      {activeTab === "contacts" && (
+        <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
+          {allContacts.length === 0 ? (
+            <EmptyState
+              icon={Mail}
+              title="No contacts yet"
+              description="Add a contact to one of your companies first, then come back here to generate outreach emails."
+            />
+          ) : (
+            <table className="w-full min-w-[720px] border-collapse text-sm">
+              <thead className="sticky top-0 z-10 bg-card">
+                <tr className="border-b border-border">
+                  <th scope="col" className="w-10 py-3 pl-4" aria-hidden="true" />
+                  <th scope="col" className="py-3 pl-2 text-left font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">Name</th>
+                  <th scope="col" className="py-3 pl-4 text-left font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">Role</th>
+                  <th scope="col" className="py-3 pl-4 text-left font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">Category</th>
+                  <th scope="col" className="py-3 pl-4 text-left font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">Company</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allContacts.map((contact) => (
+                  <tr key={contact.key} className="border-b border-border last:border-0">
+                    <td className="py-3 pl-4">
+                      <Checkbox
+                        checked={selectedContactKeys.has(contact.key)}
+                        onCheckedChange={() => toggleContact(contact.key)}
+                        aria-label={`Select ${contact.name}`}
+                      />
+                    </td>
+                    <td className="py-3 pl-2 font-medium text-foreground">{contact.name}</td>
+                    <td className="py-3 pl-4 text-foreground">{contact.role || <span className="text-muted-foreground">—</span>}</td>
+                    <td className="py-3 pl-4 text-foreground">{contact.category}</td>
+                    <td className="py-3 pl-4 text-foreground">{contact.companyName}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
       <Dialog open={formOpen} onOpenChange={(open) => !saving && setFormOpen(open)}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
@@ -457,6 +548,26 @@ export default function OutreachTracker() {
               onChange={(event) => setForm((prev) => ({ ...prev, websiteUrl: event.target.value }))}
               placeholder="https://…"
             />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Resume (optional, used for AI email generation)</Label>
+            <Select
+              value={form.masterResumeId || "none"}
+              onValueChange={(value) => setForm((prev) => ({ ...prev, masterResumeId: value === "none" ? "" : value }))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="No resume linked" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No resume linked</SelectItem>
+                {masterResumes.map((resume) => (
+                  <SelectItem key={resume._id} value={resume._id}>
+                    {resume.personalInfo?.fullName || resume.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center gap-2">
