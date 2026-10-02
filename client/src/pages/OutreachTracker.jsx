@@ -104,6 +104,12 @@ export default function OutreachTracker() {
   const [masterResumes, setMasterResumes] = useState([]);
   const [activeTab, setActiveTab] = useState("companies");
   const [selectedContactKeys, setSelectedContactKeys] = useState(new Set());
+  const [generateDialogOpen, setGenerateDialogOpen] = useState(false);
+  const [generateGoal, setGenerateGoal] = useState("speculative");
+  const [referralRole, setReferralRole] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState("");
+  const [drafts, setDrafts] = useState([]); // [{ key, companyName, contactName, subject, body, copied, error }]
 
   const allContacts = companies.flatMap((company) =>
     (company.contacts || []).map((contact) => ({
@@ -124,6 +130,66 @@ export default function OutreachTracker() {
       else next.add(key);
       return next;
     });
+  }
+
+  // Sequential, not Promise.all — deliberate: avoids bursting several LLM
+  // calls at once for what's meant to be a manual, reviewed-as-you-go
+  // action, and means one failing contact doesn't abort the rest.
+  async function generateEmails() {
+    if (generateGoal === "referral" && !referralRole.trim()) {
+      setGenerateError("Enter which role this referral is for.");
+      return;
+    }
+    setGenerating(true);
+    setGenerateError("");
+
+    const targets = allContacts.filter((contact) => selectedContactKeys.has(contact.key));
+    const results = [];
+    for (const contact of targets) {
+      try {
+        const res = await apiFetch(`${OUTREACH_API}/${contact.companyId}/contacts/${contact.contactId}/generate-email`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ goal: generateGoal, referralRole: referralRole.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Couldn't generate this email.");
+        results.push({
+          key: contact.key,
+          companyName: contact.companyName,
+          contactName: contact.name,
+          subject: data.subject,
+          body: data.body,
+          copied: false,
+          error: "",
+        });
+      } catch (err) {
+        results.push({
+          key: contact.key,
+          companyName: contact.companyName,
+          contactName: contact.name,
+          subject: "",
+          body: "",
+          copied: false,
+          error: err.message,
+        });
+      }
+    }
+
+    setDrafts(results);
+    setGenerating(false);
+    setGenerateDialogOpen(false);
+  }
+
+  function updateDraft(key, field, value) {
+    setDrafts((prev) => prev.map((draft) => (draft.key === key ? { ...draft, [field]: value, copied: false } : draft)));
+  }
+
+  async function copyDraft(key) {
+    const draft = drafts.find((d) => d.key === key);
+    if (!draft) return;
+    await navigator.clipboard.writeText(`Subject: ${draft.subject}\n\n${draft.body}`);
+    setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, copied: true } : d)));
   }
 
   useEffect(() => {
@@ -466,6 +532,17 @@ export default function OutreachTracker() {
         </div>
       )}
 
+      {activeTab === "contacts" && allContacts.length > 0 && (
+        <div className="mb-3 flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">
+            {selectedContactKeys.size} selected
+          </p>
+          <Button size="sm" disabled={selectedContactKeys.size === 0} onClick={() => setGenerateDialogOpen(true)}>
+            <Mail className="size-4" /> Generate emails
+          </Button>
+        </div>
+      )}
+
       {activeTab === "contacts" && (
         <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
           {allContacts.length === 0 ? (
@@ -649,6 +726,97 @@ export default function OutreachTracker() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={generateDialogOpen} onOpenChange={(open) => !generating && setGenerateDialogOpen(open)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Generate {selectedContactKeys.size} email{selectedContactKeys.size === 1 ? "" : "s"}</DialogTitle>
+            <DialogDescription>
+              Drafts only — nothing is sent. You'll review and copy each one yourself.
+            </DialogDescription>
+          </DialogHeader>
+
+          {generateError && (
+            <Alert variant="destructive">
+              <AlertDescription>{generateError}</AlertDescription>
+            </Alert>
+          )}
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Goal</Label>
+            <Select value={generateGoal} onValueChange={setGenerateGoal}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="speculative">Speculative — ask about a role, or to be kept in mind</SelectItem>
+                <SelectItem value="referral">Referral — ask about a role already applied to elsewhere</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          {generateGoal === "referral" && (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="referral-role">Which role</Label>
+              <Input
+                id="referral-role"
+                value={referralRole}
+                onChange={(event) => setReferralRole(event.target.value)}
+                placeholder="e.g. the Backend Engineer position"
+              />
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setGenerateDialogOpen(false)} disabled={generating}>
+              Cancel
+            </Button>
+            <Button onClick={generateEmails} disabled={generating}>
+              {generating ? "Generating…" : "Generate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {drafts.length > 0 && (
+        <div className="mt-6 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-lg font-semibold text-foreground">Generated drafts</h2>
+            <Button variant="ghost" size="sm" onClick={() => setDrafts([])}>
+              Clear
+            </Button>
+          </div>
+          {drafts.map((draft) => (
+            <div key={draft.key} className="rounded-lg border border-border bg-card p-4 shadow-card">
+              <p className="mb-2 text-sm font-medium text-foreground">
+                {draft.contactName} <span className="text-muted-foreground">· {draft.companyName}</span>
+              </p>
+              {draft.error ? (
+                <Alert variant="destructive">
+                  <AlertDescription>{draft.error}</AlertDescription>
+                </Alert>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <Input
+                    value={draft.subject}
+                    onChange={(event) => updateDraft(draft.key, "subject", event.target.value)}
+                    aria-label={`Subject for ${draft.contactName}`}
+                  />
+                  <Textarea
+                    rows={6}
+                    value={draft.body}
+                    onChange={(event) => updateDraft(draft.key, "body", event.target.value)}
+                    aria-label={`Body for ${draft.contactName}`}
+                  />
+                  <Button size="sm" variant="outline" className="w-fit" onClick={() => copyDraft(draft.key)}>
+                    {draft.copied ? "Copied!" : "Copy"}
+                  </Button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }
