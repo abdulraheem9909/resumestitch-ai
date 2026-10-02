@@ -9,9 +9,10 @@ const outreachEmailSchema = z.object({
   body: z
     .string()
     .describe(
-      'The full email body: an opening line stating the goal, a short why-this-company paragraph, a short ' +
-        'bulleted list of 3-4 concrete named highlights, a closing line, and a sign-off — with the ' +
-        "candidate's real name/phone/LinkedIn when a resume is linked, otherwise a bare sign-off with no name."
+      'The full email body: short and direct (roughly 80-130 words, at most 2 short paragraphs, no bulleted ' +
+        'list), mentioning one or two concrete accomplishments woven into a sentence, a direct ask, one closing ' +
+        "line, and a sign-off — with the candidate's real name/phone/LinkedIn when a resume is linked, " +
+        'otherwise a bare sign-off with no name.'
     ),
 });
 

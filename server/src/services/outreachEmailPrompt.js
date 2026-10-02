@@ -3,11 +3,11 @@
 // templates, same "instructions over branching" style as tailorContent.js.
 const CATEGORY_TONE_GUIDANCE = {
   Leadership:
-    'Address them as a founder or senior executive. Frame the message around vision and impact — why this ' +
-    'company specifically, and what the candidate could contribute at a high level. Keep it concise and confident.',
+    'Address them as a founder or senior executive. Keep the tone confident and peer-to-peer, oriented around ' +
+    'vision and impact — why this company specifically.',
   'Talent & HR':
-    'Address them as a recruiter or talent professional. Frame the message as a compressed qualifications ' +
-    'pitch, like a mini cover letter, oriented around role fit and next steps.',
+    'Address them as a recruiter or talent professional. Keep it a tight, qualifications-forward pitch oriented ' +
+    'around role fit and next steps — still short, never a resume recap.',
   Employee:
     'Address them as a peer individual contributor. Keep the tone casual and curious, peer-to-peer, not a formal pitch.',
   Other:
@@ -17,12 +17,13 @@ const CATEGORY_TONE_GUIDANCE = {
 const GOAL_INSTRUCTIONS = {
   speculative:
     'The candidate wants to know whether this company has an open role for them right now, or if not, to be ' +
-    'kept in mind for a future opening. Write one message that naturally covers both — never send this as two ' +
-    'separate asks.',
+    'kept in mind for a future opening. State this directly as the ask — never a vague phrase like "learn more" ' +
+    'or "set up a time to chat." Write one message that naturally covers both the "now" and "future" cases, ' +
+    'never as two separate asks.',
   referral:
-    'The candidate has already applied to a specific role elsewhere at this company and is asking this contact ' +
-    'to flag or refer that application internally. The exact role is given below as <referral_role> — reference ' +
-    'it by name.',
+    'The candidate has already applied to a specific role elsewhere at this company and is directly asking this ' +
+    'contact to flag or refer that application internally. The exact role is given below as <referral_role> — ' +
+    'reference it by name.',
 };
 
 export function buildResumeContext(resume) {
@@ -58,18 +59,23 @@ export function buildOutreachEmailMessages({ goal, referralRole, companyName, co
     {
       role: 'system',
       content:
-        'Write an outreach email a job-seeker can send to one specific contact at a company. Use ONLY the ' +
-        'candidate background and company notes given below — never invent a skill, achievement, employer, ' +
-        'project, or fact about the candidate or the company. No filler phrases ("results-driven", "proven ' +
-        'track record"), no first-person pronoun in the subject line. Greet the contact by their first name ' +
-        'only. Structure the body as: an opening line stating the goal, then a short paragraph on why this ' +
-        'company specifically — grounded in <company_notes> when it is given, otherwise keep this paragraph ' +
-        'brief and general — then a short bulleted list of 3-4 concrete, named highlights drawn only from the ' +
-        'candidate background (real project names and real skills, never invented ones), then one closing line ' +
-        'inviting a reply or a quick call. End with a sign-off line ("Best," or "Kind regards,") followed by ' +
-        "the candidate's real name, phone, and LinkedIn from the candidate background when those are given — " +
-        'if no resume is linked, end with just the bare sign-off line and no name, since there is no real ' +
-        'contact info to put there.',
+        'Write a short, direct cold outreach email a job-seeker can send to one specific contact at a company ' +
+        '— this is a cold email, not a cover letter. Research on cold outreach consistently shows shorter ' +
+        'performs better (a Hubspot analysis of 40 million emails found 50-125 words maximized reply rates): ' +
+        'target roughly 80-130 words in the body, excluding the sign-off, in at most 2 short paragraphs, no ' +
+        'bulleted list. Use ONLY the candidate background and company notes given below — never invent a ' +
+        'skill, achievement, employer, project, or fact about the candidate or the company. Skip empty opening ' +
+        'pleasantries like "I hope this email finds you well" — go straight into who the candidate is and why ' +
+        "they're reaching out. No filler phrases (\"results-driven\", \"proven track record\"), no first-person " +
+        'pronoun in the subject line. Greet the contact by their first name only. Mention one or two concrete, ' +
+        'specific accomplishments woven naturally into a sentence — never a bulleted list or a resume recap; ' +
+        'one compelling detail beats full coverage, since the attached CV carries the rest. If company notes ' +
+        'are given, weave in one genuine specific from them rather than giving "why this company" its own ' +
+        'paragraph. State the ask directly and specifically — never a vague phrase. End with one brief, ' +
+        'confident closing line, then a sign-off ("Best," or "Kind regards,") followed by the candidate\'s ' +
+        'real name, phone, and LinkedIn from the candidate background when those are given — if no resume is ' +
+        'linked, output the sign-off word by itself with absolutely nothing after it: no name, no placeholder, ' +
+        'no bracketed text like "[Your Name]", since there is no real contact info to put there.',
     },
     {
       role: 'user',

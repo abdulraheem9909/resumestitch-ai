@@ -25,15 +25,15 @@ test('the system message forbids inventing facts and filler phrases', () => {
 test('a Leadership contact gets vision/impact framing, not the Talent & HR framing', () => {
   const [, user] = buildOutreachEmailMessages(BASE);
   assert.ok(user.content.includes('vision'));
-  assert.ok(!user.content.includes('mini cover letter'));
+  assert.ok(!user.content.includes('qualifications-forward'));
 });
 
-test('a Talent & HR contact gets the qualifications-pitch framing', () => {
+test('a Talent & HR contact gets the qualifications-forward framing', () => {
   const [, user] = buildOutreachEmailMessages({
     ...BASE,
     contact: { name: 'Ana Lee', role: 'Talent Partner', category: 'Talent & HR' },
   });
-  assert.ok(user.content.includes('mini cover letter'));
+  assert.ok(user.content.includes('qualifications-forward'));
 });
 
 test('an unrecognized category falls back to the Other/neutral framing, not a crash', () => {
@@ -117,8 +117,35 @@ test('the system message instructs a first-name-only greeting', () => {
   assert.ok(system.content.toLowerCase().includes('first name'));
 });
 
-test('the system message instructs a bulleted list of concrete highlights and a real sign-off', () => {
+test('the system message instructs one or two concrete accomplishments, never a bulleted list, and a real sign-off', () => {
   const [system] = buildOutreachEmailMessages(BASE);
-  assert.ok(system.content.toLowerCase().includes('bulleted list'));
+  assert.ok(system.content.toLowerCase().includes('one or two concrete'));
+  assert.ok(system.content.toLowerCase().includes('no bulleted list'));
   assert.ok(system.content.toLowerCase().includes('sign-off'));
+});
+
+// Grounded in cold-email research (Hubspot's 40M-email analysis): 50-125
+// words maximizes reply rates — our last round of changes drifted the
+// other way (bulleted lists, multi-paragraph), which is why real generated
+// output started reading as "off." This pins the fix down with a test.
+test('the system message gives a concrete, research-backed target word count', () => {
+  const [system] = buildOutreachEmailMessages(BASE);
+  assert.ok(system.content.includes('80') && system.content.includes('130'));
+});
+
+test('the system message bans empty opening pleasantries', () => {
+  const [system] = buildOutreachEmailMessages(BASE);
+  assert.ok(system.content.toLowerCase().includes('hope this email finds you well'));
+});
+
+test('the system message requires a direct, specific ask rather than a vague one', () => {
+  const [system] = buildOutreachEmailMessages(BASE);
+  assert.ok(system.content.toLowerCase().includes('directly'));
+});
+
+// Found live: with no resume linked, the model wrote a literal "[Your Name]"
+// placeholder instead of leaving the sign-off bare as instructed.
+test('the system message explicitly bans a placeholder name when no resume is linked', () => {
+  const [system] = buildOutreachEmailMessages(BASE);
+  assert.ok(system.content.toLowerCase().includes('no placeholder'));
 });
