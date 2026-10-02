@@ -6,7 +6,13 @@ const OUTREACH_EMAIL_MODEL = 'gpt-4o-mini';
 
 const outreachEmailSchema = z.object({
   subject: z.string().describe('A short, specific email subject line, under 80 characters.'),
-  body: z.string().describe('The full email body, at most 3 short paragraphs, no address block or signature scaffolding.'),
+  body: z
+    .string()
+    .describe(
+      'The full email body: an opening line stating the goal, a short why-this-company paragraph, a short ' +
+        'bulleted list of 3-4 concrete named highlights, a closing line, and a sign-off — with the ' +
+        "candidate's real name/phone/LinkedIn when a resume is linked, otherwise a bare sign-off with no name."
+    ),
 });
 
 const model = new ChatOpenAI({ model: OUTREACH_EMAIL_MODEL, temperature: 0.3 }).withStructuredOutput(
@@ -14,8 +20,8 @@ const model = new ChatOpenAI({ model: OUTREACH_EMAIL_MODEL, temperature: 0.3 }).
   { name: 'generate_outreach_email', strict: true }
 );
 
-export async function generateOutreachEmail({ goal, referralRole, companyName, contact, resume }) {
-  const messages = buildOutreachEmailMessages({ goal, referralRole, companyName, contact, resume });
+export async function generateOutreachEmail({ goal, referralRole, companyName, companyNotes, contact, resume }) {
+  const messages = buildOutreachEmailMessages({ goal, referralRole, companyName, companyNotes, contact, resume });
   const result = await model.invoke(messages);
   return { subject: result.subject, body: result.body };
 }

@@ -130,6 +130,7 @@ router.post('/:id/contacts/:contactId/generate-email', async (req, res) => {
       goal,
       referralRole: referralRole ? referralRole.trim() : '',
       companyName: company.companyName,
+      companyNotes: company.notes,
       contact: { name: contact.name, role: contact.role, category: contact.category },
       resume,
     });
