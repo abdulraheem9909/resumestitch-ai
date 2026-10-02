@@ -123,6 +123,21 @@ export default function OutreachTracker() {
     }))
   );
 
+  // Every company save (saveCompany, via POST or PATCH) strips and
+  // re-creates contact _ids server-side (normalizeOutreachCompanyPayload),
+  // so a key built from a stale _id can silently stop resolving to any
+  // live contact. Prune selectedContactKeys down to whatever's still
+  // actually present whenever companies changes, so a save never leaves a
+  // phantom selection behind. Only updates state when the set actually
+  // shrinks, so this can't loop.
+  useEffect(() => {
+    const live = new Set(allContacts.map((c) => c.key));
+    setSelectedContactKeys((prev) => {
+      const next = new Set([...prev].filter((k) => live.has(k)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [companies]);
+
   function toggleContact(key) {
     setSelectedContactKeys((prev) => {
       const next = new Set(prev);
@@ -144,6 +159,11 @@ export default function OutreachTracker() {
     setGenerateError("");
 
     const targets = allContacts.filter((contact) => selectedContactKeys.has(contact.key));
+    if (targets.length === 0) {
+      setGenerateError("Those contacts are no longer available — reselect them and try again.");
+      setGenerating(false);
+      return;
+    }
     const results = [];
     for (const contact of targets) {
       try {
@@ -543,6 +563,15 @@ export default function OutreachTracker() {
         </div>
       )}
 
+      {activeTab === "contacts" && hasActiveFilters && (
+        <p className="mb-3 text-sm text-muted-foreground">
+          Filtered by your Companies tab search/filters.{" "}
+          <button type="button" className="underline hover:text-foreground" onClick={clearFilters}>
+            Clear filters
+          </button>
+        </p>
+      )}
+
       {activeTab === "contacts" && (
         <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
           {allContacts.length === 0 ? (
@@ -640,7 +669,7 @@ export default function OutreachTracker() {
                 <SelectItem value="none">No resume linked</SelectItem>
                 {masterResumes.map((resume) => (
                   <SelectItem key={resume._id} value={resume._id}>
-                    {resume.personalInfo?.fullName || resume.label}
+                    {resume.label || resume.personalInfo?.fullName}
                   </SelectItem>
                 ))}
               </SelectContent>
