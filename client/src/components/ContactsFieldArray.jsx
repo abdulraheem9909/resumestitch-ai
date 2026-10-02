@@ -2,21 +2,38 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CONTACT_CATEGORIES, guessContactCategory } from "@/lib/guessContactCategory.js";
 
 // Fully controlled by the parent dialog's local state — never calls an API
-// itself. Each contact is `{ _id?, name, role, email }`; `_id` (present only
-// when editing an existing company) is kept only as a React key, never sent
-// back to the server (normalizeOutreachCompanyPayload strips it server-side
-// too). Deliberately not built on EditableEntryList.jsx, since that
-// component saves each array change immediately via its own API call, while
-// this array must be held in the parent's state and submitted once with the
-// rest of the company form.
+// itself. Each contact is `{ _id?, name, role, email, category, categoryTouched? }`;
+// `_id` and `categoryTouched` are UI-only, never sent to the server
+// (normalizeOutreachCompanyPayload strips anything outside its own field
+// list). `categoryTouched` tracks whether the user has ever picked a
+// category by hand for this contact — while false, typing into Role
+// re-guesses the category; once the dropdown is used directly, the guess
+// never overwrites it again. Deliberately not built on EditableEntryList.jsx,
+// since that component saves each array change immediately via its own API
+// call, while this array must be held in the parent's state and submitted
+// once with the rest of the company form.
 export function ContactsFieldArray({ contacts, onChange }) {
-  function updateContact(index, field, value) {
-    onChange(contacts.map((contact, i) => (i === index ? { ...contact, [field]: value } : contact)));
+  function updateField(index, field, value) {
+    onChange(
+      contacts.map((contact, i) => {
+        if (i !== index) return contact;
+        const next = { ...contact, [field]: value };
+        if (field === "role" && !contact.categoryTouched) {
+          next.category = guessContactCategory(value);
+        }
+        return next;
+      })
+    );
+  }
+  function updateCategory(index, value) {
+    onChange(contacts.map((contact, i) => (i === index ? { ...contact, category: value, categoryTouched: true } : contact)));
   }
   function addContact() {
-    onChange([...contacts, { name: "", role: "", email: "" }]);
+    onChange([...contacts, { name: "", role: "", email: "", category: "Other", categoryTouched: false }]);
   }
   function removeContact(index) {
     onChange(contacts.filter((_, i) => i !== index));
@@ -52,20 +69,35 @@ export function ContactsFieldArray({ contacts, onChange }) {
             placeholder="Name"
             aria-label={`Contact ${index + 1} name`}
             value={contact.name}
-            onChange={(event) => updateContact(index, "name", event.target.value)}
+            onChange={(event) => updateField(index, "name", event.target.value)}
           />
-          <Input
-            placeholder="Role (e.g. CTO)"
-            aria-label={`Contact ${index + 1} role`}
-            value={contact.role}
-            onChange={(event) => updateContact(index, "role", event.target.value)}
-          />
+          <div className="flex gap-2">
+            <Input
+              placeholder="Role (e.g. CTO)"
+              aria-label={`Contact ${index + 1} role`}
+              value={contact.role}
+              onChange={(event) => updateField(index, "role", event.target.value)}
+              className="flex-1"
+            />
+            <Select value={contact.category || "Other"} onValueChange={(value) => updateCategory(index, value)}>
+              <SelectTrigger className="w-36 shrink-0" aria-label={`Contact ${index + 1} category`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CONTACT_CATEGORIES.map((category) => (
+                  <SelectItem key={category} value={category}>
+                    {category}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
           <Input
             type="email"
             placeholder="Email"
             aria-label={`Contact ${index + 1} email`}
             value={contact.email}
-            onChange={(event) => updateContact(index, "email", event.target.value)}
+            onChange={(event) => updateField(index, "email", event.target.value)}
           />
         </div>
       ))}
