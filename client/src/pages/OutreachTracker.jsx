@@ -459,7 +459,7 @@ export default function OutreachTracker() {
           <div className="flex flex-col gap-1.5">
             <Label>Response</Label>
             <Select value={createForm.response} onValueChange={(value) => setCreateForm((prev) => ({ ...prev, response: value }))}>
-              <SelectTrigger>
+              <SelectTrigger className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

@@ -464,7 +464,7 @@ export default function OutreachCompanyDetail() {
                   <div className="flex flex-col gap-1.5">
                     <Label>Response</Label>
                     <Select value={editForm.response} onValueChange={(value) => setEditForm((prev) => ({ ...prev, response: value }))}>
-                      <SelectTrigger>
+                      <SelectTrigger className="w-full">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -544,7 +544,7 @@ export default function OutreachCompanyDetail() {
                   onValueChange={updateMasterResumeId}
                   disabled={savingResume}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue placeholder="No resume linked" />
                   </SelectTrigger>
                   <SelectContent>
@@ -587,7 +587,7 @@ export default function OutreachCompanyDetail() {
               <div className="flex min-w-[220px] flex-1 flex-col gap-1.5 sm:flex-initial sm:basis-56">
                 <Label>Goal</Label>
                 <Select value={generateGoal} onValueChange={setGenerateGoal}>
-                  <SelectTrigger>
+                  <SelectTrigger className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -634,16 +634,16 @@ export default function OutreachCompanyDetail() {
                   Clear all
                 </Button>
               </div>
-              <table className="w-full text-sm">
+              <table className="w-full table-fixed text-sm">
                 <thead>
                   <tr className="border-b border-border text-left">
-                    <th scope="col" className="py-2.5 pl-4 font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">
+                    <th scope="col" className="w-36 py-2.5 pl-4 font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase sm:w-44">
                       Contact
                     </th>
                     <th scope="col" className="py-2.5 pl-4 font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">
                       Subject
                     </th>
-                    <th scope="col" className="py-2.5 pl-4 font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">
+                    <th scope="col" className="w-20 py-2.5 pl-4 font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase sm:w-28">
                       Status
                     </th>
                     <th scope="col" className="w-10" aria-hidden="true" />
@@ -667,8 +667,8 @@ export default function OutreachCompanyDetail() {
                           }}
                           className="cursor-pointer border-b border-border last:border-0 hover:bg-secondary/40 focus-visible:outline-none"
                         >
-                          <td className="py-3 pl-4 font-medium text-foreground">{draft.contactName}</td>
-                          <td className="max-w-xs truncate py-3 pl-4 text-foreground">
+                          <td className="truncate py-3 pl-4 font-medium text-foreground">{draft.contactName}</td>
+                          <td className="truncate py-3 pl-4 text-foreground">
                             {draft.error ? <span className="text-muted-foreground">—</span> : draft.subject}
                           </td>
                           <td className="py-3 pl-4">
