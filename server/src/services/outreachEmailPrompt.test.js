@@ -134,6 +134,24 @@ test('the system message bans casual meta-labeling of a cited project', () => {
   assert.ok(system.content.toLowerCase().includes('recent work'));
 });
 
+// Found live: "As a full-stack engineer with over 5 years of experience, I
+// recently completed a legal AI dissertation project..." — the professional
+// opening (years of experience) was immediately undercut by academic
+// framing ("dissertation"), pulled from either the project's own name
+// ("X - MSc Dissertation Project") or the resume summary text, which also
+// says "dissertation" explicitly. Both exist in this app's real resume
+// data, so the fix has to cover both sources, not just one field.
+test('the system message requires framing to stay consistent — no undercutting a professional opening with academic language', () => {
+  const [system] = buildOutreachEmailMessages(BASE);
+  assert.ok(system.content.toLowerCase().includes('academic'));
+  assert.ok(system.content.toLowerCase().includes('consistent'));
+});
+
+test('the system message allows citing just the core project name before a descriptive dash suffix', () => {
+  const [system] = buildOutreachEmailMessages(BASE);
+  assert.ok(system.content.toLowerCase().includes('core name'));
+});
+
 test('the system message instructs one or two concrete accomplishments, never a bulleted list, and a real sign-off', () => {
   const [system] = buildOutreachEmailMessages(BASE);
   assert.ok(system.content.toLowerCase().includes('one or two concrete'));

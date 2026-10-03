@@ -75,7 +75,14 @@ export function buildOutreachEmailMessages({ goal, referralRole, companyName, co
         "project, use its exact given name verbatim (e.g. \"SolicitorSense AI\") — never a generic paraphrase " +
         'of what it does instead of naming it, and never label it with a casual meta-phrase like "this is my ' +
         'recent work" or "I completed a project on X" — weave the name into a sentence about relevant ' +
-        'experience the way a professional bio would, not as its own announcement. If company notes ' +
+        'experience the way a professional bio would, not as its own announcement. If a project\'s given name ' +
+        'includes a descriptive suffix after a dash (e.g. "SolicitorSense AI - MSc Dissertation Project"), you ' +
+        'may cite just the core name before the dash — that suffix is a category label, not part of the real ' +
+        'name. Keep the framing internally consistent throughout: if the opening establishes professional ' +
+        'seniority (years of experience, a job title), do not immediately undercut it by labeling the next ' +
+        'accomplishment as academic ("a dissertation," "my MSc project") even if the candidate background ' +
+        'itself uses that language — describe what was built or its outcome instead, in terms consistent with ' +
+        'the professional framing already established. If company notes ' +
         'are given, weave in one genuine specific from them rather than giving "why this company" its own ' +
         'paragraph. State the ask directly and specifically — never a vague phrase. End with one brief, ' +
         'confident closing line, then a sign-off ("Best," or "Kind regards,") followed by the candidate\'s ' +
