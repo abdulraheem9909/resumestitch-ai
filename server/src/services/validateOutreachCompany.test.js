@@ -95,6 +95,35 @@ test('normalizeOutreachCompanyPayload trims strings and drops unknown contact fi
   assert.deepEqual(result.contacts, [{ name: 'Jo', role: '', email: '', category: 'Other' }]);
 });
 
+// Found live: editing anything about a company (even an unrelated field like
+// `applied`) re-sent its contacts without `lastGeneratedEmail`, which this
+// function silently dropped — wiping every generated draft on the very next
+// unrelated save. `lastGeneratedEmail` is passed through verbatim when the
+// client echoes it back; it's never user-editable through this payload, so
+// no extra validation is needed, same trust level as other read-only
+// round-tripped fields elsewhere in this app.
+test('normalizeOutreachCompanyPayload preserves a contact\'s lastGeneratedEmail when the client echoes it back', () => {
+  const result = normalizeOutreachCompanyPayload({
+    companyName: 'Acme',
+    contacts: [
+      {
+        name: 'Jo',
+        lastGeneratedEmail: { subject: 'Hi', body: 'Hello there', generatedAt: '2026-10-03T00:00:00.000Z' },
+      },
+    ],
+  });
+  assert.deepEqual(result.contacts[0].lastGeneratedEmail, {
+    subject: 'Hi',
+    body: 'Hello there',
+    generatedAt: '2026-10-03T00:00:00.000Z',
+  });
+});
+
+test('normalizeOutreachCompanyPayload omits lastGeneratedEmail entirely when the contact never had one', () => {
+  const result = normalizeOutreachCompanyPayload({ companyName: 'Acme', contacts: [{ name: 'Jo' }] });
+  assert.equal('lastGeneratedEmail' in result.contacts[0], false);
+});
+
 test('accepts a payload with no websiteUrl at all', () => {
   const { valid } = validateOutreachCompany({ companyName: 'Acme' });
   assert.equal(valid, true);

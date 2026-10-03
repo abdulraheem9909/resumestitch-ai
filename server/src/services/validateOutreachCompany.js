@@ -88,6 +88,12 @@ export function normalizeOutreachCompanyPayload(payload) {
       role: String(contact?.role || '').trim(),
       email: String(contact?.email || '').trim(),
       category: CONTACT_CATEGORY_ENUM.includes(contact?.category) ? contact.category : 'Other',
+      // Passed through verbatim when the client echoes it back — never
+      // user-editable through this payload (only the generate-email route
+      // ever sets it), so no extra validation is needed. Without this, any
+      // unrelated company edit silently wiped every contact's generated
+      // draft on the next save.
+      ...(contact?.lastGeneratedEmail ? { lastGeneratedEmail: contact.lastGeneratedEmail } : {}),
     })),
   };
 }

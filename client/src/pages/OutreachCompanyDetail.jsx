@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ExternalLink, Mail, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, ExternalLink, Mail, Pencil, Trash2 } from "lucide-react";
 import { OUTREACH_API, RESUMES_API } from "../lib/api.js";
 import { apiFetch } from "../lib/apiFetch.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { LoadingState } from "../components/LoadingState.jsx";
 import { ContactsFieldArray } from "../components/ContactsFieldArray.jsx";
+import { cn } from "@/lib/utils.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,8 +62,30 @@ function editFormFromCompany(company) {
       email: contact.email || "",
       category: contact.category || "Other",
       categoryTouched: true,
+      // Carried through untouched so a save of an unrelated field (e.g.
+      // just toggling Applied) doesn't wipe this contact's generated
+      // draft — normalizeOutreachCompanyPayload preserves it server-side
+      // only when the client actually echoes it back.
+      lastGeneratedEmail: contact.lastGeneratedEmail,
     })),
   };
+}
+
+// Drafts persisted server-side are the source of truth on page load. Only
+// called once per company-id navigation (see the effect below) — not on
+// every later company update — so an in-progress, not-yet-copied edit to a
+// draft's subject/body is never silently clobbered by an unrelated save.
+function draftsFromCompany(company) {
+  return (company.contacts || [])
+    .filter((contact) => contact.lastGeneratedEmail?.subject || contact.lastGeneratedEmail?.body)
+    .map((contact) => ({
+      contactId: contact._id,
+      contactName: contact.name,
+      subject: contact.lastGeneratedEmail.subject || "",
+      body: contact.lastGeneratedEmail.body || "",
+      copied: false,
+      error: "",
+    }));
 }
 
 export default function OutreachCompanyDetail() {
@@ -91,6 +114,7 @@ export default function OutreachCompanyDetail() {
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState("");
   const [drafts, setDrafts] = useState([]); // [{ contactId, contactName, subject, body, copied, error }]
+  const [expandedDraftIds, setExpandedDraftIds] = useState(new Set());
 
   useEffect(() => {
     async function loadCompany() {
@@ -101,6 +125,8 @@ export default function OutreachCompanyDetail() {
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Couldn't load this company.");
         setCompany(data.company);
+        setDrafts(draftsFromCompany(data.company));
+        setExpandedDraftIds(new Set());
       } catch (err) {
         setError(err.message);
       } finally {
@@ -139,6 +165,15 @@ export default function OutreachCompanyDetail() {
 
   function toggleContact(contactId) {
     setSelectedContactIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(contactId)) next.delete(contactId);
+      else next.add(contactId);
+      return next;
+    });
+  }
+
+  function toggleExpanded(contactId) {
+    setExpandedDraftIds((prev) => {
       const next = new Set(prev);
       if (next.has(contactId)) next.delete(contactId);
       else next.add(contactId);
@@ -238,7 +273,15 @@ export default function OutreachCompanyDetail() {
       }
     }
 
-    setDrafts(results);
+    // Merge rather than replace — an older draft for a contact not in this
+    // batch stays visible, and the new ones replace any prior draft for the
+    // same contact by id.
+    setDrafts((prev) => {
+      const byId = new Map(prev.map((draft) => [draft.contactId, draft]));
+      results.forEach((draft) => byId.set(draft.contactId, draft));
+      return [...byId.values()];
+    });
+    setExpandedDraftIds((prev) => new Set([...prev, ...results.map((draft) => draft.contactId)]));
     setGenerating(false);
   }
 
@@ -258,46 +301,44 @@ export default function OutreachCompanyDetail() {
       <div className="md:sticky md:top-0 z-10 bg-background pb-10 pt-7 md:pt-10 px-1 md:px-2">
         <Breadcrumbs backTo="/outreach" trail={[{ label: "Outreach Tracker", to: "/outreach" }, { label: company?.companyName || "Company" }]} />
         {company && (
-          <>
-            <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">{company.companyName}</h1>
-                  {safeWebsiteUrl(company.websiteUrl) && (
-                    <a
-                      href={safeWebsiteUrl(company.websiteUrl)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-muted-foreground hover:text-primary"
-                      aria-label={`Open ${company.companyName}'s website`}
-                    >
-                      <ExternalLink className="size-4" />
-                    </a>
-                  )}
-                </div>
-                <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground md:text-base">
-                  {company.location && <span>{company.location}</span>}
-                  <span>{company.applied ? "Applied" : "Not applied"}</span>
-                  <Badge className={responseBadgeClassName(company.response)}>{company.response}</Badge>
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                {!isEditing && (
-                  <Button size="sm" variant="outline" onClick={startEditing}>
-                    <Pencil className="size-4" /> Edit
-                  </Button>
+          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="flex items-center gap-1.5">
+                <h1 className="font-display text-2xl font-semibold text-foreground md:text-3xl">{company.companyName}</h1>
+                {safeWebsiteUrl(company.websiteUrl) && (
+                  <a
+                    href={safeWebsiteUrl(company.websiteUrl)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-muted-foreground hover:text-primary"
+                    aria-label={`Open ${company.companyName}'s website`}
+                  >
+                    <ExternalLink className="size-4" />
+                  </a>
                 )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="text-destructive hover:text-destructive"
-                  onClick={() => setDeleteDialogOpen(true)}
-                >
-                  <Trash2 className="size-4" /> Delete
-                </Button>
               </div>
+              <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground md:text-base">
+                {company.location && <span>{company.location}</span>}
+                <span>{company.applied ? "Applied" : "Not applied"}</span>
+                <Badge className={responseBadgeClassName(company.response)}>{company.response}</Badge>
+              </p>
             </div>
-          </>
+            <div className="flex items-center gap-2">
+              {!isEditing && (
+                <Button size="sm" variant="outline" onClick={startEditing}>
+                  <Pencil className="size-4" /> Edit
+                </Button>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-destructive hover:text-destructive"
+                onClick={() => setDeleteDialogOpen(true)}
+              >
+                <Trash2 className="size-4" /> Delete
+              </Button>
+            </div>
+          </div>
         )}
       </div>
 
@@ -309,129 +350,129 @@ export default function OutreachCompanyDetail() {
       {loading && <LoadingState message="Loading this company…" />}
 
       {!loading && company && (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-lg border border-border bg-card p-5 shadow-card">
-            {isEditing ? (
-              <div className="flex flex-col gap-4">
-                {editError && (
-                  <Alert variant="destructive">
-                    <AlertDescription>{editError}</AlertDescription>
-                  </Alert>
-                )}
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="oc-companyName">Company name</Label>
-                  <Input
-                    id="oc-companyName"
-                    value={editForm.companyName}
-                    onChange={(event) => setEditForm((prev) => ({ ...prev, companyName: event.target.value }))}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="oc-location">Location</Label>
-                  <Input
-                    id="oc-location"
-                    value={editForm.location}
-                    onChange={(event) => setEditForm((prev) => ({ ...prev, location: event.target.value }))}
-                  />
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="oc-websiteUrl">Website (optional, never fetched)</Label>
-                  <Input
-                    id="oc-websiteUrl"
-                    value={editForm.websiteUrl}
-                    onChange={(event) => setEditForm((prev) => ({ ...prev, websiteUrl: event.target.value }))}
-                    placeholder="https://…"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    id="oc-applied"
-                    checked={editForm.applied}
-                    onCheckedChange={(checked) => setEditForm((prev) => ({ ...prev, applied: checked === true }))}
-                  />
-                  <Label htmlFor="oc-applied" className="font-normal">
-                    Applied
-                  </Label>
-                </div>
-
-                <div className="flex flex-col gap-1.5">
-                  <Label>Response</Label>
-                  <Select value={editForm.response} onValueChange={(value) => setEditForm((prev) => ({ ...prev, response: value }))}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {RESPONSE_OPTIONS.map((option) => (
-                        <SelectItem key={option} value={option}>
-                          {option}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <ContactsFieldArray
-                  contacts={editForm.contacts}
-                  onChange={(contacts) => setEditForm((prev) => ({ ...prev, contacts }))}
-                />
-
-                <div className="flex flex-col gap-1.5">
-                  <Label htmlFor="oc-notes">Notes</Label>
-                  <Textarea
-                    id="oc-notes"
-                    rows={4}
-                    value={editForm.notes}
-                    onChange={(event) => setEditForm((prev) => ({ ...prev, notes: event.target.value }))}
-                  />
-                </div>
-
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={saveEdit}
-                    disabled={savingEdit || !editForm.companyName.trim() || !editForm.contacts.every((c) => c.name.trim())}
-                  >
-                    {savingEdit ? "Saving…" : "Save"}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)} disabled={savingEdit}>
-                    Cancel
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col gap-4">
-                <div>
-                  <p className="mb-1 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Location</p>
-                  <p className="text-sm text-foreground">{company.location || "Not given."}</p>
-                </div>
-                <div>
-                  <p className="mb-1 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Website</p>
-                  {safeWebsiteUrl(company.websiteUrl) ? (
-                    <a
-                      href={safeWebsiteUrl(company.websiteUrl)}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-sm text-primary underline underline-offset-2 break-all"
-                    >
-                      {company.websiteUrl}
-                    </a>
-                  ) : (
-                    <p className="text-sm text-foreground break-all">{company.websiteUrl || "Not given."}</p>
+        <>
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+            <div className="rounded-lg border border-border bg-card p-5 shadow-card">
+              {isEditing ? (
+                <div className="flex flex-col gap-4">
+                  {editError && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{editError}</AlertDescription>
+                    </Alert>
                   )}
-                </div>
-                <div>
-                  <p className="mb-1 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Notes</p>
-                  <p className="text-sm whitespace-pre-wrap text-foreground">{company.notes || "No notes yet."}</p>
-                </div>
-              </div>
-            )}
-          </div>
 
-          <div className="flex flex-col gap-6">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="oc-companyName">Company name</Label>
+                    <Input
+                      id="oc-companyName"
+                      value={editForm.companyName}
+                      onChange={(event) => setEditForm((prev) => ({ ...prev, companyName: event.target.value }))}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="oc-location">Location</Label>
+                    <Input
+                      id="oc-location"
+                      value={editForm.location}
+                      onChange={(event) => setEditForm((prev) => ({ ...prev, location: event.target.value }))}
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="oc-websiteUrl">Website (optional, never fetched)</Label>
+                    <Input
+                      id="oc-websiteUrl"
+                      value={editForm.websiteUrl}
+                      onChange={(event) => setEditForm((prev) => ({ ...prev, websiteUrl: event.target.value }))}
+                      placeholder="https://…"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="oc-applied"
+                      checked={editForm.applied}
+                      onCheckedChange={(checked) => setEditForm((prev) => ({ ...prev, applied: checked === true }))}
+                    />
+                    <Label htmlFor="oc-applied" className="font-normal">
+                      Applied
+                    </Label>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label>Response</Label>
+                    <Select value={editForm.response} onValueChange={(value) => setEditForm((prev) => ({ ...prev, response: value }))}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {RESPONSE_OPTIONS.map((option) => (
+                          <SelectItem key={option} value={option}>
+                            {option}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <ContactsFieldArray
+                    contacts={editForm.contacts}
+                    onChange={(contacts) => setEditForm((prev) => ({ ...prev, contacts }))}
+                  />
+
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="oc-notes">Notes</Label>
+                    <Textarea
+                      id="oc-notes"
+                      rows={4}
+                      value={editForm.notes}
+                      onChange={(event) => setEditForm((prev) => ({ ...prev, notes: event.target.value }))}
+                    />
+                  </div>
+
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={saveEdit}
+                      disabled={savingEdit || !editForm.companyName.trim() || !editForm.contacts.every((c) => c.name.trim())}
+                    >
+                      {savingEdit ? "Saving…" : "Save"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setIsEditing(false)} disabled={savingEdit}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <div>
+                    <p className="mb-1 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Location</p>
+                    <p className="text-sm text-foreground">{company.location || "Not given."}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Website</p>
+                    {safeWebsiteUrl(company.websiteUrl) ? (
+                      <a
+                        href={safeWebsiteUrl(company.websiteUrl)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-primary underline underline-offset-2 break-all"
+                      >
+                        {company.websiteUrl}
+                      </a>
+                    ) : (
+                      <p className="text-sm text-foreground break-all">{company.websiteUrl || "Not given."}</p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="mb-1 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Notes</p>
+                    <p className="text-sm whitespace-pre-wrap text-foreground">{company.notes || "No notes yet."}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
             <div className="rounded-lg border border-border bg-card p-5 shadow-card">
               <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Contacts for outreach</p>
 
@@ -478,93 +519,145 @@ export default function OutreachCompanyDetail() {
                 </ul>
               )}
             </div>
+          </div>
 
-            <div className="rounded-lg border border-border bg-card p-5 shadow-card">
-              <p className="mb-3 font-mono text-[11px] tracking-wide text-ink-faint uppercase">Generate email</p>
-
-              {generateError && (
-                <Alert variant="destructive" className="mb-3">
-                  <AlertDescription>{generateError}</AlertDescription>
-                </Alert>
-              )}
-
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col gap-1.5">
-                  <Label>Goal</Label>
-                  <Select value={generateGoal} onValueChange={setGenerateGoal}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="speculative">Speculative — ask about a role, or to be kept in mind</SelectItem>
-                      <SelectItem value="referral">Referral — ask about a role already applied to elsewhere</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {generateGoal === "referral" && (
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="referral-role">Which role</Label>
-                    <Input
-                      id="referral-role"
-                      value={referralRole}
-                      onChange={(event) => setReferralRole(event.target.value)}
-                      placeholder="e.g. the Backend Engineer position"
-                    />
-                  </div>
-                )}
-
-                <Button
-                  size="sm"
-                  className="w-fit"
-                  disabled={generating || selectedContactIds.size === 0}
-                  onClick={generateEmails}
-                >
-                  <Mail className="size-4" />
-                  {generating ? "Generating…" : `Generate ${selectedContactIds.size || ""} email${selectedContactIds.size === 1 ? "" : "s"}`}
-                </Button>
+          <div className="mt-6 rounded-lg border border-border bg-card p-4 shadow-card">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex flex-col gap-1.5 sm:w-64">
+                <Label>Goal</Label>
+                <Select value={generateGoal} onValueChange={setGenerateGoal}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="speculative">Speculative — ask about a role, or to be kept in mind</SelectItem>
+                    <SelectItem value="referral">Referral — ask about a role already applied to elsewhere</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
 
-              {drafts.length > 0 && (
-                <div className="mt-5 flex flex-col gap-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-foreground">Generated drafts</p>
-                    <Button variant="ghost" size="sm" onClick={() => setDrafts([])}>
-                      Clear
-                    </Button>
-                  </div>
-                  {drafts.map((draft) => (
-                    <div key={draft.contactId} className="rounded-md border border-border p-3">
-                      <p className="mb-2 text-sm font-medium text-foreground">{draft.contactName}</p>
-                      {draft.error ? (
-                        <Alert variant="destructive">
-                          <AlertDescription>{draft.error}</AlertDescription>
-                        </Alert>
-                      ) : (
-                        <div className="flex flex-col gap-2">
-                          <Input
-                            value={draft.subject}
-                            onChange={(event) => updateDraft(draft.contactId, "subject", event.target.value)}
-                            aria-label={`Subject for ${draft.contactName}`}
-                          />
-                          <Textarea
-                            rows={6}
-                            value={draft.body}
-                            onChange={(event) => updateDraft(draft.contactId, "body", event.target.value)}
-                            aria-label={`Body for ${draft.contactName}`}
-                          />
-                          <Button size="sm" variant="outline" className="w-fit" onClick={() => copyDraft(draft.contactId)}>
-                            {draft.copied ? "Copied!" : "Copy"}
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
+              {generateGoal === "referral" && (
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <Label htmlFor="referral-role">Which role</Label>
+                  <Input
+                    id="referral-role"
+                    value={referralRole}
+                    onChange={(event) => setReferralRole(event.target.value)}
+                    placeholder="e.g. the Backend Engineer position"
+                  />
                 </div>
               )}
+
+              <Button
+                className="sm:ml-auto"
+                disabled={generating || selectedContactIds.size === 0}
+                onClick={generateEmails}
+              >
+                <Mail className="size-4" />
+                {generating ? "Generating…" : `Generate ${selectedContactIds.size || ""} email${selectedContactIds.size === 1 ? "" : "s"}`}
+              </Button>
             </div>
+
+            {generateError && (
+              <Alert variant="destructive" className="mt-3">
+                <AlertDescription>{generateError}</AlertDescription>
+              </Alert>
+            )}
           </div>
-        </div>
+
+          {drafts.length > 0 && (
+            <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card shadow-card">
+              <div className="flex items-center justify-between border-b border-border p-4">
+                <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">Generated drafts</p>
+                <Button variant="ghost" size="sm" onClick={() => setDrafts([])}>
+                  Clear all
+                </Button>
+              </div>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border text-left">
+                    <th scope="col" className="py-2.5 pl-4 font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">
+                      Contact
+                    </th>
+                    <th scope="col" className="py-2.5 pl-4 font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">
+                      Subject
+                    </th>
+                    <th scope="col" className="py-2.5 pl-4 font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">
+                      Status
+                    </th>
+                    <th scope="col" className="w-10" aria-hidden="true" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {drafts.map((draft) => {
+                    const expanded = expandedDraftIds.has(draft.contactId);
+                    return (
+                      <Fragment key={draft.contactId}>
+                        <tr
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => toggleExpanded(draft.contactId)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              toggleExpanded(draft.contactId);
+                            }
+                          }}
+                          className="cursor-pointer border-b border-border last:border-0 hover:bg-secondary/40 focus-visible:outline-none"
+                        >
+                          <td className="py-3 pl-4 font-medium text-foreground">{draft.contactName}</td>
+                          <td className="max-w-xs truncate py-3 pl-4 text-foreground">
+                            {draft.error ? <span className="text-muted-foreground">—</span> : draft.subject}
+                          </td>
+                          <td className="py-3 pl-4">
+                            {draft.error ? (
+                              <Badge variant="destructive">Error</Badge>
+                            ) : draft.copied ? (
+                              <Badge variant="secondary">Copied</Badge>
+                            ) : (
+                              <Badge variant="outline">Ready</Badge>
+                            )}
+                          </td>
+                          <td className="py-3 pr-4 text-right">
+                            <ChevronDown className={cn("size-4 text-muted-foreground transition-transform", expanded && "rotate-180")} />
+                          </td>
+                        </tr>
+                        {expanded && (
+                          <tr className="border-b border-border bg-secondary/20 last:border-0">
+                            <td colSpan={4} className="p-4">
+                              {draft.error ? (
+                                <Alert variant="destructive">
+                                  <AlertDescription>{draft.error}</AlertDescription>
+                                </Alert>
+                              ) : (
+                                <div className="flex flex-col gap-2">
+                                  <Input
+                                    value={draft.subject}
+                                    onChange={(event) => updateDraft(draft.contactId, "subject", event.target.value)}
+                                    aria-label={`Subject for ${draft.contactName}`}
+                                  />
+                                  <Textarea
+                                    rows={6}
+                                    value={draft.body}
+                                    onChange={(event) => updateDraft(draft.contactId, "body", event.target.value)}
+                                    aria-label={`Body for ${draft.contactName}`}
+                                  />
+                                  <Button size="sm" variant="outline" className="w-fit" onClick={() => copyDraft(draft.contactId)}>
+                                    {draft.copied ? "Copied!" : "Copy"}
+                                  </Button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
       )}
 
       <Dialog open={deleteDialogOpen} onOpenChange={(open) => !open && !deleting && setDeleteDialogOpen(false)}>
