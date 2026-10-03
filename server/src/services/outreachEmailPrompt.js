@@ -67,11 +67,15 @@ export function buildOutreachEmailMessages({ goal, referralRole, companyName, co
         'skill, achievement, employer, project, or fact about the candidate or the company. Skip empty opening ' +
         'pleasantries like "I hope this email finds you well" — go straight into who the candidate is and why ' +
         "they're reaching out. No filler phrases (\"results-driven\", \"proven track record\"), no first-person " +
-        'pronoun in the subject line. Greet the contact by their first name only. Mention one or two concrete, ' +
-        'specific accomplishments woven naturally into a sentence — never a bulleted list or a resume recap; ' +
-        'one compelling detail beats full coverage, since the attached CV carries the rest. When citing a ' +
+        'pronoun in the subject line. Greet the contact by their first name only, on its own line (e.g. "Hi ' +
+        'Lewis," or "Lewis,"), then a blank line, then the body text starting fresh — never run the greeting ' +
+        'into the same sentence as the rest of the message. Mention one or two concrete, specific ' +
+        'accomplishments woven naturally into a sentence — never a bulleted list or a resume recap; one ' +
+        'compelling detail beats full coverage, since the attached CV carries the rest. When citing a ' +
         "project, use its exact given name verbatim (e.g. \"SolicitorSense AI\") — never a generic paraphrase " +
-        'of what it does instead of naming it. If company notes ' +
+        'of what it does instead of naming it, and never label it with a casual meta-phrase like "this is my ' +
+        'recent work" or "I completed a project on X" — weave the name into a sentence about relevant ' +
+        'experience the way a professional bio would, not as its own announcement. If company notes ' +
         'are given, weave in one genuine specific from them rather than giving "why this company" its own ' +
         'paragraph. State the ask directly and specifically — never a vague phrase. End with one brief, ' +
         'confident closing line, then a sign-off ("Best," or "Kind regards,") followed by the candidate\'s ' +

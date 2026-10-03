@@ -117,6 +117,23 @@ test('the system message instructs a first-name-only greeting', () => {
   assert.ok(system.content.toLowerCase().includes('first name'));
 });
 
+// Found live: the model ran the greeting into the same sentence as the
+// rest of the message ("Lewis, reaching out to inquire...") instead of a
+// standalone greeting line.
+test('the system message requires the greeting on its own line, separated from the body by a blank line', () => {
+  const [system] = buildOutreachEmailMessages(BASE);
+  assert.ok(system.content.toLowerCase().includes('own line'));
+  assert.ok(system.content.toLowerCase().includes('blank line'));
+});
+
+// Found live: the model labeled a cited project with a casual meta-phrase
+// ("Recently, I completed a project on...") instead of weaving it into a
+// professional sentence about experience.
+test('the system message bans casual meta-labeling of a cited project', () => {
+  const [system] = buildOutreachEmailMessages(BASE);
+  assert.ok(system.content.toLowerCase().includes('recent work'));
+});
+
 test('the system message instructs one or two concrete accomplishments, never a bulleted list, and a real sign-off', () => {
   const [system] = buildOutreachEmailMessages(BASE);
   assert.ok(system.content.toLowerCase().includes('one or two concrete'));
