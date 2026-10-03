@@ -6,6 +6,7 @@ import { apiFetch } from "../lib/apiFetch.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
 import { LoadingState } from "../components/LoadingState.jsx";
 import { ContactsFieldArray } from "../components/ContactsFieldArray.jsx";
+import { InfoTooltip } from "../components/approval/InfoTooltip.jsx";
 import { cn } from "@/lib/utils.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -483,7 +484,10 @@ export default function OutreachCompanyDetail() {
                   />
 
                   <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="oc-notes">Notes</Label>
+                    <div className="flex items-center gap-1.5">
+                      <Label htmlFor="oc-notes">Notes</Label>
+                      <InfoTooltip text="Real, specific things about this company — what they build, a personal connection, something from their site. This is the only source the AI draws on for the 'why this company' part of a generated email, so the more specific, the better the result." />
+                    </div>
                     <Textarea
                       id="oc-notes"
                       rows={4}
