@@ -583,8 +583,8 @@ export default function OutreachCompanyDetail() {
           </div>
 
           <div className="mt-6 rounded-lg border border-border bg-card p-4 shadow-card">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="flex flex-col gap-1.5 sm:w-64">
+            <div className="flex flex-col flex-wrap gap-3 sm:flex-row sm:items-end">
+              <div className="flex min-w-[220px] flex-1 flex-col gap-1.5 sm:flex-initial sm:basis-56">
                 <Label>Goal</Label>
                 <Select value={generateGoal} onValueChange={setGenerateGoal}>
                   <SelectTrigger>
@@ -598,7 +598,7 @@ export default function OutreachCompanyDetail() {
               </div>
 
               {generateGoal === "referral" && (
-                <div className="flex flex-1 flex-col gap-1.5">
+                <div className="flex min-w-[220px] flex-1 flex-col gap-1.5">
                   <Label htmlFor="referral-role">Which role</Label>
                   <Input
                     id="referral-role"
@@ -610,7 +610,7 @@ export default function OutreachCompanyDetail() {
               )}
 
               <Button
-                className="sm:ml-auto"
+                className="w-full sm:ml-auto sm:w-auto"
                 disabled={generating || selectedContactIds.size === 0}
                 onClick={generateEmails}
               >

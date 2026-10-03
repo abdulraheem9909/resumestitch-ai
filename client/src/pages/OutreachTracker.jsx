@@ -5,10 +5,12 @@ import { OUTREACH_API } from "../lib/api.js";
 import { apiFetch } from "../lib/apiFetch.js";
 import { EmptyState } from "../components/EmptyState.jsx";
 import { LoadingState } from "../components/LoadingState.jsx";
+import { ContactsFieldArray } from "../components/ContactsFieldArray.jsx";
 import { cn } from "@/lib/utils.js";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -19,11 +21,20 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const RESPONSE_OPTIONS = ["No reply", "Replied", "Interview", "Offer", "Rejected"];
 
-const EMPTY_CREATE_FORM = { companyName: "", location: "" };
+const EMPTY_CREATE_FORM = {
+  companyName: "",
+  location: "",
+  websiteUrl: "",
+  notes: "",
+  applied: false,
+  response: "No reply",
+  contacts: [],
+};
 
 // Response overrides applied — checked first. "No reply" (the default) is
 // deliberately absent from this map so it falls through to the applied
@@ -56,10 +67,6 @@ function responseBadgeClassName(response) {
   }
 }
 
-function contactsSummary(contacts) {
-  if (!contacts || contacts.length === 0) return null;
-  return contacts.map((contact) => (contact.role ? `${contact.name} (${contact.role})` : contact.name)).join(", ");
-}
 
 // websiteUrl is free text typed in at add/edit time, never fetched server-
 // side (same treatment as Application.referenceUrl) — only render it as a
@@ -129,10 +136,9 @@ export default function OutreachTracker() {
     setCreateOpen(true);
   }
 
-  // Deliberately minimal — just enough to create the record. Everything
-  // else (contacts, resume link, notes, applied/response, generation) is
-  // edited on the company's own detail page, the same split Master Resumes
-  // uses between its "Upload" dialog and the resume's own page.
+  // The full company form, same field set as the detail page's edit form —
+  // only the resume link is deliberately left out here, since that's a
+  // detail-page-only concern (see OutreachCompanyDetail.jsx).
   async function createCompany() {
     setCreating(true);
     setCreateError("");
@@ -337,11 +343,18 @@ export default function OutreachTracker() {
                   <td className="py-3.5 pl-4 text-foreground">
                     {company.location || <span className="text-muted-foreground">—</span>}
                   </td>
-                  <td className="py-3.5 pl-4 max-w-[240px] text-foreground">
-                    {contactsSummary(company.contacts) ? (
-                      <span className="line-clamp-2">{contactsSummary(company.contacts)}</span>
-                    ) : (
+                  <td className="py-3.5 pl-4 max-w-[200px] text-foreground">
+                    {(company.contacts || []).length === 0 ? (
                       <span className="text-muted-foreground">—</span>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        <span className="truncate">{company.contacts[0].name}</span>
+                        {company.contacts.length > 1 && (
+                          <Badge variant="secondary" className="shrink-0">
+                            +{company.contacts.length - 1}
+                          </Badge>
+                        )}
+                      </div>
                     )}
                   </td>
                   <td className="py-3.5 pl-4 text-foreground">{company.applied ? "Yes" : "No"}</td>
@@ -388,11 +401,12 @@ export default function OutreachTracker() {
       )}
 
       <Dialog open={createOpen} onOpenChange={(open) => !creating && setCreateOpen(open)}>
-        <DialogContent>
+        <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Add a company</DialogTitle>
             <DialogDescription>
-              Just the basics for now — add contacts, notes, and everything else from the company's own page.
+              Track a company you emailed directly — who you talked to, and where it stands. You can link a
+              resume for AI email generation from the company's own page once it's created.
             </DialogDescription>
           </DialogHeader>
 
@@ -421,11 +435,66 @@ export default function OutreachTracker() {
             />
           </div>
 
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="oc-create-websiteUrl">Website (optional, never fetched)</Label>
+            <Input
+              id="oc-create-websiteUrl"
+              value={createForm.websiteUrl}
+              onChange={(event) => setCreateForm((prev) => ({ ...prev, websiteUrl: event.target.value }))}
+              placeholder="https://…"
+            />
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Checkbox
+              id="oc-create-applied"
+              checked={createForm.applied}
+              onCheckedChange={(checked) => setCreateForm((prev) => ({ ...prev, applied: checked === true }))}
+            />
+            <Label htmlFor="oc-create-applied" className="font-normal">
+              Applied
+            </Label>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <Label>Response</Label>
+            <Select value={createForm.response} onValueChange={(value) => setCreateForm((prev) => ({ ...prev, response: value }))}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RESPONSE_OPTIONS.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <ContactsFieldArray
+            contacts={createForm.contacts}
+            onChange={(contacts) => setCreateForm((prev) => ({ ...prev, contacts }))}
+          />
+
+          <div className="flex flex-col gap-1.5">
+            <Label htmlFor="oc-create-notes">Notes</Label>
+            <Textarea
+              id="oc-create-notes"
+              rows={4}
+              value={createForm.notes}
+              onChange={(event) => setCreateForm((prev) => ({ ...prev, notes: event.target.value }))}
+            />
+          </div>
+
           <DialogFooter>
             <Button variant="ghost" onClick={() => setCreateOpen(false)} disabled={creating}>
               Cancel
             </Button>
-            <Button onClick={createCompany} disabled={creating || !createForm.companyName.trim()}>
+            <Button
+              onClick={createCompany}
+              disabled={creating || !createForm.companyName.trim() || !createForm.contacts.every((c) => c.name.trim())}
+            >
               {creating ? "Adding…" : "Add company"}
             </Button>
           </DialogFooter>
