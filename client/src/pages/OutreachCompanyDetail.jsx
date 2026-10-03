@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ChevronDown, ExternalLink, Mail, Pencil, Trash2 } from "lucide-react";
+import { Check, ChevronDown, Copy, ExternalLink, Mail, Pencil, Trash2 } from "lucide-react";
 import { OUTREACH_API, RESUMES_API } from "../lib/api.js";
 import { apiFetch } from "../lib/apiFetch.js";
 import Breadcrumbs from "../components/Breadcrumbs.jsx";
@@ -83,7 +83,8 @@ function draftsFromCompany(company) {
       contactName: contact.name,
       subject: contact.lastGeneratedEmail.subject || "",
       body: contact.lastGeneratedEmail.body || "",
-      copied: false,
+      copiedSubject: false,
+      copiedBody: false,
       error: "",
     }));
 }
@@ -267,9 +268,25 @@ export default function OutreachCompanyDetail() {
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || "Couldn't generate this email.");
-        results.push({ contactId: contact._id, contactName: contact.name, subject: data.subject, body: data.body, copied: false, error: "" });
+        results.push({
+          contactId: contact._id,
+          contactName: contact.name,
+          subject: data.subject,
+          body: data.body,
+          copiedSubject: false,
+          copiedBody: false,
+          error: "",
+        });
       } catch (err) {
-        results.push({ contactId: contact._id, contactName: contact.name, subject: "", body: "", copied: false, error: err.message });
+        results.push({
+          contactId: contact._id,
+          contactName: contact.name,
+          subject: "",
+          body: "",
+          copiedSubject: false,
+          copiedBody: false,
+          error: err.message,
+        });
       }
     }
 
@@ -286,14 +303,58 @@ export default function OutreachCompanyDetail() {
   }
 
   function updateDraft(contactId, field, value) {
-    setDrafts((prev) => prev.map((draft) => (draft.contactId === contactId ? { ...draft, [field]: value, copied: false } : draft)));
+    setDrafts((prev) =>
+      prev.map((draft) =>
+        draft.contactId === contactId ? { ...draft, [field]: value, copiedSubject: false, copiedBody: false } : draft
+      )
+    );
   }
 
-  async function copyDraft(contactId) {
+  async function copyField(contactId, field) {
     const draft = drafts.find((d) => d.contactId === contactId);
     if (!draft) return;
-    await navigator.clipboard.writeText(`Subject: ${draft.subject}\n\n${draft.body}`);
-    setDrafts((prev) => prev.map((d) => (d.contactId === contactId ? { ...d, copied: true } : d)));
+    await navigator.clipboard.writeText(field === "subject" ? draft.subject : draft.body);
+    const flag = field === "subject" ? "copiedSubject" : "copiedBody";
+    setDrafts((prev) => prev.map((d) => (d.contactId === contactId ? { ...d, [flag]: true } : d)));
+  }
+
+  // Shared by both delete paths below — clears lastGeneratedEmail for the
+  // given contacts via the same whole-object PATCH the resume-link picker
+  // already uses, so a "deleted" draft doesn't silently come back on the
+  // next page load the way the pre-fix hydration bug did.
+  async function clearGeneratedEmails(contactIds) {
+    const clearSet = new Set(contactIds);
+    const contacts = (company.contacts || []).map((contact) => {
+      if (!clearSet.has(contact._id)) return contact;
+      const { lastGeneratedEmail: _lastGeneratedEmail, ...rest } = contact;
+      return rest;
+    });
+    await saveCompanyPayload({ ...company, contacts });
+  }
+
+  async function deleteDraft(contactId) {
+    setDrafts((prev) => prev.filter((draft) => draft.contactId !== contactId));
+    setExpandedDraftIds((prev) => {
+      const next = new Set(prev);
+      next.delete(contactId);
+      return next;
+    });
+    try {
+      await clearGeneratedEmails([contactId]);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function clearAllDrafts() {
+    const contactIds = drafts.map((draft) => draft.contactId);
+    setDrafts([]);
+    setExpandedDraftIds(new Set());
+    try {
+      await clearGeneratedEmails(contactIds);
+    } catch (err) {
+      setError(err.message);
+    }
   }
 
   return (
@@ -569,7 +630,7 @@ export default function OutreachCompanyDetail() {
             <div className="mt-6 overflow-hidden rounded-lg border border-border bg-card shadow-card">
               <div className="flex items-center justify-between border-b border-border p-4">
                 <p className="font-mono text-[11px] tracking-wide text-ink-faint uppercase">Generated drafts</p>
-                <Button variant="ghost" size="sm" onClick={() => setDrafts([])}>
+                <Button variant="ghost" size="sm" onClick={clearAllDrafts}>
                   Clear all
                 </Button>
               </div>
@@ -585,6 +646,7 @@ export default function OutreachCompanyDetail() {
                     <th scope="col" className="py-2.5 pl-4 font-mono text-[11px] font-medium tracking-wide text-ink-faint uppercase">
                       Status
                     </th>
+                    <th scope="col" className="w-10" aria-hidden="true" />
                     <th scope="col" className="w-10" aria-hidden="true" />
                   </tr>
                 </thead>
@@ -612,11 +674,26 @@ export default function OutreachCompanyDetail() {
                           <td className="py-3 pl-4">
                             {draft.error ? (
                               <Badge variant="destructive">Error</Badge>
-                            ) : draft.copied ? (
+                            ) : draft.copiedSubject && draft.copiedBody ? (
                               <Badge variant="secondary">Copied</Badge>
                             ) : (
                               <Badge variant="outline">Ready</Badge>
                             )}
+                          </td>
+                          <td className="py-3 text-right">
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              className="text-muted-foreground hover:text-destructive"
+                              aria-label={`Delete draft for ${draft.contactName}`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                deleteDraft(draft.contactId);
+                              }}
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
                           </td>
                           <td className="py-3 pr-4 text-right">
                             <ChevronDown className={cn("size-4 text-muted-foreground transition-transform", expanded && "rotate-180")} />
@@ -624,27 +701,52 @@ export default function OutreachCompanyDetail() {
                         </tr>
                         {expanded && (
                           <tr className="border-b border-border bg-secondary/20 last:border-0">
-                            <td colSpan={4} className="p-4">
+                            <td colSpan={5} className="p-4">
                               {draft.error ? (
                                 <Alert variant="destructive">
                                   <AlertDescription>{draft.error}</AlertDescription>
                                 </Alert>
                               ) : (
-                                <div className="flex flex-col gap-2">
-                                  <Input
-                                    value={draft.subject}
-                                    onChange={(event) => updateDraft(draft.contactId, "subject", event.target.value)}
-                                    aria-label={`Subject for ${draft.contactName}`}
-                                  />
-                                  <Textarea
-                                    rows={6}
-                                    value={draft.body}
-                                    onChange={(event) => updateDraft(draft.contactId, "body", event.target.value)}
-                                    aria-label={`Body for ${draft.contactName}`}
-                                  />
-                                  <Button size="sm" variant="outline" className="w-fit" onClick={() => copyDraft(draft.contactId)}>
-                                    {draft.copied ? "Copied!" : "Copy"}
-                                  </Button>
+                                <div className="flex flex-col gap-3">
+                                  <div className="flex flex-col gap-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <Label className="text-xs text-muted-foreground">Subject</Label>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        onClick={() => copyField(draft.contactId, "subject")}
+                                        aria-label={`Copy subject for ${draft.contactName}`}
+                                      >
+                                        {draft.copiedSubject ? <Check className="size-4" /> : <Copy className="size-4" />}
+                                      </Button>
+                                    </div>
+                                    <Input
+                                      value={draft.subject}
+                                      onChange={(event) => updateDraft(draft.contactId, "subject", event.target.value)}
+                                      aria-label={`Subject for ${draft.contactName}`}
+                                    />
+                                  </div>
+                                  <div className="flex flex-col gap-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <Label className="text-xs text-muted-foreground">Body</Label>
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        onClick={() => copyField(draft.contactId, "body")}
+                                        aria-label={`Copy body for ${draft.contactName}`}
+                                      >
+                                        {draft.copiedBody ? <Check className="size-4" /> : <Copy className="size-4" />}
+                                      </Button>
+                                    </div>
+                                    <Textarea
+                                      rows={6}
+                                      value={draft.body}
+                                      onChange={(event) => updateDraft(draft.contactId, "body", event.target.value)}
+                                      aria-label={`Body for ${draft.contactName}`}
+                                    />
+                                  </div>
                                 </div>
                               )}
                             </td>
