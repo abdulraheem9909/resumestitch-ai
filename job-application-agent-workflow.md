@@ -12,6 +12,8 @@ Three parts:
 
 Every node is designed to be **idempotent** and every generation is **versioned** — see sections 6 and 7 before writing any node.
 
+A fourth feature, the **Outreach Tracker** (section 10), sits entirely outside this pipeline — no LangGraph thread, no checkpoint, no ATS scoring. It shares only authentication and the master resumes it reads for context.
+
 ---
 
 ## 2. Resume management (outside the pipeline)
@@ -332,3 +334,91 @@ build sequence that was actually followed, not as a forward-looking plan.
 8. Node 7 (cover letter — conditional on `coverLetterRequested`), node 8 (style linting), node 9 (ATS + recruiter with explicit flags) and the conditional retry edge from section 5.
 9. Node 11 (idempotent logging + `docx`/`exceljs` export) with full versioning metadata.
 10. Resume deletion cascade (section 2.4) — build once there's real data across applications/outputs/checkpoints to actually cascade through.
+
+---
+
+## 10. Outreach Tracker (entirely outside the pipeline)
+
+A plain CRUD tracker for companies the user emails directly during a job search — previously
+kept by hand in a spreadsheet — plus a per-contact AI email drafter. It touches nothing in
+`server/src/graph/`: no LangGraph thread, no checkpoint, no `GenerationCache`, no ATS score,
+no fabrication verification. The only thing it borrows from the rest of the app is a master
+resume, read for context when drafting an email.
+
+### 10.1 Data model — `outreachCompanies`
+
+```
+{
+  _id,
+  userId,                     // ObjectId, ref User — every query scoped by this
+  companyName: string,        // required
+  location: string,
+  websiteUrl: string,         // optional, NEVER fetched — same rule as applications.referenceUrl
+  masterResumeId: string,     // deliberately a plain String, not ObjectId/ref — "" means
+                               // "no resume linked", and casting "" to ObjectId throws
+  contacts: [{
+    _id,                      // Mongoose subdocument id (same as education/projects entries)
+    name: string,             // required
+    role: string,
+    email: string,
+    category: "Leadership" | "Talent & HR" | "Employee" | "Other",   // default "Other"
+    lastGeneratedEmail: { subject, body, generatedAt }               // the saved draft, if any
+  }],
+  notes: string,              // the ONLY source the email generator has for "why this company"
+  applied: boolean,
+  response: "No reply" | "Replied" | "Interview" | "Offer" | "Rejected",
+  createdAt, updatedAt
+}
+```
+
+Validation lives in a pure function (`validateOutreachCompany.js`), not as Mongoose `match`
+validators, so it stays unit-testable with plain `node:test` like every other validator here.
+`normalizeOutreachCompanyPayload()` rebuilds each contact field-by-field on save, which is
+what keeps stray client fields out of the database — and is also why a contact's `_id` is
+regenerated on every save (see `key-decisions-log.md` for the selection bug that caused).
+
+### 10.2 Routes — `/api/outreach` (`routes/outreach.js`)
+
+All behind `authenticate`, all scoped by `req.user.id`.
+
+| Route | What it does |
+|---|---|
+| `GET /` | Filtered list — `search`/`applied`/`response` via `buildOutreachListQuery()`, sorted by `updatedAt` desc. Plain `find()`, no aggregation/pagination. |
+| `GET /:id` | One company, 404 if not owned. |
+| `POST /` | Validate → normalize → create. |
+| `PATCH /:id` | Full-record replace (the form always submits the whole object), not a partial field patch. |
+| `DELETE /:id` | No cascade needed — nothing else references an outreach company. |
+| `POST /:id/contacts/:contactId/generate-email` | Drafts one email (section 10.3) and persists it to that contact's `lastGeneratedEmail`. |
+
+### 10.3 Email generation — one call, no cache, nothing sent
+
+`outreachEmailPrompt.js` (pure, fully unit-tested) builds the two chat messages;
+`generateOutreachEmail.js` is a thin `ChatOpenAI` + zod `withStructuredOutput` wrapper
+returning `{ subject, body }`. Inputs: the chosen **goal** (`speculative` — ask about a role
+now or to be kept in mind later; or `referral` — flag an already-submitted application, with
+the role named free-text), the contact's **category** (which selects one of four tone
+instructions), the company **notes**, and the linked master resume's summary/skills/projects/
+contact details.
+
+Three rules this inherits from the rest of the app rather than inventing:
+
+- **Draft only — nothing is ever sent.** The generated email is shown for review and copy;
+  there is no mail integration at all. Same "you approve everything" guarantee as node 10.
+- **The company website is never fetched.** `websiteUrl` is stored as a clickable link and
+  nothing more, exactly like `applications.referenceUrl` (section 3). Everything the model
+  knows about a company comes from the `notes` field the user typed.
+- **Never invent anything about the candidate.** With no resume linked the prompt is told to
+  stay general and to leave the sign-off bare rather than emit a `[Your Name]` placeholder.
+
+Generation is **sequential** across a multi-contact batch, not `Promise.all`, so one failure
+can't abort the rest. There is no `GenerationCache` — this is a single manual action reviewed
+immediately, with no retry loop or checkpoint to protect. See `key-decisions-log.md`.
+
+### 10.4 UI
+
+A list page (`OutreachTracker.jsx`) → per-company detail page (`OutreachCompanyDetail.jsx`),
+the same pattern Master Resumes already uses. The list has search/filter, a compact contacts
+column (first name, truncated, plus a `+N` badge), and response-driven row tinting. The detail
+page puts company fields on the left (display ↔ edit toggle, contacts edited inside edit mode
+only), and on the right the resume selector, contact checklist, the goal/generate bar, and a
+table of saved drafts with per-field copy, individual delete, and clear-all.
