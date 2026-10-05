@@ -145,8 +145,8 @@ test('stitches a portfolio URL back together when the PDF wraps it across two li
     'Abdul Raheem',
     'Senior Front-end Engineer',
     'Manchester, UK · +447700900123 · abdul.raheem@example.com ·',
-    'linkedin.com/in/abdulraheem-dev · https://abdulraheem-',
-    'rho.vercel.app',
+    'linkedin.com/in/abdulraheem-dev · https://abdul-',
+    'portfolio.vercel.app',
     'SUMMARY',
   ].join('\n');
 
