@@ -3,3 +3,10 @@ node_modules/
 .env.local
 *.log
 dist/
+
+# Archify diagram build receipts — regenerated on every `finalize` run,
+# no ongoing value. candidate.json and the rendered .html are kept.
+.archify/**/*.finalize.json
+.archify/**/*.finalize-summary.json
+.archify/**/*.browser-check.json
+.archify/**/*.delivery.json

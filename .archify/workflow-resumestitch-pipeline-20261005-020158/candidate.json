@@ -1,0 +1,388 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "ResumeStitch AI \u2014 Per-JD Pipeline",
+    "subtitle": "10-node LangGraph workflow \u2014 graph/jobAgentGraph.js",
+    "quality_profile": "showcase",
+    "output": ".archify/workflow-resumestitch-pipeline-20261005-020158/resumestitch-pipeline.html",
+    "repository": {
+      "url": "https://github.com/abdulraheem9909/resumestitch-ai.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "415c17a0341400a57c81e0653cf0421b7546066f"
+    }
+  },
+  "lanes": [
+    {
+      "id": "main",
+      "label": "Pipeline"
+    },
+    {
+      "id": "support",
+      "label": "Checks & Preparation"
+    },
+    {
+      "id": "optional",
+      "label": "Conditional / Terminal"
+    }
+  ],
+  "mainPath": [
+    "submit",
+    "extractJd",
+    "normalize",
+    "gapAnalysis",
+    "roleFit",
+    "tailor",
+    "verify",
+    "styleLint",
+    "atsScore",
+    "approval"
+  ],
+  "nodes": [
+    {
+      "id": "submit",
+      "lane": "main",
+      "col": 0,
+      "type": "backend",
+      "label": "Submit JD",
+      "sublabel": "create application + thread",
+      "width": 150,
+      "sources": [
+        {
+          "path": "server/src/routes/applications.js",
+          "line": 390,
+          "end_line": 455,
+          "label": "POST /"
+        }
+      ]
+    },
+    {
+      "id": "extractJd",
+      "lane": "main",
+      "col": 1,
+      "type": "backend",
+      "label": "Extract JD Keywords",
+      "sublabel": "gpt-4o-mini",
+      "width": 170,
+      "sources": [
+        {
+          "path": "server/src/graph/jobAgentGraph.js",
+          "line": 185,
+          "end_line": 194,
+          "label": "extractJdKeywordsNode"
+        }
+      ]
+    },
+    {
+      "id": "normalize",
+      "lane": "support",
+      "col": 1,
+      "type": "backend",
+      "label": "Normalize Skills",
+      "sublabel": "alias dictionary, rule-based",
+      "width": 150,
+      "sources": [
+        {
+          "path": "server/src/graph/jobAgentGraph.js",
+          "line": 195,
+          "end_line": 262,
+          "label": "normalizeSkillsNode"
+        }
+      ]
+    },
+    {
+      "id": "gapAnalysis",
+      "lane": "main",
+      "col": 2,
+      "type": "backend",
+      "label": "Gap Analysis",
+      "sublabel": "set diff + alias learning",
+      "width": 150,
+      "sources": [
+        {
+          "path": "server/src/graph/jobAgentGraph.js",
+          "line": 263,
+          "end_line": 295,
+          "label": "gapAnalysisNode"
+        }
+      ]
+    },
+    {
+      "id": "roleFit",
+      "lane": "support",
+      "col": 2,
+      "type": "security",
+      "label": "Role Fit Gate",
+      "sublabel": "50% fast-pass + gpt-4o-mini",
+      "tag": "may skip nodes 5-9",
+      "width": 150,
+      "sources": [
+        {
+          "path": "server/src/graph/jobAgentGraph.js",
+          "line": 296,
+          "end_line": 321,
+          "label": "roleFitGateNode"
+        }
+      ]
+    },
+    {
+      "id": "tailor",
+      "lane": "main",
+      "col": 3,
+      "type": "backend",
+      "label": "Tailor Content",
+      "sublabel": "gpt-4o, STAR rewrite",
+      "width": 150,
+      "sources": [
+        {
+          "path": "server/src/graph/jobAgentGraph.js",
+          "line": 443,
+          "end_line": 500,
+          "label": "tailorContentNode"
+        }
+      ]
+    },
+    {
+      "id": "verify",
+      "lane": "support",
+      "col": 3,
+      "type": "backend",
+      "label": "Deterministic Verification",
+      "sublabel": "claim vs. source bullet",
+      "width": 190,
+      "sources": [
+        {
+          "path": "server/src/graph/jobAgentGraph.js",
+          "line": 501,
+          "end_line": 541,
+          "label": "deterministicVerificationNode"
+        }
+      ]
+    },
+    {
+      "id": "styleLint",
+      "lane": "support",
+      "col": 4,
+      "type": "backend",
+      "label": "Style Linting",
+      "sublabel": "rules + gpt-4o-mini escalation",
+      "width": 150,
+      "sources": [
+        {
+          "path": "server/src/graph/jobAgentGraph.js",
+          "line": 570,
+          "end_line": 578,
+          "label": "styleLintingNode"
+        }
+      ]
+    },
+    {
+      "id": "atsScore",
+      "lane": "main",
+      "col": 4,
+      "type": "backend",
+      "label": "ATS Score + Recruiter",
+      "sublabel": "gpt-4o, named flags",
+      "width": 175,
+      "sources": [
+        {
+          "path": "server/src/graph/jobAgentGraph.js",
+          "line": 579,
+          "end_line": 613,
+          "label": "atsScoreAndRecruiterNode"
+        }
+      ]
+    },
+    {
+      "id": "coverLetter",
+      "lane": "optional",
+      "col": 4,
+      "type": "backend",
+      "label": "Cover Letter Generation",
+      "sublabel": "gpt-4o, conditional",
+      "width": 175,
+      "sources": [
+        {
+          "path": "server/src/graph/jobAgentGraph.js",
+          "line": 542,
+          "end_line": 569,
+          "label": "coverLetterGenerationNode"
+        }
+      ]
+    },
+    {
+      "id": "approval",
+      "lane": "main",
+      "col": 5,
+      "type": "security",
+      "label": "Human Approval",
+      "sublabel": "interrupt()",
+      "tag": "nothing saved until approve",
+      "width": 150,
+      "sources": [
+        {
+          "path": "server/src/graph/jobAgentGraph.js",
+          "line": 614,
+          "end_line": 666,
+          "label": "humanApprovalNode"
+        }
+      ]
+    },
+    {
+      "id": "approved",
+      "lane": "optional",
+      "col": 5,
+      "type": "backend",
+      "icon": "success",
+      "label": "Approved",
+      "sublabel": "saved + exportable",
+      "width": 150,
+      "sources": [
+        {
+          "path": "server/src/graph/jobAgentGraph.js",
+          "line": 715,
+          "end_line": 721,
+          "label": "graph wiring: humanDecision 'end' \u2192 END"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "submit-extract",
+      "from": "submit",
+      "to": "extractJd",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "extract-normalize",
+      "from": "extractJd",
+      "to": "normalize",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "normalize-gap",
+      "from": "normalize",
+      "to": "gapAnalysis",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "gap-rolefit-first",
+      "from": "gapAnalysis",
+      "to": "roleFit",
+      "label": "first pass",
+      "variant": "default",
+      "role": "main",
+      "toSide": "top"
+    },
+    {
+      "id": "gap-tailor-retry",
+      "from": "gapAnalysis",
+      "to": "tailor",
+      "label": "retry",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "rolefit-tailor",
+      "from": "roleFit",
+      "to": "tailor",
+      "label": "plausible",
+      "variant": "emphasis",
+      "role": "main",
+      "fromSide": "right"
+    },
+    {
+      "id": "tailor-verify",
+      "from": "tailor",
+      "to": "verify",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "verify-coverletter",
+      "from": "verify",
+      "to": "coverLetter",
+      "label": "coverLetterRequested",
+      "variant": "dashed",
+      "role": "branch"
+    },
+    {
+      "id": "verify-stylelint",
+      "from": "verify",
+      "to": "styleLint",
+      "label": "else",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "coverletter-stylelint",
+      "from": "coverLetter",
+      "to": "styleLint",
+      "variant": "default"
+    },
+    {
+      "id": "stylelint-ats",
+      "from": "styleLint",
+      "to": "atsScore",
+      "variant": "default",
+      "role": "main"
+    },
+    {
+      "id": "ats-approval-end",
+      "from": "atsScore",
+      "to": "approval",
+      "label": "end",
+      "variant": "emphasis",
+      "role": "main"
+    },
+    {
+      "id": "approval-gap-retry",
+      "from": "approval",
+      "to": "gapAnalysis",
+      "variant": "dashed",
+      "role": "return",
+      "route": "up-channel",
+      "channelY": 40
+    },
+    {
+      "id": "approval-tailor-override",
+      "from": "approval",
+      "to": "tailor",
+      "variant": "dashed",
+      "role": "return",
+      "route": "up-channel",
+      "channelY": 64
+    },
+    {
+      "id": "approval-approved",
+      "from": "approval",
+      "to": "approved",
+      "label": "approve",
+      "variant": "emphasis",
+      "role": "main"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "Retry policy (section 5)",
+      "items": [
+        "missingRequirement / excessiveRewrite / poorReadability \u2192 automatic retry back to Gap Analysis, capped at 3",
+        "unsupportedClaim \u2192 flag for review, never auto-retried"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Guardrails",
+      "items": [
+        "Node 7 runs only if coverLetterRequested was set at submission",
+        "Node 10 interrupt(): nothing is saved until a human approves"
+      ]
+    }
+  ]
+}

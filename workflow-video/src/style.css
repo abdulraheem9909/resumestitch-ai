@@ -1,0 +1,167 @@
+:root {
+  --bg: #1D2A4D;
+  --text: #F2F4F9;
+  --text-secondary: #A3AECB;
+  --accent: #F5B83D;
+  --danger: #F0635A;
+  --panel-bg: rgba(242, 244, 249, 0.04);
+  --panel-border: rgba(163, 174, 203, 0.55);
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 1920px;
+  height: 1080px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Bricolage Grotesque', sans-serif;
+  color: var(--text);
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "dlig" 0, "clig" 0, "calt" 0;
+}
+
+.mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+#stage {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.scene {
+  position: absolute;
+  inset: 0;
+  display: none;
+}
+
+.scene.on { display: block; }
+
+/* ---------- Brand mark (persistent, non-title scenes) ---------- */
+.brand {
+  position: absolute;
+  top: 48px;
+  left: 64px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.brand .mark {
+  width: 34px;
+  height: 34px;
+  border: 2.5px dashed var(--accent);
+  border-radius: 9px;
+  transform: rotate(6deg);
+}
+.brand .name {
+  font-weight: 700;
+  font-size: 28px;
+  letter-spacing: 0.01em;
+}
+
+/* ---------- Typography ---------- */
+.heading {
+  font-weight: 800;
+  font-size: 62px;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+.subheading {
+  font-weight: 700;
+  font-size: 34px;
+  color: var(--accent);
+  margin: 0;
+}
+.body-text {
+  font-weight: 500;
+  font-size: 32px;
+  line-height: 1.45;
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 980px;
+}
+.eyebrow {
+  font-weight: 700;
+  font-size: 24px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ---------- Dashed panel motif ---------- */
+.panel {
+  border: 2px dashed var(--panel-border);
+  border-radius: 18px;
+  background: var(--panel-bg);
+  padding: 32px 36px;
+}
+
+.note {
+  position: absolute;
+  bottom: 46px;
+  right: 64px;
+  font-size: 22px;
+  font-style: italic;
+  color: var(--text-secondary);
+  opacity: 0.85;
+}
+
+/* ---------- Chips / pills ---------- */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 20px;
+  border-radius: 999px;
+  border: 2px solid var(--panel-border);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 24px;
+  color: var(--text);
+  background: rgba(242, 244, 249, 0.06);
+}
+.chip.accent { border-color: var(--accent); color: var(--accent); background: rgba(245, 184, 61, 0.1); }
+.chip.danger { border-color: var(--danger); color: var(--danger); background: rgba(240, 99, 90, 0.1); }
+.chip.muted { color: var(--text-secondary); }
+
+/* ---------- Type/role badges ---------- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 18px;
+  border-radius: 10px;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.badge.rule { background: rgba(163, 174, 203, 0.18); color: var(--text-secondary); }
+.badge.llm { background: rgba(245, 184, 61, 0.18); color: var(--accent); }
+.badge.human { background: rgba(242, 244, 249, 0.14); color: var(--text); }
+
+/* ---------- Real app screenshots, framed as a light card on the dark bg ---------- */
+.screenshot {
+  display: block;
+  margin: 0 auto;
+  max-width: 100%;
+  max-height: 440px;
+  border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+.path-mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 22px;
+  color: var(--text-secondary);
+}
